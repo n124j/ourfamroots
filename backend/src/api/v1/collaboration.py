@@ -734,7 +734,7 @@ async def export_tree_zip(
         FROM person_gallery_photos
         WHERE tree_id = :tid AND tenant_id = :tenant
         ORDER BY person_id, position
-    """), {"tid": tree_id, "tenant": tenant_id})).fetchall()
+    """), {"tid": tree_id, "tenant": current_user.tenant_id})).fetchall()
 
     gallery_by_person: dict[str, list[dict]] = {}
     for gr in gallery_rows:
