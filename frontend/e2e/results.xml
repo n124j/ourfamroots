@@ -1,0 +1,118 @@
+<testsuites id="" name="" tests="36" failures="0" skipped="6" errors="0" time="28.43165">
+<testsuite name="auth.spec.ts" timestamp="2026-06-25T04:06:46.659Z" hostname="chromium" tests="18" failures="0" skipped="2" time="72.315" errors="0">
+<testcase name="Registration › user can register a new account" classname="auth.spec.ts" time="3.964">
+</testcase>
+<testcase name="Registration › duplicate email shows error" classname="auth.spec.ts" time="6.079">
+</testcase>
+<testcase name="Registration › weak password shows validation error" classname="auth.spec.ts" time="3.315">
+</testcase>
+<testcase name="Registration › registration form has no Organisation ID field" classname="auth.spec.ts" time="1.756">
+</testcase>
+<testcase name="Registration › after registration hard-refresh does not grant dashboard access" classname="auth.spec.ts" time="5.771">
+</testcase>
+<testcase name="Login › valid credentials redirect to dashboard" classname="auth.spec.ts" time="6.287">
+</testcase>
+<testcase name="Login › wrong password shows error message" classname="auth.spec.ts" time="5.892">
+</testcase>
+<testcase name="Login › access token is NOT stored in localStorage" classname="auth.spec.ts" time="6.022">
+</testcase>
+<testcase name="Login › ?next param preserves redirect after login" classname="auth.spec.ts" time="6.133">
+</testcase>
+<testcase name="Logout › logout clears session and redirects to login" classname="auth.spec.ts" time="6.398">
+</testcase>
+<testcase name="Logout › accessing protected route after logout redirects to login" classname="auth.spec.ts" time="3.213">
+</testcase>
+<testcase name="Session persistence › hard refresh preserves authenticated state via silent refresh" classname="auth.spec.ts" time="6.224">
+</testcase>
+<testcase name="OAuth — Google › login page shows Google sign-in button" classname="auth.spec.ts">
+<properties>
+<property name="skip" value="GOOGLE_CLIENT_ID not configured — OAuth button not rendered">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="OAuth — Google › clicking Google button redirects to backend OAuth endpoint" classname="auth.spec.ts">
+<properties>
+<property name="skip" value="GOOGLE_CLIENT_ID not configured — OAuth button not rendered">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="OAuth — Google › OAuth callback with error redirects to login with message" classname="auth.spec.ts" time="2.616">
+</testcase>
+<testcase name="OAuth — Google › OAuth callback without token redirects to login" classname="auth.spec.ts" time="2.485">
+</testcase>
+<testcase name="OAuth — Google › login page shows error banner for OAuth state mismatch" classname="auth.spec.ts" time="2.066">
+</testcase>
+<testcase name="OAuth — Google › login page shows generic error banner for OAuth provider error" classname="auth.spec.ts" time="1.75">
+</testcase>
+</testsuite>
+<testsuite name="media-upload.spec.ts" timestamp="2026-06-25T04:06:46.659Z" hostname="chromium" tests="4" failures="0" skipped="4" time="39.175" errors="0">
+<testcase name="Media upload › MediaUploader drop zone is visible on person page" classname="media-upload.spec.ts">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Media upload › file input accepts image MIME types" classname="media-upload.spec.ts">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Media upload › uploading an image shows it in the progress queue" classname="media-upload.spec.ts">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Media upload › gallery is visible on person page" classname="media-upload.spec.ts">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="search.spec.ts" timestamp="2026-06-25T04:06:46.659Z" hostname="chromium" tests="8" failures="0" skipped="0" time="74.495" errors="0">
+<testcase name="Global search › search bar is present in navigation" classname="search.spec.ts" time="9.284">
+</testcase>
+<testcase name="Global search › typing in search bar shows results" classname="search.spec.ts" time="9.645">
+</testcase>
+<testcase name="Global search › search shows &quot;No results&quot; for nonsense query" classname="search.spec.ts" time="9.851">
+</testcase>
+<testcase name="Global search › Enter key navigates to full results page" classname="search.spec.ts" time="9.933">
+</testcase>
+<testcase name="Results page › search results page renders" classname="search.spec.ts" time="9.684">
+</testcase>
+<testcase name="Results page › sort dropdown changes sort order" classname="search.spec.ts" time="8.14">
+</testcase>
+<testcase name="Results page › birth year filter works" classname="search.spec.ts" time="8.905">
+</testcase>
+<testcase name="Relationship finder › relationship finder panel renders on tree page" classname="search.spec.ts" time="9.053">
+</testcase>
+</testsuite>
+<testsuite name="tree-management.spec.ts" timestamp="2026-06-25T04:06:46.659Z" hostname="chromium" tests="6" failures="0" skipped="0" time="33.806" errors="0">
+<testcase name="Tree creation › can create a new family tree" classname="tree-management.spec.ts" time="4.785">
+</testcase>
+<testcase name="Tree creation › tree name is required" classname="tree-management.spec.ts" time="4.162">
+</testcase>
+<testcase name="Person management › can add a person to the tree" classname="tree-management.spec.ts" time="5.073">
+</testcase>
+<testcase name="Person management › can edit a person" classname="tree-management.spec.ts" time="9.627">
+</testcase>
+<testcase name="Person management › tree canvas renders on tree page" classname="tree-management.spec.ts" time="5.04">
+</testcase>
+<testcase name="Person management › layout toggle buttons are visible" classname="tree-management.spec.ts" time="5.119">
+</testcase>
+</testsuite>
+</testsuites>

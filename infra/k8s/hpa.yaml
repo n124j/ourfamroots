@@ -1,0 +1,92 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-blue
+  namespace: ourfamroots
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-blue
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300   # 5-min cooldown before scaling down
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-green
+  namespace: ourfamroots
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-green
+  minReplicas: 0    # stays at 0 when inactive
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+# Worker HPA — scales on queue depth via KEDA (external metric)
+# Install KEDA first: helm install keda kedacore/keda -n keda
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-scaler
+  namespace: ourfamroots
+spec:
+  scaleTargetRef:
+    name: worker
+  minReplicaCount: 2
+  maxReplicaCount: 16
+  cooldownPeriod: 120
+  triggers:
+    - type: redis
+      metadata:
+        address: redis.ourfamroots.svc.cluster.local:6379
+        listName: celery
+        listLength: "10"    # scale up when queue > 10 items
+        databaseIndex: "0"
+      authenticationRef:
+        name: redis-auth
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: redis-auth
+  namespace: ourfamroots
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: ourfamroots-secrets
+      key: REDIS_PASSWORD

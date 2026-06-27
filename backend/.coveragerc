@@ -1,0 +1,55 @@
+[run]
+source = src
+# Omit layers that require live infrastructure (DB, Redis, S3, HTTP, OAuth, email).
+# These are covered by integration tests (tests/integration/) which run against
+# a real Docker stack and are excluded from the unit-test coverage gate.
+omit =
+    # FastAPI application factory & ASGI wiring
+    src/main.py
+
+    # HTTP transport layer — requires running FastAPI / ASGI context
+    src/api/v1/*.py
+    src/api/deps.py
+    src/api/dependencies.py
+    src/api/exceptions.py
+    src/api/middleware.py
+    src/api/schemas/*.py
+
+    # Infrastructure adapters — require live external services
+    src/infrastructure/cache/*.py
+    src/infrastructure/database/session.py
+    src/infrastructure/database/unit_of_work.py
+    src/infrastructure/email/*.py
+    src/infrastructure/media/s3.py
+    src/infrastructure/repositories/*.py
+    src/infrastructure/search/repository.py
+    src/infrastructure/security/oauth.py
+
+    # Application services that orchestrate infrastructure (covered by integration tests)
+    src/application/collaboration/service.py
+    src/application/genealogy/service.py
+    src/application/users/service.py
+    src/application/users/schemas.py
+    src/application/media/*.py
+
+    # Celery tasks and media processors — require worker process + S3
+    src/infrastructure/media/*.py
+
+    # ORM models for features not exercised by unit tests
+    src/infrastructure/database/models/media.py
+    src/infrastructure/database/models/permission_group.py
+
+    # Value objects — pure data containers, no behaviour to test
+    src/domain/value_objects.py
+
+[report]
+# Lines marked "# pragma: no cover" are excluded from the report
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    \.\.\.
+    pass$
+show_missing = true
+skip_covered = false

@@ -1,0 +1,285 @@
+name: CI
+
+on:
+    push:
+        branches: [main, develop]
+    pull_request:
+        branches: [main, develop]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    PYTHON_VERSION: '3.11'
+    NODE_VERSION: '20'
+
+jobs:
+    # ── Backend unit tests ───────────────────────────────────────────────────────
+    backend-unit:
+        name: Backend Unit Tests
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: backend
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  cache: pip
+
+            - name: Install dependencies
+              run: pip install -r requirements/test.txt
+
+            - name: Run unit tests (no Docker)
+              run: |
+                  pytest tests/unit \
+                    --cov=src \
+                    --cov-report=xml:coverage/unit.xml \
+                    --cov-fail-under=90 \
+                    -n auto \
+                    --tb=short \
+                    -q
+
+            - name: Upload coverage
+              uses: codecov/codecov-action@v4
+              with:
+                  files: backend/coverage/unit.xml
+                  flags: backend-unit
+
+    # ── Backend integration tests ────────────────────────────────────────────────
+    backend-integration:
+        name: Backend Integration Tests
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: backend
+
+        services:
+            postgres:
+                image: postgres:15-alpine
+                env:
+                    POSTGRES_DB: ourfamroots_test
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+            redis:
+                image: redis:7-alpine
+                ports:
+                    - 6379:6379
+                options: --health-cmd "redis-cli ping" --health-interval 10s
+
+        env:
+            TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ourfamroots_test
+            CELERY_BROKER_URL: redis://localhost:6379/0
+            CELERY_TASK_ALWAYS_EAGER: 'true'
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  cache: pip
+
+            - name: Install dependencies
+              run: pip install -r requirements/test.txt
+
+            - name: Run integration tests
+              run: |
+                  pytest tests/integration \
+                    --cov=src \
+                    --cov-report=xml:coverage/integration.xml \
+                    --cov-fail-under=65 \
+                    -n 2 \
+                    --tb=short \
+                    -q
+
+            - name: Upload coverage
+              uses: codecov/codecov-action@v4
+              with:
+                  files: backend/coverage/integration.xml
+                  flags: backend-integration
+
+    # ── Backend security tests ───────────────────────────────────────────────────
+    backend-security:
+        name: Backend Security Tests
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: backend
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  cache: pip
+
+            - name: Install dependencies
+              run: pip install -r requirements/test.txt bandit
+
+            - name: Run security tests
+              run: |
+                  pytest tests/security -v --tb=short
+
+            - name: Static security analysis (bandit)
+              run: |
+                  bandit -r src/ \
+                    -x src/tests \
+                    --severity-level medium \
+                    --confidence-level medium \
+                    -f json \
+                    -o coverage/bandit.json \
+                    || true
+                  # Print human-readable output
+                  bandit -r src/ \
+                    -x src/tests \
+                    --severity-level medium \
+                    --confidence-level medium
+
+    # ── Frontend unit tests ──────────────────────────────────────────────────────
+    frontend-unit:
+        name: Frontend Unit Tests
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: frontend
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: frontend/package-lock.json
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Run unit tests with coverage
+              run: npm test -- --coverage
+
+            - name: Upload coverage
+              uses: codecov/codecov-action@v4
+              with:
+                  files: frontend/coverage/lcov.info
+                  flags: frontend-unit
+
+    # ── E2E tests ────────────────────────────────────────────────────────────────
+    e2e:
+        name: E2E Tests (Playwright)
+        runs-on: ubuntu-latest
+        needs: [backend-unit, frontend-unit]
+
+        services:
+            postgres:
+                image: postgres:15-alpine
+                env:
+                    POSTGRES_DB: ourfamroots
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+
+            redis:
+                image: redis:7-alpine
+                ports:
+                    - 6379:6379
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  cache: pip
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+
+            - name: Install backend dependencies
+              working-directory: backend
+              run: pip install -r requirements/base.txt
+
+            - name: Run DB migrations
+              working-directory: backend
+              run: alembic upgrade head
+              env:
+                  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ourfamroots
+
+            - name: Start backend server
+              working-directory: backend
+              run: |
+                  uvicorn src.main:app --host 0.0.0.0 --port 8000 &
+                  # Wait for server to be ready
+                  for i in $(seq 1 30); do
+                    curl -s http://localhost:8000/health && break
+                    sleep 1
+                  done
+              env:
+                  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ourfamroots
+                  REDIS_URL: redis://localhost:6379/0
+                  JWT_SECRET_KEY: c871c8ac24249675f12a1e67d2b88675f56a9f9ee74205a9d1b59bb4341a6791d44111efb81063d60fede6aed3b163caacd708bd7c8d86bdd99787fcf5befab4
+                  ENVIRONMENT: test
+                  AUTO_VERIFY_EMAIL: 'true'
+
+            - name: Install frontend dependencies
+              working-directory: frontend
+              run: npm ci
+
+            - name: Install Playwright browsers
+              working-directory: frontend
+              run: npx playwright install --with-deps chromium
+
+            - name: Run E2E tests
+              working-directory: frontend
+              run: npx playwright test --project=chromium
+              env:
+                  VITE_API_BASE_URL: http://localhost:8000/api/v1
+                  VITE_API_PROXY_TARGET: http://localhost:8000
+                  PLAYWRIGHT_BASE_URL: http://localhost:5173
+
+            - name: Upload Playwright report
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-report
+                  path: frontend/e2e/report/
+                  retention-days: 7
+
+    # ── Coverage gate ─────────────────────────────────────────────────────────────
+    coverage-gate:
+        name: Coverage Gate
+        runs-on: ubuntu-latest
+        needs: [backend-unit, backend-integration, frontend-unit]
+        if: always()
+
+        steps:
+            - name: Check all jobs passed
+              run: |
+                  if [[ "${{ needs.backend-unit.result }}" != "success" ]]; then
+                    echo "Backend unit tests failed or coverage below threshold"
+                    exit 1
+                  fi
+                  if [[ "${{ needs.frontend-unit.result }}" != "success" ]]; then
+                    echo "Frontend unit tests failed or coverage below threshold"
+                    exit 1
+                  fi
+                  echo "All coverage gates passed ✓"

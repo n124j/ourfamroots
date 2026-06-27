@@ -1,0 +1,45 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-blue-pdb
+  namespace: ourfamroots
+spec:
+  minAvailable: 2    # at least 2 pods survive any voluntary disruption
+  selector:
+    matchLabels:
+      app: api
+      slot: blue
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-green-pdb
+  namespace: ourfamroots
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: api
+      slot: green
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+  namespace: ourfamroots
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: ourfamroots
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

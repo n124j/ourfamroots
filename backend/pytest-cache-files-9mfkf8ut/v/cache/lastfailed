@@ -1,0 +1,17 @@
+{
+  "tests/unit/test_auth_service.py::TestLogin::test_successful_login": true,
+  "tests/unit/test_auth_service.py::TestLogin::test_wrong_password_raises": true,
+  "tests/unit/test_auth_service.py::TestLogin::test_failed_attempts_increment": true,
+  "tests/unit/test_auth_service.py::TestLogin::test_account_locked_after_max_attempts": true,
+  "tests/unit/test_auth_service.py::TestLogin::test_locked_account_raises": true,
+  "tests/unit/test_auth_service.py::TestLogin::test_unverified_email_raises": true,
+  "tests/unit/test_auth_service.py::TestLogin::test_nonexistent_user_raises": true,
+  "tests/unit/test_auth_service.py::TestRefresh::test_valid_refresh_issues_new_access_token": true,
+  "tests/unit/test_auth_service.py::TestRefresh::test_revoked_refresh_raises": true,
+  "tests/unit/test_auth_service.py::TestLogout::test_logout_revokes_token": true,
+  "tests/unit/test_auth_service.py::TestLogout::test_logout_with_invalid_token_is_noop": true,
+  "tests/unit/test_auth_service.py::TestEmailVerification::test_verify_marks_email_verified": true,
+  "tests/unit/test_auth_service.py::TestEmailVerification::test_invalid_token_raises": true,
+  "tests/unit/test_auth_service.py::TestPasswordReset::test_reset_changes_password": true,
+  "tests/unit/test_auth_service.py::TestPasswordReset::test_expired_token_raises": true
+}

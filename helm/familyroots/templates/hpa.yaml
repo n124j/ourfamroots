@@ -1,0 +1,51 @@
+{{- if .Values.api.hpa.enabled }}
+{{- range list "blue" "green" }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-{{ . }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-{{ . }}
+  minReplicas: {{ if eq . $.Values.blueGreen.activeSlot }}{{ $.Values.api.hpa.minReplicas }}{{ else }}0{{ end }}
+  maxReplicas: {{ $.Values.api.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $.Values.api.hpa.cpuTargetUtilization }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+{{- end }}
+{{- end }}
+
+{{- if .Values.worker.keda.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-scaler
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: worker
+  minReplicaCount: {{ .Values.worker.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.worker.keda.maxReplicaCount }}
+  cooldownPeriod: 120
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ .Release.Name }}-redis-master.{{ .Release.Namespace }}.svc.cluster.local:6379
+        listName: celery
+        listLength: {{ .Values.worker.keda.queueLength | quote }}
+        databaseIndex: "0"
+      authenticationRef:
+        name: redis-auth
+{{- end }}

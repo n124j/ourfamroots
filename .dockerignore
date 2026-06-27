@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/coverage
+**/.mypy_cache
+**/.ruff_cache
+
+# Node
+**/node_modules
+**/dist
+**/.next
+
+# Tests
+**/tests/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/e2e/
+
+# Docs
+**/*.md
+**/docs/
+
+# Dev files
+**/.env
+**/.env.*
+!**/.env.example
+**/docker-compose*.yml
+**/.pre-commit-config.yaml
+
+# IDE
+**/.vscode
+**/.idea

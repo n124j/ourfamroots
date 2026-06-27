@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ourfamroots
+  labels:
+    app: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9808"   # celery-exporter sidecar
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      terminationGracePeriodSeconds: 120   # allow in-flight tasks to finish
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/ourfamroots/worker:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - src.infrastructure.media.celery_app
+            - worker
+            - --loglevel=info
+            - --queues=media,default
+            - --concurrency=4
+            - --max-tasks-per-child=50
+          envFrom:
+            - configMapRef:
+                name: ourfamroots-config
+            - secretRef:
+                name: ourfamroots-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1Gi"
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - src.infrastructure.media.celery_app
+                - inspect
+                - ping
+                - -d
+                - celery@$HOSTNAME
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3

@@ -1,0 +1,110 @@
+# API service — selector switches slot during blue/green deploy
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ourfamroots
+  labels:
+    app: api
+spec:
+  selector:
+    app: api
+    slot: blue      # patched by CI during blue/green switch
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+---
+# Stable canary services (always point to specific slot for smoke tests)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-blue
+  namespace: ourfamroots
+spec:
+  selector:
+    app: api
+    slot: blue
+  ports:
+    - port: 80
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-green
+  namespace: ourfamroots
+spec:
+  selector:
+    app: api
+    slot: green
+  ports:
+    - port: 80
+      targetPort: 8000
+---
+# Frontend service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ourfamroots
+spec:
+  selector:
+    app: frontend
+    slot: blue      # patched by CI during blue/green switch
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-blue
+  namespace: ourfamroots
+spec:
+  selector:
+    app: frontend
+    slot: blue
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-green
+  namespace: ourfamroots
+spec:
+  selector:
+    app: frontend
+    slot: green
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# Redis (ClusterIP — internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: ourfamroots
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# PostgreSQL (ClusterIP — internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ourfamroots
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

@@ -1,0 +1,38 @@
+{
+  "Rules": [
+    {
+      "ID": "media-intelligent-tiering",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "media/" },
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "INTELLIGENT_TIERING"
+        },
+        {
+          "Days": 365,
+          "StorageClass": "GLACIER_IR"
+        }
+      ]
+    },
+    {
+      "ID": "backups-retention",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "backups/postgres/" },
+      "Expiration": { "Days": 30 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
+    },
+    {
+      "ID": "weekly-backups-retention",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "backups/postgres/weekly/" },
+      "Expiration": { "Days": 365 }
+    },
+    {
+      "ID": "abort-incomplete-multipart",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    }
+  ]
+}

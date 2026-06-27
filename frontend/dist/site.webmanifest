@@ -1,0 +1,28 @@
+{
+  "name": "FamilyRoots",
+  "short_name": "FamilyRoots",
+  "description": "Build, explore, and share your family tree across generations.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "utilities"],
+  "lang": "en",
+  "screenshots": [
+    {
+      "src": "/og-image.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "label": "FamilyRoots — Family Tree Platform"
+    }
+  ]
+}

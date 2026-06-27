@@ -1,0 +1,236 @@
+name: Deploy — Blue/Green
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to SHA)"
+        required: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
+env:
+  REGISTRY: ghcr.io
+  ORG: ${{ github.repository_owner }}
+  NAMESPACE: ourfamroots
+
+jobs:
+  # ── 1. Build & push images ────────────────────────────────────────────────
+  build:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          TAG=${{ github.event.inputs.image_tag || github.sha }}
+          echo "tag=${TAG:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          target: runtime
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/ourfamroots/api:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.ORG }}/ourfamroots/api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.worker
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/ourfamroots/worker:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.ORG }}/ourfamroots/worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/ourfamroots/frontend:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.ORG }}/ourfamroots/frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 2. Blue/Green deploy ──────────────────────────────────────────────────
+  deploy:
+    name: Blue/Green Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "3.14.x"
+
+      - name: Determine active slot
+        id: slots
+        run: |
+          ACTIVE=$(kubectl get svc api -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.spec.selector.slot}' 2>/dev/null || echo "blue")
+          INACTIVE=$([ "$ACTIVE" = "blue" ] && echo "green" || echo "blue")
+          echo "active=$ACTIVE"    >> "$GITHUB_OUTPUT"
+          echo "inactive=$INACTIVE" >> "$GITHUB_OUTPUT"
+          echo "Active slot: $ACTIVE → deploying to: $INACTIVE"
+
+      - name: Deploy to inactive slot
+        run: |
+          helm upgrade --install ourfamroots ./helm/ourfamroots \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set blueGreen.activeSlot=${{ steps.slots.outputs.active }} \
+            --set blueGreen.api.${{ steps.slots.outputs.inactive }}.replicaCount=3 \
+            --set blueGreen.frontend.${{ steps.slots.outputs.inactive }}.replicaCount=2 \
+            --wait \
+            --timeout 10m \
+            --atomic
+
+      - name: Wait for inactive slot readiness
+        run: |
+          kubectl rollout status deployment/api-${{ steps.slots.outputs.inactive }} \
+            -n ${{ env.NAMESPACE }} --timeout=5m
+          kubectl rollout status deployment/frontend-${{ steps.slots.outputs.inactive }} \
+            -n ${{ env.NAMESPACE }} --timeout=5m
+
+      - name: Smoke test inactive slot
+        run: |
+          INACTIVE=${{ steps.slots.outputs.inactive }}
+
+          # Port-forward the slot-pinned service temporarily
+          kubectl port-forward svc/api-$INACTIVE 8080:80 \
+            -n ${{ env.NAMESPACE }} &
+          PF_PID=$!
+          sleep 3
+
+          # Health check
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health)
+          kill $PF_PID 2>/dev/null || true
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Smoke test FAILED — /health returned $HTTP_CODE"
+            exit 1
+          fi
+          echo "Smoke test PASSED — HTTP $HTTP_CODE"
+
+      - name: Switch live traffic to inactive slot
+        run: |
+          INACTIVE=${{ steps.slots.outputs.inactive }}
+
+          # Patch the live Services to point to the newly-deployed slot
+          kubectl patch svc api -n ${{ env.NAMESPACE }} \
+            -p "{\"spec\":{\"selector\":{\"app\":\"api\",\"slot\":\"$INACTIVE\"}}}"
+          kubectl patch svc frontend -n ${{ env.NAMESPACE }} \
+            -p "{\"spec\":{\"selector\":{\"app\":\"frontend\",\"slot\":\"$INACTIVE\"}}}"
+
+          echo "Traffic switched to $INACTIVE"
+
+      - name: Verify production traffic
+        run: |
+          sleep 10   # allow LB to drain
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://${{ vars.API_HOST }}/health \
+            --max-time 10 || echo "000")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Production health check FAILED — $HTTP_CODE"
+            exit 1
+          fi
+          echo "Production health check PASSED"
+
+      - name: Scale down old slot
+        if: success()
+        run: |
+          OLD=${{ steps.slots.outputs.active }}
+          kubectl scale deployment api-$OLD --replicas=0 -n ${{ env.NAMESPACE }}
+          kubectl scale deployment frontend-$OLD --replicas=0 -n ${{ env.NAMESPACE }}
+          echo "Old slot $OLD scaled to 0"
+
+      # ── Auto-rollback on any failure ────────────────────────────────────
+      - name: Rollback — restore old slot
+        if: failure()
+        run: |
+          OLD=${{ steps.slots.outputs.active }}
+          INACTIVE=${{ steps.slots.outputs.inactive }}
+
+          echo "::warning::Deploy failed — rolling back traffic to $OLD"
+
+          # Restore service selector to the old (known-good) slot
+          kubectl patch svc api -n ${{ env.NAMESPACE }} \
+            -p "{\"spec\":{\"selector\":{\"app\":\"api\",\"slot\":\"$OLD\"}}}" || true
+          kubectl patch svc frontend -n ${{ env.NAMESPACE }} \
+            -p "{\"spec\":{\"selector\":{\"app\":\"frontend\",\"slot\":\"$OLD\"}}}" || true
+
+          # Scale down the failed slot
+          kubectl scale deployment api-$INACTIVE --replicas=0 \
+            -n ${{ env.NAMESPACE }} || true
+          kubectl scale deployment frontend-$INACTIVE --replicas=0 \
+            -n ${{ env.NAMESPACE }} || true
+
+          echo "Rollback complete — traffic is back on $OLD"
+          exit 1   # fail the job so GitHub shows a red X
+
+  # ── 3. Post-deploy notification ──────────────────────────────────────────
+  notify:
+    name: Notify
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "${{ needs.deploy.result == 'success' && '✅' || '❌' }} Deploy ${{ needs.build.outputs.image_tag }} *${{ needs.deploy.result }}*",
+              "attachments": [{
+                "color": "${{ needs.deploy.result == 'success' && 'good' || 'danger' }}",
+                "fields": [
+                  {"title": "Repo", "value": "${{ github.repository }}", "short": true},
+                  {"title": "Actor", "value": "${{ github.actor }}", "short": true}
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

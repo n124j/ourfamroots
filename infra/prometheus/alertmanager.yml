@@ -1,0 +1,57 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: "${SLACK_WEBHOOK_URL}"
+  pagerduty_url: "https://events.pagerduty.com/v2/enqueue"
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: slack-default
+
+  routes:
+    # Critical alerts → PagerDuty (24/7 on-call)
+    - matchers:
+        - severity = critical
+      receiver: pagerduty-critical
+      continue: true   # also send to Slack
+
+    # Warning alerts → Slack only
+    - matchers:
+        - severity = warning
+      receiver: slack-default
+
+receivers:
+  - name: slack-default
+    slack_configs:
+      - channel: "#alerts-prod"
+        send_resolved: true
+        title: "{{ .GroupLabels.alertname }}"
+        text: |
+          {{ range .Alerts }}
+          *Status:* {{ .Status }}
+          *Severity:* {{ .Labels.severity }}
+          *Summary:* {{ .Annotations.summary }}
+          {{ if .Annotations.runbook }}*Runbook:* {{ .Annotations.runbook }}{{ end }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}{{ if eq (index .GroupLabels "severity") "critical" }}danger{{ else }}warning{{ end }}{{ else }}good{{ end }}'
+
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_INTEGRATION_KEY}"
+        severity: '{{ .GroupLabels.severity }}'
+        description: "{{ .GroupLabels.alertname }}: {{ (index .Alerts 0).Annotations.summary }}"
+        client: "OurFamRoots Alertmanager"
+        client_url: "https://grafana.ourfamroots.example.com"
+
+inhibit_rules:
+  # If the cluster is down, suppress individual service alerts
+  - source_matchers:
+      - alertname = "PostgresDown"
+    target_matchers:
+      - alertname = "HighErrorRate"
+    equal: ["env"]

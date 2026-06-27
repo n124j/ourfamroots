@@ -1,0 +1,116 @@
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets: []
+
+image:
+  org: your-org
+  tag: latest          # overridden by CI with SHA tag
+  pullPolicy: Always
+
+# ── Blue/Green ────────────────────────────────────────────────────────────────
+blueGreen:
+  activeSlot: blue     # which slot receives live traffic (blue | green)
+  api:
+    blue:
+      replicaCount: 3
+    green:
+      replicaCount: 0
+  frontend:
+    blue:
+      replicaCount: 2
+    green:
+      replicaCount: 0
+
+# ── API ───────────────────────────────────────────────────────────────────────
+api:
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "512Mi"
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    cpuTargetUtilization: 65
+  pdb:
+    minAvailable: 2
+
+# ── Worker ────────────────────────────────────────────────────────────────────
+worker:
+  replicaCount: 2
+  concurrency: 4
+  queues: "media,default"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "1Gi"
+  keda:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 16
+    queueLength: "10"
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+frontend:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "32Mi"
+    limits:
+      cpu: "250m"
+      memory: "64Mi"
+  pdb:
+    minAvailable: 1
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: ourfamroots.example.com
+  apiHost: api.ourfamroots.example.com
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod
+
+# ── PostgreSQL (bitnami subchart) ─────────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    username: postgres
+    database: ourfamroots
+    existingSecret: ourfamroots-secrets
+    secretKeys:
+      adminPasswordKey: DB_PASSWORD
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+
+# ── Redis (bitnami subchart) ─────────────────────────────────────────────────
+redis:
+  enabled: true
+  auth:
+    existingSecret: ourfamroots-secrets
+    existingSecretPasswordKey: REDIS_PASSWORD
+  master:
+    persistence:
+      size: 8Gi
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+secrets:
+  # All values should be base64-encoded or provided via external secret manager
+  create: false   # set to true only for first-install bootstrapping
+  data: {}

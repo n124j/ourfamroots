@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-surface-muted text-gray-900 antialiased;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Portal theme — applied via CSS custom properties set on <html> by AppShell */
+.portal-nav-link {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--portal-nav-text, #4b5563);
+  transition: background-color 0.15s, color 0.15s;
+  text-decoration: none;
+}
+.portal-nav-link:hover {
+  background: var(--portal-nav-hover, #f3f4f6);
+}
+.portal-nav-link.active {
+  background: var(--portal-nav-active-bg, #eff6ff) !important;
+  color: var(--portal-nav-active-text, #1d4ed8) !important;
+}

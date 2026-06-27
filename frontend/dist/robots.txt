@@ -1,0 +1,36 @@
+User-agent: *
+
+# Allow public marketing / auth / informational pages
+Allow: /$
+Allow: /login
+Allow: /register
+Allow: /help
+Allow: /contact
+Allow: /terms
+Allow: /privacy
+Allow: /shared/
+
+# Disallow utility auth pages — low SEO value
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
+Disallow: /auth/
+Disallow: /confirm-deletion
+
+# Disallow authenticated app areas — no value to crawlers
+Disallow: /dashboard
+Disallow: /trees/
+Disallow: /search
+Disallow: /reports
+Disallow: /settings
+Disallow: /activity
+Disallow: /admin
+Disallow: /invitations/
+
+# Disallow API
+Disallow: /api/
+
+# Crawl-delay for polite crawling
+Crawl-delay: 1
+
+Sitemap: https://familyroots.aipioneerlab.com/sitemap.xml

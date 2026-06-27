@@ -1,0 +1,25 @@
+graphify-out
+venv
+__pycache__/
+*.py[cod]
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/*.env
+frontend/node_modules
+frontend/test-results
+frontend/e2e/report
+backend/coverage
+
+# Production deploy
+.env.prod
+certbot/
+.env.stg
+*.csv
+*.docx
+*.csv
+*.sql
+FamilyRoots_FrontendArchitecture_v1.0.md
+TESTING.md
+architecture

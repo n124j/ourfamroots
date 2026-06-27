@@ -1,0 +1,2284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OurFamRoots — Getting Started Guide</title>
+<style>
+/* ── Reset & base ── */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;overflow:hidden;user-select:none}
+
+/* ── Brand tokens ── */
+:root{
+  --brand:#6366f1;--brand-dark:#4338ca;--brand-mid:#4f46e5;
+  --brand-light:#e0e7ff;--brand-xlight:#eef2ff;
+  --text:#1e293b;--muted:#64748b;--light:#94a3b8;--border:#e2e8f0;
+  --bg:#f8fafc;--white:#ffffff;
+}
+
+/* ── Deck ── */
+.deck{width:100vw;height:100vh;position:relative}
+.slide{position:absolute;inset:0;display:none;background:white}
+.slide.active{display:flex}
+
+/* ── Layouts ── */
+.layout-hero{flex-direction:column;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#3730a3 0%,#4f46e5 40%,#6366f1 70%,#818cf8 100%)}
+.layout-split{flex-direction:row}
+.layout-center{flex-direction:column;align-items:center;justify-content:center;padding:40px}
+.layout-end{flex-direction:column;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#ecfdf5 0%,#f0fdf4 50%,#dcfce7 100%)}
+
+.pane-l{width:42%;padding:44px 40px;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+.pane-r{width:58%;background:#f1f5f9;display:flex;align-items:center;justify-content:center;padding:28px;overflow:hidden}
+
+/* ── Text ── */
+.slide-tag{font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--brand);margin-bottom:8px}
+.slide-h{font-size:28px;font-weight:800;color:var(--text);line-height:1.2;margin-bottom:10px}
+.slide-sub{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:24px}
+.hero-h{font-size:52px;font-weight:900;color:white;text-align:center;line-height:1.1;margin-bottom:14px;text-shadow:0 2px 20px rgba(0,0,0,.2)}
+.hero-sub{font-size:19px;color:rgba(255,255,255,.8);text-align:center;margin-bottom:32px}
+.end-h{font-size:38px;font-weight:900;color:#15803d;text-align:center;margin-bottom:10px}
+.end-sub{font-size:16px;color:#166534;text-align:center;margin-bottom:32px}
+
+/* ── Steps list ── */
+.steps{list-style:none;display:flex;flex-direction:column;gap:14px}
+.step{display:flex;gap:13px;align-items:flex-start}
+.sn{width:26px;height:26px;border-radius:50%;background:var(--brand);color:white;font-size:12px;
+    font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.sb{}
+.sl{font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px}
+.sd{font-size:12px;color:var(--muted);line-height:1.5}
+
+/* ── Tip box ── */
+.tip{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;
+     margin-top:20px;display:flex;gap:9px;align-items:flex-start}
+.tip-ico{font-size:15px;flex-shrink:0;margin-top:1px}
+.tip-txt{font-size:12px;color:#1e40af;line-height:1.5}
+.tip strong{font-weight:700}
+
+/* ── Browser frame ── */
+.browser{background:white;border-radius:12px;box-shadow:0 16px 50px rgba(0,0,0,.14);overflow:hidden;width:100%;max-width:500px}
+.browser-bar{background:#f1f5f9;border-bottom:1px solid var(--border);padding:9px 14px;display:flex;align-items:center;gap:10px}
+.browser-dots{display:flex;gap:5px}
+.bd{width:9px;height:9px;border-radius:50%}
+.bd-r{background:#fc6058}.bd-y{background:#fec02f}.bd-g{background:#2bc840}
+.browser-url{flex:1;background:white;border:1px solid var(--border);border-radius:5px;
+             padding:3px 9px;font-size:10px;color:var(--light);font-family:monospace}
+
+/* ── Auth page mockup ── */
+.auth-page{padding:20px 24px;background:var(--bg);min-height:300px}
+.auth-logo{text-align:center;margin-bottom:16px}
+.auth-logo-ico{font-size:28px}
+.auth-logo-text{font-size:15px;font-weight:800;color:var(--text);margin-top:3px}
+.auth-logo-sub{font-size:10px;color:var(--light)}
+.auth-card{background:white;border:1px solid var(--border);border-radius:14px;padding:18px}
+.mock-lbl{font-size:9px;font-weight:700;color:#374151;margin-bottom:3px;display:block;text-transform:uppercase;letter-spacing:.5px}
+.mock-inp{border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:10px;
+          color:var(--light);width:100%;display:block;margin-bottom:10px;background:white}
+.mock-inp.focused{border-color:var(--brand);box-shadow:0 0 0 2px rgba(99,102,241,.15);color:var(--text)}
+.mock-inp.filled{color:var(--text)}
+.mock-btn-pri{background:var(--brand);color:white;border-radius:8px;padding:9px;font-size:11px;
+              font-weight:700;width:100%;text-align:center;margin-top:4px}
+.mock-btn-sec{background:white;border:1px solid var(--border);border-radius:8px;padding:8px;
+              font-size:10px;font-weight:600;color:#374151;width:100%;text-align:center;margin-bottom:8px}
+.mock-divider{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:9px;color:var(--light)}
+.mock-divider:before,.mock-divider:after{content:'';flex:1;height:1px;background:var(--border)}
+.mock-link{text-align:center;font-size:9px;color:var(--brand);margin-top:10px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.success-banner{background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 10px;
+                font-size:9px;color:#15803d;margin-bottom:10px}
+.verify-state{text-align:center;padding:20px 0}
+.verify-ico{font-size:40px;margin-bottom:10px}
+.verify-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px}
+.verify-desc{font-size:10px;color:var(--muted);line-height:1.5}
+
+/* ── Dashboard mockup ── */
+.app-wrap{display:flex;height:320px;border-radius:12px;overflow:hidden;box-shadow:0 16px 50px rgba(0,0,0,.14);width:100%;max-width:520px}
+.app-sidebar{width:110px;background:#1e293b;display:flex;flex-direction:column;padding:10px 8px;flex-shrink:0}
+.sidebar-logo{color:white;font-size:10px;font-weight:800;padding:6px 8px;margin-bottom:8px;letter-spacing:.3px}
+.nav-item{padding:7px 9px;border-radius:7px;font-size:9px;color:#94a3b8;margin-bottom:1px;cursor:default}
+.nav-item.active{background:var(--brand);color:white}
+.sidebar-foot{margin-top:auto;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)}
+.sidebar-email{font-size:8px;color:#64748b;padding:4px 9px;margin-bottom:3px;truncate:true;overflow:hidden;white-space:nowrap;max-width:90px}
+.sidebar-signout{font-size:8px;color:#94a3b8;padding:4px 9px}
+.app-main{flex:1;background:var(--bg);padding:14px;overflow:hidden}
+.app-ph{font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px}
+.app-ps{font-size:9px;color:var(--muted);margin-bottom:12px}
+.app-actions{display:flex;gap:6px;margin-bottom:12px;justify-content:flex-end}
+.btn-sm-pri{background:var(--brand);color:white;border-radius:7px;padding:5px 10px;font-size:9px;font-weight:700}
+.btn-sm-sec{background:white;border:1px solid var(--border);border-radius:7px;padding:5px 9px;font-size:9px;color:#374151}
+.cards-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tree-card{background:white;border:1px solid var(--border);border-radius:9px;padding:11px;position:relative}
+.tc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.tc-emoji{font-size:18px}
+.tc-role{font-size:8px;font-weight:700;background:var(--brand-xlight);color:var(--brand);
+         border-radius:20px;padding:2px 6px}
+.tc-name{font-size:10px;font-weight:700;color:var(--text);margin-bottom:3px}
+.tc-desc{font-size:8px;color:var(--light);margin-bottom:6px;overflow:hidden;height:11px}
+.tc-stats{display:flex;gap:10px;padding-top:6px;border-top:1px solid #f1f5f9;font-size:8px;color:var(--light)}
+.tc-dots{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--light)}
+
+/* ── Modal mockup ── */
+.modal-bg{background:rgba(0,0,0,.35);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px}
+.modal{background:white;border-radius:14px;padding:20px;width:260px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal-h{font-size:13px;font-weight:800;color:var(--text);margin-bottom:14px}
+.emoji-grid{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.emoji-opt{width:28px;height:28px;border:1.5px solid var(--border);border-radius:7px;font-size:14px;
+           display:flex;align-items:center;justify-content:center;cursor:default}
+.emoji-opt.sel{border-color:var(--brand);background:var(--brand-xlight)}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.modal-cancel{font-size:10px;color:var(--muted);padding:7px 10px}
+.modal-create{background:var(--brand);color:white;border-radius:7px;padding:7px 14px;font-size:10px;font-weight:700}
+
+/* ── Canvas mockup ── */
+.canvas-wrap{width:100%;max-width:520px;height:320px;border-radius:12px;overflow:hidden;
+             box-shadow:0 16px 50px rgba(0,0,0,.14);display:flex;flex-direction:column}
+.canvas-topbar{height:44px;background:rgba(255,255,255,.95);backdrop-filter:blur(8px);
+               border-bottom:1px solid var(--border);display:flex;align-items:center;
+               padding:0 14px;gap:10px;flex-shrink:0}
+.ctb-back{font-size:10px;color:var(--light)}
+.ctb-sep{width:1px;height:14px;background:var(--border)}
+.ctb-name{font-size:11px;font-weight:700;color:var(--text);flex:1}
+.ctb-count{font-size:9px;color:var(--light)}
+.ctb-actions{display:flex;gap:5px;margin-left:auto}
+.ctb-btn{padding:4px 10px;background:#f1f5f9;border-radius:6px;font-size:9px;color:#475569;font-weight:600}
+.ctb-btn-pri{background:var(--brand);color:white;border-radius:6px;padding:5px 10px;font-size:9px;font-weight:700}
+.ctb-dots-btn{width:26px;height:26px;background:#f1f5f9;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#475569}
+.canvas-area{flex:1;background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);
+             position:relative;overflow:hidden}
+.canvas-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+             flex-direction:column;gap:6px}
+.canvas-hint-ico{font-size:32px;opacity:.3}
+.canvas-hint-txt{font-size:10px;color:var(--light)}
+
+/* ── Person node ── */
+.tree-person{background:white;border:2px solid var(--brand);border-radius:10px;padding:7px 12px;
+             font-size:9px;font-weight:700;color:var(--text);position:absolute;white-space:nowrap;
+             box-shadow:0 3px 10px rgba(99,102,241,.15)}
+.tree-person.female{border-color:#ec4899;box-shadow:0 3px 10px rgba(236,72,153,.15)}
+.tree-person.deceased{opacity:.7;border-style:dashed}
+.union-node{background:rgba(99,102,241,.08);border:1.5px dashed var(--brand);border-radius:8px;
+            padding:4px 8px;font-size:8px;color:var(--brand);position:absolute;font-weight:600}
+
+/* SVG connectors in canvas */
+.canvas-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
+/* ── Add-person form ── */
+.person-form{background:white;border-radius:12px;box-shadow:0 16px 50px rgba(0,0,0,.14);
+             overflow:hidden;width:100%;max-width:320px}
+.pf-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.pf-title{font-size:12px;font-weight:800;color:var(--text)}
+.pf-close{font-size:14px;color:var(--light)}
+.pf-body{padding:14px 16px}
+.pf-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.pf-select{border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:10px;
+           color:var(--text);width:100%;background:white}
+.pf-checkbox{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text);margin-bottom:8px}
+.pf-check{width:13px;height:13px;border:1.5px solid var(--border);border-radius:3px;background:white}
+.pf-footer{padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+.pf-save{background:var(--brand);color:white;border-radius:7px;padding:7px 14px;font-size:10px;font-weight:700}
+.pf-cancel{font-size:10px;color:var(--muted);padding:7px 10px}
+
+/* ── Layouts panel ── */
+.layout-panel{background:white;border-radius:12px;box-shadow:0 16px 50px rgba(0,0,0,.14);
+              overflow:hidden;width:100%;max-width:420px}
+.lp-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:800;color:var(--text)}
+.lp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px}
+.layout-opt{border:1.5px solid var(--border);border-radius:10px;padding:12px 8px;text-align:center;cursor:default}
+.layout-opt.sel{border-color:var(--brand);background:var(--brand-xlight)}
+.lo-ico{font-size:22px;margin-bottom:5px}
+.lo-lbl{font-size:9px;font-weight:700;color:var(--text)}
+.lo-desc{font-size:8px;color:var(--muted);margin-top:2px;line-height:1.3}
+
+/* ── Search page ── */
+.search-page{background:var(--bg);padding:16px;height:100%;overflow:hidden}
+.search-ph{font-size:13px;font-weight:800;color:var(--text);margin-bottom:10px}
+.search-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:10px}
+.stab{padding:6px 14px;font-size:9px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.stab.active{color:var(--brand);border-bottom-color:var(--brand)}
+.search-bar{display:flex;gap:6px;margin-bottom:10px}
+.search-inp{flex:1;border:1px solid var(--border);border-radius:8px;padding:7px 10px 7px 28px;
+            font-size:10px;color:var(--muted);background:white;position:relative}
+.search-inp-wrap{flex:1;position:relative}
+.search-ico{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--light)}
+.search-select{border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:9px;color:var(--text);background:white}
+.search-result{display:flex;align-items:center;gap:9px;padding:8px 12px;background:white;
+               border-radius:8px;margin-bottom:5px;border:1px solid var(--border)}
+.sr-av{width:28px;height:28px;border-radius:50%;background:var(--brand-xlight);display:flex;
+       align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--brand);flex-shrink:0}
+.sr-av.pink{background:#fce7f3;color:#be185d}
+.sr-av.green{background:#dcfce7;color:#15803d}
+.sr-name{font-size:10px;font-weight:700;color:var(--text)}
+.sr-sub{font-size:8px;color:var(--muted)}
+
+/* ── Share modal ── */
+.share-modal{background:white;border-radius:12px;box-shadow:0 16px 50px rgba(0,0,0,.14);
+             overflow:hidden;width:100%;max-width:360px}
+.sm-header{padding:14px 16px;border-bottom:1px solid var(--border)}
+.sm-h{font-size:12px;font-weight:800;color:var(--text);margin-bottom:2px}
+.sm-sub{font-size:9px;color:var(--muted)}
+.sm-invite{display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.sm-invite-inp{flex:1;border:1px solid var(--brand);border-radius:7px;padding:7px 10px;
+               font-size:10px;color:var(--text)}
+.sm-invite-btn{background:var(--brand);color:white;border-radius:7px;padding:7px 12px;font-size:10px;font-weight:700}
+.sm-members{padding:10px 16px}
+.sm-member{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f8fafc}
+.sm-av{width:26px;height:26px;border-radius:50%;background:#ede9fe;display:flex;align-items:center;
+       justify-content:center;font-size:10px;font-weight:700;color:var(--brand);flex-shrink:0}
+.sm-name{flex:1;font-size:10px;font-weight:600;color:var(--text)}
+.sm-email{font-size:8px;color:var(--muted)}
+.role-badge{display:inline-block;padding:2px 7px;border-radius:20px;font-size:8px;font-weight:700}
+.rb-owner{background:#ede9fe;color:#7c3aed}
+.rb-editor{background:#dcfce7;color:#15803d}
+.rb-viewer{background:#f1f5f9;color:#475569}
+
+/* ── Reports page ── */
+.reports-page{background:var(--bg);padding:14px;height:100%}
+.reports-ph{font-size:13px;font-weight:800;color:var(--text);margin-bottom:10px}
+.stat-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}
+.stat-card{background:white;border:1px solid var(--border);border-radius:8px;padding:10px}
+.sc-ico{font-size:16px;margin-bottom:4px}
+.sc-val{font-size:16px;font-weight:800;color:var(--text)}
+.sc-lbl{font-size:8px;color:var(--muted)}
+.rep-toolbar{display:flex;gap:5px;margin-bottom:6px}
+.rt-inp{flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:9px;color:var(--muted);background:white}
+.rt-sel{border:1px solid var(--border);border-radius:6px;padding:5px 7px;font-size:9px;color:var(--text);background:white}
+.rep-table{background:white;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.rt-head{display:grid;grid-template-columns:1fr 60px 50px 50px;background:#f8fafc;border-bottom:1px solid var(--border);padding:6px 10px;font-size:8px;font-weight:700;color:var(--muted);gap:4px}
+.rt-row{display:grid;grid-template-columns:1fr 60px 50px 50px;padding:7px 10px;font-size:9px;color:var(--text);border-bottom:1px solid #f8fafc;gap:4px;align-items:center}
+.rt-row:last-child{border-bottom:none}
+.rt-link{color:var(--brand);font-weight:600}
+.rt-r{text-align:right}
+.sort-indicator{color:var(--brand);font-size:8px}
+
+/* ── Pagination row ── */
+.pag-row{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border);font-size:8px;color:var(--muted)}
+.pag-btns{display:flex;gap:4px}
+.pag-btn{width:22px;height:22px;border:1px solid var(--border);border-radius:5px;background:white;
+         font-size:8px;display:flex;align-items:center;justify-content:center;color:var(--text)}
+.pag-btn.active{background:var(--brand);border-color:var(--brand);color:white}
+.pag-arrow{padding:3px 7px;border:1px solid var(--border);border-radius:5px;background:white;font-size:8px;color:var(--text)}
+
+/* ── Profile page ── */
+.profile-page{background:var(--bg);padding:14px;height:100%}
+.profile-card{background:white;border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:12px;margin-bottom:10px}
+.profile-av{width:44px;height:44px;border-radius:10px;background:var(--brand-xlight);
+            display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--brand);flex-shrink:0}
+.profile-name{font-size:14px;font-weight:800;color:var(--text);margin-bottom:5px}
+.profile-badges{display:flex;gap:5px;flex-wrap:wrap}
+.pb{font-size:8px;font-weight:600;padding:2px 7px;border-radius:20px}
+.pb-m{background:#dbeafe;color:#1d4ed8}
+.pb-living{background:#dcfce7;color:#15803d}
+.pb-deceased{background:#f1f5f9;color:#475569}
+.profile-section{background:white;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px}
+.ps-title{font-size:10px;font-weight:700;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.rel-item{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f8fafc}
+.rel-item:last-child{border-bottom:none}
+.rel-av{width:24px;height:24px;border-radius:6px;background:var(--brand-xlight);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--brand)}
+.rel-name{font-size:10px;font-weight:600;color:var(--text)}
+.rel-type{font-size:8px;color:var(--muted)}
+
+/* ── Overview grid (slide 2) ── */
+.ov-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;padding:0 20px}
+.ov-card{background:white;border:1.5px solid var(--border);border-radius:14px;padding:18px 12px;text-align:center}
+.ov-num{width:30px;height:30px;border-radius:50%;background:var(--brand);color:white;
+        font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto 8px}
+.ov-ico{font-size:22px;margin-bottom:6px}
+.ov-lbl{font-size:11px;font-weight:700;color:var(--text);margin-bottom:3px}
+.ov-desc{font-size:9px;color:var(--light);line-height:1.4}
+
+/* ── End slide ── */
+.end-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:580px;width:100%}
+.end-card{background:white;border:1px solid #d1fae5;border-radius:14px;padding:16px;display:flex;gap:11px;align-items:flex-start;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.ec-ico{font-size:22px;flex-shrink:0}
+.ec-h{font-size:13px;font-weight:700;color:#064e3b;margin-bottom:3px}
+.ec-p{font-size:11px;color:#065f46;line-height:1.5}
+
+/* ── Navigation ── */
+.nav-bar{position:fixed;bottom:22px;right:24px;display:flex;align-items:center;gap:12px;z-index:100}
+.nav-counter{font-size:11px;color:#64748b;font-weight:600;min-width:42px;text-align:center}
+.nav-btn{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--border);background:white;
+         cursor:pointer;display:flex;align-items:center;justify-content:center;
+         box-shadow:0 2px 8px rgba(0,0,0,.07);transition:all .15s;font-size:14px;color:var(--text)}
+.nav-btn:hover{background:var(--brand);border-color:var(--brand);color:white}
+.nav-btn:disabled{opacity:.32;cursor:not-allowed}
+.nav-btn:disabled:hover{background:white;border-color:var(--border);color:var(--text)}
+
+/* ── Dots ── */
+.dots{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:100}
+.dot{width:6px;height:6px;border-radius:50%;background:#cbd5e1;transition:all .25s}
+.dot.active{background:var(--brand);width:16px;border-radius:3px}
+
+/* ── Keyboard hint ── */
+.kbd-hint{position:fixed;bottom:28px;left:24px;font-size:10px;color:#94a3b8;z-index:100}
+kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:9px;font-family:monospace}
+
+/* Progress bar */
+.progress{position:fixed;bottom:0;left:0;right:0;height:3px;background:rgba(0,0,0,.05);z-index:200}
+.progress-fill{height:100%;background:var(--brand);transition:width .3s ease}
+
+/* ── Troubleshooting styles ── */
+.ts-header{background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:10px 14px;
+           display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.ts-header-ico{font-size:22px;flex-shrink:0}
+.ts-header-txt{font-size:12px;color:#92400e;line-height:1.5}
+.ts-header-txt strong{color:#78350f}
+
+/* Annotated callout badge */
+.callout{display:inline-flex;align-items:center;gap:5px;background:#fef3c7;border:1.5px solid #fbbf24;
+         border-radius:20px;padding:3px 10px 3px 6px;font-size:10px;font-weight:700;color:#92400e;white-space:nowrap}
+.callout-num{width:18px;height:18px;border-radius:50%;background:#f59e0b;color:white;font-size:9px;
+             font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* Pulsing highlight on mockup buttons */
+@keyframes pulse-ring{
+  0%  {box-shadow:0 0 0 0 rgba(99,102,241,.55)}
+  65% {box-shadow:0 0 0 7px rgba(99,102,241,0)}
+  100%{box-shadow:0 0 0 0 rgba(99,102,241,0)}
+}
+.highlighted{border:2px solid var(--brand)!important;animation:pulse-ring 1.8s ease-out infinite}
+
+@keyframes pulse-amber{
+  0%  {box-shadow:0 0 0 0 rgba(245,158,11,.55)}
+  65% {box-shadow:0 0 0 7px rgba(245,158,11,0)}
+  100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}
+}
+.highlighted-amber{border:2px solid #f59e0b!important;animation:pulse-amber 1.8s ease-out infinite}
+
+/* Step badge variant for troubleshooting */
+.sn-warn{background:#f59e0b}
+.sn-ok  {background:#16a34a}
+
+/* Issue/fix card grid */
+.issue-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.issue-card{background:white;border-radius:12px;border:1px solid var(--border);padding:14px;overflow:hidden}
+.issue-label{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.issue-ico{font-size:18px;flex-shrink:0}
+.issue-h{font-size:12px;font-weight:800;color:var(--text)}
+.issue-problem{font-size:11px;color:#dc2626;background:#fef2f2;border-radius:7px;padding:6px 9px;margin-bottom:6px;border-left:3px solid #fca5a5}
+.issue-fix{font-size:11px;color:#15803d;background:#f0fdf4;border-radius:7px;padding:6px 9px;border-left:3px solid #86efac}
+.issue-fix strong{font-weight:700}
+
+/* Canvas controls bar mockup */
+.canvas-controls{height:36px;background:rgba(255,255,255,.9);border-bottom:1px solid var(--border);
+                 display:flex;align-items:center;padding:0 10px;gap:5px;flex-shrink:0}
+.cc-btn{padding:4px 8px;border-radius:6px;font-size:8px;font-weight:600;color:#475569;
+        background:#f1f5f9;border:1px solid var(--border);white-space:nowrap;cursor:default;display:flex;align-items:center;gap:3px}
+.cc-icon{font-size:10px}
+
+/* Annotation arrow */
+.ann-wrap{position:relative;display:inline-block}
+.ann-badge{position:absolute;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:8px;
+           padding:3px 8px;font-size:9px;font-weight:700;color:#92400e;white-space:nowrap;z-index:10}
+.ann-arrow{position:absolute;width:0;height:0}
+/* ── Tips & Tricks styles ── */
+.ctrl-key{background:#1e293b;color:white;border-radius:5px;padding:2px 8px;
+          font-size:9px;font-weight:800;font-family:monospace;display:inline-block;letter-spacing:.5px}
+.tip-tag{color:#8b5cf6}
+.sn-purple{background:#8b5cf6}
+
+/* Demo panel header */
+.demo-hdr{padding:7px 12px;display:flex;align-items:center;gap:6px;
+          font-size:9px;font-weight:700;border-bottom:1px solid #e9d5ff;
+          background:#f5f3ff;color:#6d28d9}
+.demo-canvas{position:relative;overflow:hidden;
+             background:linear-gradient(135deg,#faf5ff 0%,#f5f3ff 100%)}
+/* SVG dot grid for demo canvases */
+.demo-grid{position:absolute;inset:0;width:100%;height:100%;opacity:.22;pointer-events:none}
+
+/* Node states for demos */
+.node-drag{border:2px solid #8b5cf6;border-radius:10px;padding:5px 10px;
+           font-size:9px;font-weight:700;color:#4c1d95;background:white;
+           box-shadow:0 6px 18px rgba(139,92,246,.3);transform:rotate(-2deg);
+           position:absolute;white-space:nowrap}
+.node-ghost{border:2px dashed #c4b5fd;border-radius:10px;padding:5px 10px;
+            font-size:9px;color:#c4b5fd;position:absolute;white-space:nowrap;opacity:.55}
+.node-selected{border:2px solid #8b5cf6;border-radius:9px;padding:5px 9px;
+               font-size:9px;font-weight:700;color:#4c1d95;background:#f5f3ff;
+               box-shadow:0 0 0 3px rgba(139,92,246,.28);position:absolute;white-space:nowrap}
+.sel-tick{position:absolute;top:-7px;right:-7px;background:#8b5cf6;color:white;
+          border-radius:50%;width:15px;height:15px;font-size:8px;font-weight:800;
+          display:flex;align-items:center;justify-content:center}
+.union-drag{width:38px;height:38px;border-radius:50%;border:2px dashed #8b5cf6;
+            background:rgba(139,92,246,.12);display:flex;align-items:center;justify-content:center;
+            font-size:12px;box-shadow:0 4px 14px rgba(139,92,246,.28);
+            transform:rotate(-3deg);position:absolute}
+.union-ghost{width:38px;height:38px;border-radius:50%;border:2px dashed #c4b5fd;
+             display:flex;align-items:center;justify-content:center;font-size:12px;
+             opacity:.4;position:absolute}
+.ctrl-badge-abs{position:absolute;bottom:7px;right:10px;background:#8b5cf6}
+
+/* Shortcut table */
+.sc-table{width:100%;border-collapse:collapse}
+.sc-table tr:nth-child(even) td{background:#fafafa}
+.sc-table td{padding:6px 12px;font-size:10px;color:var(--text);border-bottom:1px solid #f1f5f9;vertical-align:middle}
+.sc-table td:first-child{font-weight:700;width:44%;color:#4c1d95}
+.sc-table tr:last-child td{border-bottom:none}
+.sc-head{background:#f5f3ff;color:#6d28d9;font-size:9px;font-weight:800;padding:7px 12px;
+         border-bottom:1px solid #e9d5ff;letter-spacing:.5px;text-transform:uppercase}
+
+/* Power tip cards */
+.ptip-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ptip{background:white;border:1.5px solid #e9d5ff;border-radius:10px;padding:11px 12px}
+.ptip-ico{font-size:18px;margin-bottom:5px}
+.ptip-h{font-size:11px;font-weight:800;color:#4c1d95;margin-bottom:3px}
+.ptip-d{font-size:10px;color:var(--muted);line-height:1.5}
+.ptip-d strong{color:var(--text)}
+
+/* ── Print ── */
+@media print{
+  .nav-bar,.dots,.kbd-hint,.progress{display:none!important}
+  body{overflow:visible;background:white}
+  .deck,.slide{position:static}
+  .slide{display:none!important;page-break-after:always}
+  .slide.active,.slide.print-all{display:flex!important;height:100vh;page-break-after:always}
+}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- ══════════════════════════════════════════
+     SLIDE 1 — TITLE
+═══════════════════════════════════════════════ -->
+<div class="slide layout-hero active" id="s1">
+  <div style="font-size:90px;margin-bottom:18px;filter:drop-shadow(0 8px 30px rgba(0,0,0,.25))">🌳</div>
+  <h1 class="hero-h">Getting Started with<br>OurFamRoots</h1>
+  <p class="hero-sub">Your step-by-step guide to building, exploring<br>and sharing your family tree</p>
+  <div style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:100px;
+              padding:9px 22px;color:white;font-size:13px;font-weight:600;letter-spacing:.3px">
+    📖 &nbsp;19 Easy Steps · Beginner Friendly · No Experience Needed
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 2 — WHAT YOU'LL LEARN
+═══════════════════════════════════════════════ -->
+<div class="slide layout-center" id="s2" style="background:#f8fafc">
+  <div class="slide-tag" style="text-align:center;margin-bottom:6px">Your journey</div>
+  <h2 class="slide-h" style="text-align:center;font-size:32px;margin-bottom:6px">What you'll learn today</h2>
+  <p class="slide-sub" style="text-align:center;margin-bottom:30px;max-width:600px">
+    Follow these 5 stages to go from zero to a fully built, shared family tree in minutes.
+  </p>
+  <div class="ov-grid">
+    <div class="ov-card">
+      <div class="ov-num">1</div>
+      <div class="ov-ico">🔐</div>
+      <div class="ov-lbl">Create Account</div>
+      <div class="ov-desc">Sign up, Google login, or verify email</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-num">2</div>
+      <div class="ov-ico">🌳</div>
+      <div class="ov-lbl">Build Your Tree</div>
+      <div class="ov-desc">Add members, child types &amp; divorces</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-num">3</div>
+      <div class="ov-ico">🔍</div>
+      <div class="ov-lbl">Explore &amp; Search</div>
+      <div class="ov-desc">Find people, visualize charts &amp; views</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-num">4</div>
+      <div class="ov-ico">👥</div>
+      <div class="ov-lbl">Collaborate</div>
+      <div class="ov-desc">Invite family to view or edit together</div>
+    </div>
+    <div class="ov-card">
+      <div class="ov-num">5</div>
+      <div class="ov-ico">📊</div>
+      <div class="ov-lbl">Reports &amp; Export</div>
+      <div class="ov-desc">View stats, export PDFs &amp; CSV files</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 3 — CREATE ACCOUNT
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s3">
+  <div class="pane-l">
+    <div class="slide-tag">Step 1</div>
+    <h2 class="slide-h">Create your free account</h2>
+    <p class="slide-sub">No credit card needed. Takes less than 2 minutes.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Go to the Register page</div><div class="sd">Open your browser and navigate to <strong>/register</strong></div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Enter your name</div><div class="sd">Fill in your first name and last name</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Add your email &amp; password</div><div class="sd">Use a valid email — you'll need to verify it. Password must be 8+ characters, contain a capital letter and a number. Re-enter it in the Confirm field.</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Click "Create account"</div><div class="sd">You'll be redirected to the login page with a success message. Check your inbox for a verification email.</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">📬</div><div class="tip-txt">After registering, check your inbox for a <strong>verification email</strong>. You must click the link before you can sign in for the first time.</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="browser">
+      <div class="browser-bar">
+        <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+        <div class="browser-url">ourfamroots.com/register</div>
+      </div>
+      <div class="browser-content">
+        <div class="auth-page">
+          <div class="auth-logo">
+            <div class="auth-logo-ico">🌳</div>
+            <div class="auth-logo-text">OurFamRoots</div>
+            <div class="auth-logo-sub">Create your free account</div>
+          </div>
+          <div class="auth-card">
+            <div class="grid-2">
+              <div>
+                <span class="mock-lbl">First name</span>
+                <div class="mock-inp filled">Alice</div>
+              </div>
+              <div>
+                <span class="mock-lbl">Last name</span>
+                <div class="mock-inp filled">Johnson</div>
+              </div>
+            </div>
+            <span class="mock-lbl">Email</span>
+            <div class="mock-inp filled">alice@example.com</div>
+            <span class="mock-lbl">Password</span>
+            <div class="mock-inp focused">••••••••••</div>
+            <span class="mock-lbl">Confirm password</span>
+            <div class="mock-inp" style="color:var(--light)">Re-enter password</div>
+            <div class="mock-btn-pri" style="margin-top:6px">Create account</div>
+            <div class="mock-divider">or</div>
+            <div class="mock-btn-sec" style="display:flex;align-items:center;justify-content:center;gap:6px">
+              <svg width="12" height="12" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.14 0 5.95 1.08 8.17 2.84l6.08-6.08C34.41 3.04 29.53 1 24 1 14.91 1 7.12 6.44 3.48 14.16l7.11 5.52C12.27 13.57 17.67 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.55c0-1.64-.15-3.23-.41-4.77H24v9.03h12.42c-.54 2.88-2.18 5.32-4.64 6.96l7.11 5.52C43.18 37.28 46.1 31.34 46.1 24.55z"/><path fill="#FBBC05" d="M10.59 28.32A14.5 14.5 0 0 1 9.5 24c0-1.5.26-2.95.71-4.32L3.1 14.16A23.1 23.1 0 0 0 1 24c0 3.72.87 7.24 2.48 10.32l7.11-6z"/><path fill="#34A853" d="M24 47c5.53 0 10.17-1.83 13.56-4.97l-7.11-5.52c-1.84 1.23-4.2 1.99-6.45 1.99-6.33 0-11.73-4.07-13.41-9.68l-7.11 5.52C7.12 41.56 14.91 47 24 47z"/></svg>
+              Continue with Google
+            </div>
+          </div>
+          <div class="mock-link">Already have an account? <span style="color:var(--brand);font-weight:700">Sign in</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 4 — VERIFY EMAIL
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s4">
+  <div class="pane-l">
+    <div class="slide-tag">Step 2</div>
+    <h2 class="slide-h">Verify your email address</h2>
+    <p class="slide-sub">This keeps your account secure and confirms you own the email.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Check your inbox</div><div class="sd">Look for an email from <strong>OurFamRoots</strong> — it arrives within a minute</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Click the verification link</div><div class="sd">The link takes you back to OurFamRoots and confirms your email automatically</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">You're verified — sign in!</div><div class="sd">You'll see a green success message and can now log in with your credentials</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">📬</div><div class="tip-txt">Can't find the email? Check your <strong>Spam / Junk</strong> folder. If it's not there, use the "Resend verification" link on the login page.</div></div>
+  </div>
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:16px;width:100%;max-width:460px">
+      <!-- Email client mockup -->
+      <div class="browser">
+        <div class="browser-bar">
+          <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+          <div class="browser-url">mail.google.com / inbox</div>
+        </div>
+        <div class="browser-content" style="padding:14px 16px;background:white">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#eef2ff;border-radius:8px;border-left:3px solid var(--brand)">
+            <div style="font-size:22px">📧</div>
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--text)">Verify your OurFamRoots account</div>
+              <div style="font-size:9px;color:var(--muted)">from noreply@ourfamroots.com · just now</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:3px">Click the link below to verify your email…</div>
+            </div>
+          </div>
+          <div style="text-align:center;margin-top:12px">
+            <div style="background:var(--brand);color:white;border-radius:8px;padding:8px 20px;font-size:11px;font-weight:700;display:inline-block">✓ &nbsp;Verify My Email</div>
+          </div>
+        </div>
+      </div>
+      <!-- Verified page -->
+      <div class="browser">
+        <div class="browser-bar">
+          <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+          <div class="browser-url">ourfamroots.com/verify-email</div>
+        </div>
+        <div class="browser-content">
+          <div class="auth-page" style="min-height:auto;padding:20px">
+            <div class="verify-state">
+              <div class="verify-ico">✅</div>
+              <div class="verify-title">Email verified!</div>
+              <div class="verify-desc">Your account is now active.<br>You can sign in with your credentials.</div>
+              <div class="mock-btn-pri" style="margin-top:14px;max-width:160px;margin-left:auto;margin-right:auto">Go to Sign In</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 5 — SIGN IN
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s5">
+  <div class="pane-l">
+    <div class="slide-tag">Step 3</div>
+    <h2 class="slide-h">Sign in to OurFamRoots</h2>
+    <p class="slide-sub">Once verified, sign in to access your personal dashboard.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Go to the Login page</div><div class="sd">Navigate to <strong>/login</strong> in your browser</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Enter your email &amp; password</div><div class="sd">Use the same email and password you registered with</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Click "Sign in"</div><div class="sd">You'll be taken straight to your Dashboard</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">🔑</div><div class="tip-txt">Forgot your password? Click <strong>"Forgot password?"</strong> on the login page. Or skip passwords entirely — use <strong>Continue with Google</strong> (see next slide).</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="browser">
+      <div class="browser-bar">
+        <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+        <div class="browser-url">ourfamroots.com/login</div>
+      </div>
+      <div class="browser-content">
+        <div class="auth-page">
+          <div class="auth-logo">
+            <div class="auth-logo-ico">🌳</div>
+            <div class="auth-logo-text">OurFamRoots</div>
+            <div class="auth-logo-sub">Sign in to your account</div>
+          </div>
+          <div class="auth-card">
+            <div class="success-banner">✅ &nbsp;Account created! Check your inbox for a verification link.</div>
+            <span class="mock-lbl">Email</span>
+            <div class="mock-inp filled">alice@example.com</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span class="mock-lbl" style="margin-bottom:0">Password</span>
+              <span style="font-size:9px;color:var(--brand)">Forgot password?</span>
+            </div>
+            <div class="mock-inp focused">••••••••••</div>
+            <div class="mock-btn-pri" style="margin-top:4px">Sign in</div>
+            <div class="mock-divider">or</div>
+            <div class="mock-btn-sec" style="display:flex;align-items:center;justify-content:center;gap:6px">
+              <svg width="12" height="12" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.14 0 5.95 1.08 8.17 2.84l6.08-6.08C34.41 3.04 29.53 1 24 1 14.91 1 7.12 6.44 3.48 14.16l7.11 5.52C12.27 13.57 17.67 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.55c0-1.64-.15-3.23-.41-4.77H24v9.03h12.42c-.54 2.88-2.18 5.32-4.64 6.96l7.11 5.52C43.18 37.28 46.1 31.34 46.1 24.55z"/><path fill="#FBBC05" d="M10.59 28.32A14.5 14.5 0 0 1 9.5 24c0-1.5.26-2.95.71-4.32L3.1 14.16A23.1 23.1 0 0 0 1 24c0 3.72.87 7.24 2.48 10.32l7.11-6z"/><path fill="#34A853" d="M24 47c5.53 0 10.17-1.83 13.56-4.97l-7.11-5.52c-1.84 1.23-4.2 1.99-6.45 1.99-6.33 0-11.73-4.07-13.41-9.68l-7.11 5.52C7.12 41.56 14.91 47 24 47z"/></svg>
+              Continue with Google
+            </div>
+          </div>
+          <div class="mock-link">Don't have an account? <span style="color:var(--brand);font-weight:700">Create one free</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 6 — GOOGLE OAUTH SIGN IN
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s6">
+  <div class="pane-l">
+    <div class="slide-tag">Step 3b</div>
+    <h2 class="slide-h">Sign in with Google (fastest way!)</h2>
+    <p class="slide-sub">Skip the registration form entirely — sign in with your Google account in one click.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Go to Login or Register</div><div class="sd">Navigate to <strong>/login</strong> or <strong>/register</strong> in your browser</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Click "Continue with Google"</div><div class="sd">Below the email/password form, click the <strong>Continue with Google</strong> button</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Choose your Google account</div><div class="sd">Google's sign-in screen appears — select or enter your Google account</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">You're in — no verification needed!</div><div class="sd">You'll be redirected straight to your Dashboard. No email verification step required for Google sign-in.</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">⚡</div><div class="tip-txt"><strong>First time?</strong> If you don't have an account yet, clicking "Continue with Google" on the Register page will automatically create one using your Google name and email — no form to fill out!</div></div>
+  </div>
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:460px">
+      <!-- Login page with Google button -->
+      <div class="browser">
+        <div class="browser-bar">
+          <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+          <div class="browser-url">ourfamroots.com/login</div>
+        </div>
+        <div class="browser-content">
+          <div class="auth-page" style="min-height:auto;padding:16px 20px">
+            <div class="auth-logo">
+              <div class="auth-logo-ico">🌳</div>
+              <div class="auth-logo-text">OurFamRoots</div>
+              <div class="auth-logo-sub">Sign in to your account</div>
+            </div>
+            <div class="auth-card">
+              <span class="mock-lbl">Email</span>
+              <div class="mock-inp" style="color:var(--light)">you@example.com</div>
+              <span class="mock-lbl">Password</span>
+              <div class="mock-inp" style="color:var(--light)">••••••••</div>
+              <div class="mock-btn-pri" style="margin-top:4px">Sign in</div>
+              <!-- Divider -->
+              <div class="mock-divider">or</div>
+              <!-- Google OAuth button — highlighted -->
+              <div class="mock-btn-sec highlighted" style="display:flex;align-items:center;justify-content:center;gap:8px">
+                <svg width="14" height="14" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.14 0 5.95 1.08 8.17 2.84l6.08-6.08C34.41 3.04 29.53 1 24 1 14.91 1 7.12 6.44 3.48 14.16l7.11 5.52C12.27 13.57 17.67 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.55c0-1.64-.15-3.23-.41-4.77H24v9.03h12.42c-.54 2.88-2.18 5.32-4.64 6.96l7.11 5.52C43.18 37.28 46.1 31.34 46.1 24.55z"/><path fill="#FBBC05" d="M10.59 28.32A14.5 14.5 0 0 1 9.5 24c0-1.5.26-2.95.71-4.32L3.1 14.16A23.1 23.1 0 0 0 1 24c0 3.72.87 7.24 2.48 10.32l7.11-6z"/><path fill="#34A853" d="M24 47c5.53 0 10.17-1.83 13.56-4.97l-7.11-5.52c-1.84 1.23-4.2 1.99-6.45 1.99-6.33 0-11.73-4.07-13.41-9.68l-7.11 5.52C7.12 41.56 14.91 47 24 47z"/></svg>
+                Continue with Google
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Google account chooser mockup -->
+      <div class="browser">
+        <div class="browser-bar">
+          <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+          <div class="browser-url">accounts.google.com</div>
+        </div>
+        <div class="browser-content" style="padding:16px 20px;background:white;text-align:center">
+          <div style="font-size:22px;margin-bottom:4px">
+            <svg width="20" height="20" viewBox="0 0 48 48" style="vertical-align:middle"><path fill="#EA4335" d="M24 9.5c3.14 0 5.95 1.08 8.17 2.84l6.08-6.08C34.41 3.04 29.53 1 24 1 14.91 1 7.12 6.44 3.48 14.16l7.11 5.52C12.27 13.57 17.67 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.55c0-1.64-.15-3.23-.41-4.77H24v9.03h12.42c-.54 2.88-2.18 5.32-4.64 6.96l7.11 5.52C43.18 37.28 46.1 31.34 46.1 24.55z"/><path fill="#FBBC05" d="M10.59 28.32A14.5 14.5 0 0 1 9.5 24c0-1.5.26-2.95.71-4.32L3.1 14.16A23.1 23.1 0 0 0 1 24c0 3.72.87 7.24 2.48 10.32l7.11-6z"/><path fill="#34A853" d="M24 47c5.53 0 10.17-1.83 13.56-4.97l-7.11-5.52c-1.84 1.23-4.2 1.99-6.45 1.99-6.33 0-11.73-4.07-13.41-9.68l-7.11 5.52C7.12 41.56 14.91 47 24 47z"/></svg>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px">Sign in with Google</div>
+          <div style="font-size:9px;color:var(--muted);margin-bottom:10px">to continue to OurFamRoots</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;text-align:left;margin-bottom:6px">
+            <div style="width:24px;height:24px;border-radius:50%;background:#4285F4;color:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">A</div>
+            <div>
+              <div style="font-size:10px;font-weight:600;color:var(--text)">Alice Johnson</div>
+              <div style="font-size:8px;color:var(--muted)">alice@gmail.com</div>
+            </div>
+          </div>
+          <div style="font-size:9px;color:var(--brand);font-weight:600;margin-top:6px">Use another account</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 7 — DASHBOARD
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s7">
+  <div class="pane-l">
+    <div class="slide-tag">Step 4</div>
+    <h2 class="slide-h">Welcome to your Dashboard</h2>
+    <p class="slide-sub">Your home base. All your family trees live here.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">A</div><div class="sb"><div class="sl">Sidebar navigation</div><div class="sd">Use the left panel to jump between Dashboard, Search, Reports, and Settings</div></div></li>
+      <li class="step"><div class="sn">B</div><div class="sb"><div class="sl">Tree cards</div><div class="sd">Each card represents one family tree. Click a card to open the tree canvas</div></div></li>
+      <li class="step"><div class="sn">C</div><div class="sb"><div class="sl">+ New tree button</div><div class="sd">Click this in the top-right corner to create your first family tree</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">📱</div><div class="tip-txt">On mobile, tap the <strong>☰ menu icon</strong> at the top-left to open the navigation drawer.</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="app-wrap">
+      <div class="app-sidebar">
+        <div class="sidebar-logo">🌳 OurFamRoots</div>
+        <div class="nav-item active">Dashboard</div>
+        <div class="nav-item">Search</div>
+        <div class="nav-item">Reports</div>
+        <div class="nav-item">Settings</div>
+        <div class="sidebar-foot">
+          <div class="sidebar-email">alice@example.com</div>
+          <div class="sidebar-signout">Sign out</div>
+        </div>
+      </div>
+      <div class="app-main">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+          <div>
+            <div class="app-ph">Welcome back, Alice 👋</div>
+            <div class="app-ps">Your family trees</div>
+          </div>
+          <div style="display:flex;gap:5px">
+            <div class="btn-sm-sec">↑ Import</div>
+            <div class="btn-sm-pri">+ New tree</div><!-- C -->
+          </div>
+        </div>
+        <div class="cards-grid"><!-- B -->
+          <div class="tree-card">
+            <div class="tc-top">
+              <!-- Cover photo thumbnail -->
+              <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#818cf8);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🌳</div>
+              <div class="tc-role" style="margin-left:auto">Owner</div>
+            </div>
+            <div class="tc-name" style="margin-top:6px">Johnson Family</div>
+            <div class="tc-desc">Maternal side, 4 generations</div>
+            <div class="tc-stats"><span><b>12</b> people</span><span><b>3</b> members</span></div>
+            <div class="tc-dots">⋯</div>
+          </div>
+          <div class="tree-card">
+            <div class="tc-top">
+              <!-- Cover icon (no photo uploaded) -->
+              <div class="tc-emoji">🌿</div>
+              <div class="tc-role" style="background:#dcfce7;color:#15803d;margin-left:auto">Editor</div>
+            </div>
+            <div class="tc-name">Smith Family</div>
+            <div class="tc-desc">Paternal side</div>
+            <div class="tc-stats"><span><b>8</b> people</span><span><b>2</b> members</span></div>
+            <div class="tc-dots">⋯</div>
+          </div>
+        </div>
+        <!-- Pagination row -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:8px;color:var(--muted)">
+          <span>Showing 1–2 of 2 trees</span>
+          <div style="display:flex;gap:3px">
+            <div class="pag-arrow">← Prev</div>
+            <div class="pag-btn active">1</div>
+            <div class="pag-arrow">Next →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 7 — CREATE A TREE
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s8">
+  <div class="pane-l">
+    <div class="slide-tag">Step 5</div>
+    <h2 class="slide-h">Create your first family tree</h2>
+    <p class="slide-sub">A tree is a container for all your family members and their connections.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click "+ New tree"</div><div class="sd">Find it in the top-right corner of the Dashboard</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Give your tree a name</div><div class="sd">e.g. "Johnson Family" or "Mom's Side" — be descriptive</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Add an optional description</div><div class="sd">Notes like "Maternal side, traced back to Ireland 1800s" help collaborators</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Click "Create tree"</div><div class="sd">You'll be taken directly to the empty tree canvas to start adding people</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">🖼️</div><div class="tip-txt">Want a cover photo or custom icon? After creating, click <strong>⋯</strong> on the tree card → <strong>Edit tree</strong> to upload a photo and choose an emoji icon. See the next step!</div></div>
+  </div>
+  <div class="pane-r">
+    <div style="position:relative;width:100%;max-width:480px;height:300px">
+      <!-- Dashboard background (blurred) -->
+      <div class="app-wrap" style="opacity:.4;filter:blur(2px)">
+        <div class="app-sidebar">
+          <div class="sidebar-logo">🌳 OurFamRoots</div>
+          <div class="nav-item active">Dashboard</div>
+        </div>
+        <div class="app-main">
+          <div class="app-ph">Welcome back, Alice 👋</div>
+          <div class="cards-grid" style="margin-top:10px">
+            <div class="tree-card"><div class="tc-name">Johnson Family</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Modal on top -->
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;border-radius:12px">
+        <div class="modal">
+          <div class="modal-h">🌳 &nbsp;New family tree</div>
+          <span class="mock-lbl">Name *</span>
+          <div class="mock-inp focused" style="margin-bottom:10px">The Johnson Family</div>
+          <span class="mock-lbl">Description <span style="font-weight:400;color:var(--light)">(optional)</span></span>
+          <div class="mock-inp" style="height:52px;margin-bottom:14px;padding-top:6px;color:var(--light)">Maternal side, traced to Ireland…</div>
+          <div class="modal-footer">
+            <div class="modal-cancel">Cancel</div>
+            <div class="modal-create">Create tree</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 8 — CUSTOMISE YOUR TREE
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s9">
+  <div class="pane-l">
+    <div class="slide-tag">Step 5b</div>
+    <h2 class="slide-h">Customise your tree's cover</h2>
+    <p class="slide-sub">Add a cover photo and a backup emoji icon so your tree stands out on the Dashboard.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click ⋯ on the tree card</div><div class="sd">On the Dashboard, hover over your tree card to reveal the <strong>⋯</strong> menu in the corner</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Select "Edit tree"</div><div class="sd">Opens the Edit tree panel with name, description, cover photo and icon options</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Upload a cover photo (optional)</div><div class="sd">Click <strong>Upload photo</strong> — supports JPG, PNG or WEBP up to 10 MB. A thumbnail preview appears instantly.</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Choose a cover icon</div><div class="sd">Pick one of the 12 emoji presets. This icon is shown when no photo has been uploaded.</div></div></li>
+      <li class="step"><div class="sn">5</div><div class="sb"><div class="sl">Click "Save changes"</div><div class="sd">The Dashboard card updates immediately with your new cover.</div></div></li>
+    </ul>
+  </div>
+  <div class="pane-r">
+    <div style="position:relative;width:100%;max-width:480px;height:300px">
+      <!-- Dashboard background (blurred) -->
+      <div class="app-wrap" style="opacity:.4;filter:blur(2px)">
+        <div class="app-sidebar">
+          <div class="sidebar-logo">🌳 OurFamRoots</div>
+          <div class="nav-item active">Dashboard</div>
+        </div>
+        <div class="app-main">
+          <div class="app-ph">Welcome back, Alice 👋</div>
+          <div class="cards-grid" style="margin-top:10px">
+            <div class="tree-card"><div class="tc-name">Johnson Family</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Edit tree modal on top -->
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;border-radius:12px">
+        <div class="modal" style="width:280px">
+          <div class="modal-h">✏️ &nbsp;Edit tree</div>
+          <span class="mock-lbl">Name</span>
+          <div class="mock-inp filled" style="margin-bottom:8px">The Johnson Family</div>
+          <!-- Cover photo section -->
+          <span class="mock-lbl">Cover photo</span>
+          <div style="border:1.5px dashed #93c5fd;border-radius:8px;padding:10px;text-align:center;margin-bottom:8px;background:#eff6ff">
+            <div style="font-size:16px;margin-bottom:3px">📷</div>
+            <div style="font-size:9px;font-weight:700;color:#3b82f6">Upload photo</div>
+            <div style="font-size:8px;color:#94a3b8;margin-top:2px">JPG, PNG or WEBP · max 10 MB</div>
+          </div>
+          <!-- Cover icon section -->
+          <span class="mock-lbl">Cover icon <span style="font-weight:400;color:var(--light)">(used when no photo)</span></span>
+          <div class="emoji-grid" style="margin-top:4px;margin-bottom:10px">
+            <div class="emoji-opt sel">🌳</div>
+            <div class="emoji-opt">🌲</div>
+            <div class="emoji-opt">🌴</div>
+            <div class="emoji-opt">🌿</div>
+            <div class="emoji-opt">🌸</div>
+            <div class="emoji-opt">🏡</div>
+            <div class="emoji-opt">📜</div>
+            <div class="emoji-opt">⛩️</div>
+            <div class="emoji-opt">🎋</div>
+            <div class="emoji-opt">🧬</div>
+            <div class="emoji-opt">🗺️</div>
+            <div class="emoji-opt">📖</div>
+          </div>
+          <div class="modal-footer">
+            <div class="modal-cancel">Cancel</div>
+            <div class="modal-create">Save changes</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 9 — TREE CANVAS
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s10">
+  <div class="pane-l">
+    <div class="slide-tag">Step 6</div>
+    <h2 class="slide-h">Meet the tree canvas</h2>
+    <p class="slide-sub">This is your interactive workspace for building the family tree.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">A</div><div class="sb"><div class="sl">← Dashboard (top-left)</div><div class="sd">Click to go back to your Dashboard at any time</div></div></li>
+      <li class="step"><div class="sn">B</div><div class="sb"><div class="sl">Tree name &amp; person count</div><div class="sd">Shows the tree's name and how many people are in it</div></div></li>
+      <li class="step"><div class="sn">C</div><div class="sb"><div class="sl">Action buttons (top-right)</div><div class="sd"><strong>↓ Export</strong> (PDF / CSV / .frt / .zip+photos), Layouts, Theme, Members — and <strong>+ Add person</strong> to begin</div></div></li>
+      <li class="step"><div class="sn">D</div><div class="sb"><div class="sl">The canvas area</div><div class="sd">Drag to pan, scroll to zoom. Family members appear as connected cards here</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">⌨️</div><div class="tip-txt">Press <strong>Ctrl + Space</strong> anywhere on the canvas to open the quick person search!</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="canvas-wrap">
+      <!-- Top bar -->
+      <div class="canvas-topbar">
+        <span class="ctb-back">← Dashboard</span><!-- A -->
+        <span class="ctb-sep"></span>
+        <span class="ctb-name">The Johnson Family</span><!-- B -->
+        <span class="ctb-count">0 people</span>
+        <div class="ctb-actions"><!-- C -->
+          <span class="ctb-btn">↓ Export</span>
+          <span class="ctb-btn">Layouts</span>
+          <span class="ctb-btn">🎨 Theme</span>
+          <span class="ctb-btn">Members</span>
+          <span class="ctb-btn-pri">+ Add person</span>
+        </div>
+      </div>
+      <!-- Canvas -->
+      <div class="canvas-area"><!-- D -->
+        <div class="canvas-hint">
+          <div class="canvas-hint-ico">🌳</div>
+          <div class="canvas-hint-txt">Your tree is empty</div>
+          <div style="font-size:10px;color:var(--light);margin-top:3px">Click "+ Add person" to start</div>
+        </div>
+        <!-- Grid dots background -->
+        <svg style="position:absolute;inset:0;width:100%;height:100%;opacity:.3" xmlns="http://www.w3.org/2000/svg">
+          <defs><pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="1.2" fill="#94a3b8"/>
+          </pattern></defs>
+          <rect width="100%" height="100%" fill="url(#dots)"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 10 — ADD FIRST PERSON
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s11">
+  <div class="pane-l">
+    <div class="slide-tag">Step 7</div>
+    <h2 class="slide-h">Add your first person</h2>
+    <p class="slide-sub">Start with yourself, or whoever is the root of your tree.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click "+ Add person"</div><div class="sd">The form slides in from the right side of the screen</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Enter their name</div><div class="sd">Fill in given name (first name) and surname (last name)</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Select gender</div><div class="sd">Choose Male, Female, Other, or Unknown — this affects the node colour</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Mark if still living</div><div class="sd">Tick "Currently living" if the person is alive today</div></div></li>
+      <li class="step"><div class="sn">5</div><div class="sb"><div class="sl">Click "Save person"</div><div class="sd">They appear as a node on the canvas. Repeat for each family member!</div></div></li>
+    </ul>
+  </div>
+  <div class="pane-r">
+    <div style="display:flex;gap:14px;width:100%;max-width:500px;align-items:flex-start">
+      <!-- Canvas with first person -->
+      <div class="canvas-wrap" style="flex:1;max-width:260px">
+        <div class="canvas-topbar" style="padding:0 10px;gap:6px">
+          <span class="ctb-back" style="font-size:9px">← Dashboard</span>
+          <span class="ctb-sep"></span>
+          <span class="ctb-name" style="font-size:10px">Johnson Family</span>
+          <span class="ctb-btn-pri" style="font-size:8px;padding:3px 8px;margin-left:auto">+ Add</span>
+        </div>
+        <div class="canvas-area">
+          <svg class="canvas-svg"><defs><pattern id="d2" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#cbd5e1"/></pattern></defs><rect width="100%" height="100%" fill="url(#d2)"/></svg>
+          <div class="tree-person" style="top:50%;left:50%;transform:translate(-50%,-50%)">
+            👤 Alice Johnson
+          </div>
+        </div>
+      </div>
+      <!-- Add person form -->
+      <div class="person-form" style="width:200px">
+        <div class="pf-header">
+          <div class="pf-title">Add person</div>
+          <div class="pf-close">✕</div>
+        </div>
+        <div class="pf-body">
+          <span class="mock-lbl">Given name</span>
+          <div class="mock-inp filled" style="margin-bottom:8px">Alice</div>
+          <span class="mock-lbl">Surname</span>
+          <div class="mock-inp filled" style="margin-bottom:8px">Johnson</div>
+          <div class="pf-row">
+            <div>
+              <span class="mock-lbl">Gender</span>
+              <div class="pf-select">Female</div>
+            </div>
+            <div></div>
+          </div>
+          <div class="pf-checkbox" style="margin-top:4px">
+            <div class="pf-check" style="border-color:var(--brand);background:var(--brand-xlight)"></div>
+            Currently living
+          </div>
+        </div>
+        <div class="pf-footer">
+          <div class="pf-cancel">Cancel</div>
+          <div class="pf-save">Save person</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 11 — BUILD RELATIONSHIPS
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s12">
+  <div class="pane-l">
+    <div class="slide-tag">Step 8</div>
+    <h2 class="slide-h">Connect family members</h2>
+    <p class="slide-sub">Add parents, children, and spouses to grow your tree across generations.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click a person on the canvas</div><div class="sd">A detail panel opens on the right side showing their info</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Choose a relationship to add</div><div class="sd">Select "Add parent", "Add child", or "Add spouse" from the panel</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Fill in the new person's details</div><div class="sd">Or search for an existing person in the tree to link them</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Save — the tree updates live</div><div class="sd">Lines appear connecting the nodes. Each generation flows upward on the canvas</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">🔗</div><div class="tip-txt">Blue nodes = male · Pink nodes = female · Dashed nodes = deceased</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="canvas-wrap">
+      <div class="canvas-topbar" style="padding:0 12px;gap:8px">
+        <span class="ctb-back" style="font-size:9px">← Dashboard</span>
+        <span class="ctb-sep"></span>
+        <span class="ctb-name" style="font-size:10px">Johnson Family</span>
+        <span class="ctb-count" style="font-size:9px">5 people</span>
+        <span class="ctb-btn-pri" style="font-size:8px;padding:3px 8px;margin-left:auto">+ Add</span>
+      </div>
+      <div class="canvas-area" style="overflow:hidden">
+        <svg class="canvas-svg"><defs><pattern id="d3" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#cbd5e1"/></pattern></defs><rect width="100%" height="100%" fill="url(#d3)"/>
+          <!-- connector lines -->
+          <line x1="130" y1="88" x2="87" y2="118" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="none" opacity=".5"/>
+          <line x1="130" y1="88" x2="173" y2="118" stroke="#6366f1" stroke-width="1.5" opacity=".5"/>
+          <line x1="87" y1="156" x2="87" y2="186" stroke="#6366f1" stroke-width="1.5" opacity=".4"/>
+          <line x1="173" y1="156" x2="173" y2="186" stroke="#ec4899" stroke-width="1.5" opacity=".4"/>
+          <!-- union node line -->
+          <line x1="130" y1="52" x2="130" y2="80" stroke="#6366f1" stroke-width="1.5" opacity=".4"/>
+        </svg>
+        <!-- Grandparent level -->
+        <div class="union-node" style="top:8px;left:86px">💑 Union</div>
+        <!-- Parent level -->
+        <div class="tree-person" style="top:40px;left:50px">👴 Robert J.</div>
+        <div class="tree-person female" style="top:40px;left:148px">👵 Mary J.</div>
+        <!-- Alice + spouse level -->
+        <div class="tree-person" style="top:118px;left:50px">👤 Alice J.</div>
+        <div class="tree-person female" style="top:118px;left:148px">👤 Tom K.</div>
+        <!-- Children level -->
+        <div class="tree-person" style="top:186px;left:50px" style="font-size:8px">👶 Lily K.</div>
+        <div class="tree-person female" style="top:186px;left:148px">👶 Noah K.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 13 — CHILD TYPES (BIOLOGICAL, ADOPTIVE, STEP, FOSTER)
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s13">
+  <div class="pane-l">
+    <div class="slide-tag">Step 8b</div>
+    <h2 class="slide-h">Specify child relationship types</h2>
+    <p class="slide-sub">Not all parent-child bonds are the same. OurFamRoots supports biological, adoptive, step, and foster relationships.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click a person, then "Add child"</div><div class="sd">When adding a child to an existing parent, the form lets you specify the relationship type</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Choose the parentage type</div><div class="sd"><strong>Biological</strong> — birth parent (solid line)<br><strong>Adoptive</strong> — legally adopted (long dash)<br><strong>Step</strong> — through marriage (short dash)<br><strong>Foster</strong> — foster care (dash-dot)</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Visual line styles tell the story</div><div class="sd">Each type uses a distinct line pattern on the canvas so you can instantly see the relationship at a glance</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Labels appear on the edge</div><div class="sd">Non-biological edges show a small label ("adopted", "step", "foster") on the connecting line</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">💡</div><div class="tip-txt">You can change a child's parentage type later by clicking the child, opening the panel, and editing their relationship to the parent.</div></div>
+  </div>
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:500px">
+      <!-- Legend card -->
+      <div style="background:white;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.1);padding:16px 18px">
+        <div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:12px">Child Relationship Types — Visual Legend</div>
+        <!-- Biological -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="width:60px">
+            <svg width="60" height="4"><line x1="0" y1="2" x2="60" y2="2" stroke="#6366f1" stroke-width="2"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Biological</div>
+            <div style="font-size:8px;color:var(--muted)">Solid line — birth parent/child</div>
+          </div>
+        </div>
+        <!-- Adoptive -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="width:60px">
+            <svg width="60" height="4"><line x1="0" y1="2" x2="60" y2="2" stroke="#6366f1" stroke-width="2" stroke-dasharray="8 4"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Adoptive <span style="background:#eff6ff;color:#3b82f6;padding:1px 5px;border-radius:4px;font-size:8px;margin-left:4px">adopted</span></div>
+            <div style="font-size:8px;color:var(--muted)">Long dash — legally adopted child</div>
+          </div>
+        </div>
+        <!-- Step -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="width:60px">
+            <svg width="60" height="4"><line x1="0" y1="2" x2="60" y2="2" stroke="#6366f1" stroke-width="2" stroke-dasharray="4 4"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Step <span style="background:#eff6ff;color:#3b82f6;padding:1px 5px;border-radius:4px;font-size:8px;margin-left:4px">step</span></div>
+            <div style="font-size:8px;color:var(--muted)">Short dash — child through marriage</div>
+          </div>
+        </div>
+        <!-- Foster -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+          <div style="width:60px">
+            <svg width="60" height="4"><line x1="0" y1="2" x2="60" y2="2" stroke="#6366f1" stroke-width="2" stroke-dasharray="8 4 2 4"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Foster <span style="background:#eff6ff;color:#3b82f6;padding:1px 5px;border-radius:4px;font-size:8px;margin-left:4px">foster</span></div>
+            <div style="font-size:8px;color:var(--muted)">Dash-dot — foster care relationship</div>
+          </div>
+        </div>
+      </div>
+      <!-- Canvas example showing different child types -->
+      <div style="background:white;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.1);overflow:hidden">
+        <div style="background:#f8fafc;border-bottom:1px solid var(--border);padding:7px 12px;font-size:9px;font-weight:700;color:var(--muted)">
+          EXAMPLE — Parent with different child types
+        </div>
+        <div style="position:relative;height:150px;background:linear-gradient(135deg,#f8fafc,#f1f5f9)">
+          <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+            <defs><pattern id="dchild" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#cbd5e1"/></pattern></defs>
+            <rect width="100%" height="100%" fill="url(#dchild)"/>
+            <!-- Union node to children lines -->
+            <line x1="160" y1="35" x2="50" y2="90" stroke="#6366f1" stroke-width="1.5"/>
+            <line x1="160" y1="35" x2="140" y2="90" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="8 4"/>
+            <line x1="160" y1="35" x2="230" y2="90" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="4 4"/>
+            <line x1="160" y1="35" x2="320" y2="90" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="8 4 2 4"/>
+          </svg>
+          <!-- Union node -->
+          <div class="union-node" style="top:16px;left:128px;font-size:7px">💑 Marriage</div>
+          <!-- Children -->
+          <div class="tree-person" style="top:90px;left:10px;font-size:8px;padding:5px 8px">👶 Emma<br><span style="font-size:7px;color:var(--muted);font-weight:400">biological</span></div>
+          <div class="tree-person" style="top:90px;left:100px;font-size:8px;padding:5px 8px">👶 Mia<br><span style="font-size:7px;color:#3b82f6;font-weight:400">adopted</span></div>
+          <div class="tree-person" style="top:90px;left:195px;font-size:8px;padding:5px 8px">👶 Jake<br><span style="font-size:7px;color:#3b82f6;font-weight:400">step</span></div>
+          <div class="tree-person" style="top:90px;left:285px;font-size:8px;padding:5px 8px">👶 Lily<br><span style="font-size:7px;color:#3b82f6;font-weight:400">foster</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 14 — DIVORCE & UNION TYPES
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s14">
+  <div class="pane-l">
+    <div class="slide-tag">Step 8c</div>
+    <h2 class="slide-h">Mark divorce &amp; union types</h2>
+    <p class="slide-sub">Record the full picture of family relationships — marriages, partnerships, and divorces.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Change the union type</div><div class="sd">Click the connecting line between two spouses to open the relationship panel. Use the <strong>Union type</strong> dropdown to choose:<br><strong>Marriage</strong> · <strong>Partnership</strong> · <strong>Cohabitation</strong> · <strong>Unknown</strong></div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Mark a union as divorced</div><div class="sd">In the same panel, click <strong>"💔 Mark as Divorced"</strong>. The line turns grey and dashed. Click again to undo.</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Multiple marriages supported</div><div class="sd">A person can have multiple unions. When they do, labels like <strong>"2nd Marriage"</strong> appear automatically.</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Custom union labels</div><div class="sd">Double-click any union label on the canvas to rename it (e.g. "Church Wedding", "Civil Union").</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">💡</div><div class="tip-txt"><strong>Remarriage after divorce:</strong> Add a new spouse to the person — it automatically creates a second union. The first marriage shows as divorced (grey dashed), and the second as active.</div></div>
+  </div>
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:500px">
+      <!-- Union types legend -->
+      <div style="background:white;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.1);padding:16px 18px">
+        <div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:12px">Union Types — Visual Legend</div>
+        <!-- Marriage -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="width:60px">
+            <svg width="60" height="8"><line x1="0" y1="2" x2="60" y2="2" stroke="#f59e0b" stroke-width="1.5"/><line x1="0" y1="6" x2="60" y2="6" stroke="#f59e0b" stroke-width="1.5"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Marriage <span style="background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-size:8px;margin-left:4px">══</span></div>
+            <div style="font-size:8px;color:var(--muted)">Golden double line — legally married</div>
+          </div>
+        </div>
+        <!-- Partnership -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="width:60px">
+            <svg width="60" height="4"><line x1="0" y1="2" x2="60" y2="2" stroke="#10b981" stroke-width="2"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Partnership</div>
+            <div style="font-size:8px;color:var(--muted)">Green solid — domestic or civil partnership</div>
+          </div>
+        </div>
+        <!-- Cohabitation -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="width:60px">
+            <svg width="60" height="4"><line x1="0" y1="2" x2="60" y2="2" stroke="#6366f1" stroke-width="2" stroke-dasharray="6 6"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Cohabitation</div>
+            <div style="font-size:8px;color:var(--muted)">Indigo dashed — living together, not married</div>
+          </div>
+        </div>
+        <!-- Divorced -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+          <div style="width:60px">
+            <svg width="60" height="8"><line x1="0" y1="2" x2="60" y2="2" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4"/><line x1="0" y1="6" x2="60" y2="6" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4"/></svg>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#dc2626">Divorced <span style="background:#fee2e2;color:#dc2626;padding:1px 5px;border-radius:4px;font-size:8px;margin-left:4px">ended</span></div>
+            <div style="font-size:8px;color:var(--muted)">Grey dashed — marriage/partnership ended</div>
+          </div>
+        </div>
+      </div>
+      <!-- Edge panel mockup showing union type dropdown + divorce toggle -->
+      <div style="background:white;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.1);overflow:hidden">
+        <div style="background:#f8fafc;border-bottom:1px solid var(--border);padding:7px 12px;font-size:9px;font-weight:700;color:var(--muted)">
+          HOW — Click a union edge to open the relationship panel
+        </div>
+        <div style="padding:14px 16px">
+          <!-- Panel header -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--text)">Relationship</div>
+              <div style="font-size:9px;color:var(--muted)">Marriage link</div>
+            </div>
+            <div style="font-size:12px;color:var(--light);cursor:default">✕</div>
+          </div>
+          <!-- Info card -->
+          <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:9px;color:var(--text)">
+            <div>👤 <strong>Robert</strong></div>
+            <div style="font-size:8px;color:var(--muted);margin-top:2px">🔗 Family with Robert &amp; Maria</div>
+          </div>
+          <!-- Union type dropdown — highlighted -->
+          <div style="margin-bottom:10px">
+            <div style="font-size:9px;font-weight:600;color:var(--muted);margin-bottom:4px">Union type</div>
+            <div class="highlighted" style="border:1.5px solid var(--brand);border-radius:7px;padding:6px 8px;font-size:10px;color:var(--text);background:white;display:flex;justify-content:space-between;align-items:center">
+              <span>Marriage</span><span style="font-size:8px;color:var(--light)">▾</span>
+            </div>
+            <!-- Dropdown options preview -->
+            <div style="border:1px solid var(--border);border-radius:7px;margin-top:2px;background:white;box-shadow:0 4px 12px rgba(0,0,0,.1);overflow:hidden">
+              <div style="padding:5px 8px;font-size:9px;color:var(--brand);background:var(--brand-xlight);font-weight:600">💍 Marriage</div>
+              <div style="padding:5px 8px;font-size:9px;color:var(--text);border-top:1px solid #f8fafc">🤝 Partnership</div>
+              <div style="padding:5px 8px;font-size:9px;color:var(--text);border-top:1px solid #f8fafc">🏠 Cohabitation</div>
+              <div style="padding:5px 8px;font-size:9px;color:var(--muted);border-top:1px solid #f8fafc">○ Unknown</div>
+            </div>
+          </div>
+          <!-- Divorce toggle button -->
+          <div style="margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:10px;color:var(--text);cursor:default">
+              💔 Mark as Divorced
+            </div>
+          </div>
+          <!-- Delete button -->
+          <div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #fecaca;border-radius:7px;font-size:10px;color:#dc2626;cursor:default">
+            🗑 Remove this relationship
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 15 — VIEWS & LAYOUTS
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s15">
+  <div class="pane-l">
+    <div class="slide-tag">Step 9</div>
+    <h2 class="slide-h">Explore different tree views</h2>
+    <p class="slide-sub">OurFamRoots supports multiple beautiful visualisations of the same tree.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click "Layouts" in the top bar</div><div class="sd">A panel opens showing all available layout options</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Pick a layout style</div><div class="sd"><strong>Generation Sort</strong> — oldest generation at top, each level below<br><strong>Vertical</strong> — multi-marriage-aware family tree<br><strong>Fan Chart</strong> — circular ancestry up to 8 generations<br><strong>Pedigree</strong> — ancestors flowing left-to-right</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Use canvas toolbar controls (top-left)</div><div class="sd">The floating toolbar in the top-left has zoom controls, all layout mode buttons, expand/collapse, and <strong>↺ Reset layout</strong> (resets node positions to the algorithm's default without moving the viewport)</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Customise with 🎨 Theme</div><div class="sd">Change node colours, backgrounds, and fonts using the Theme button</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">💡</div><div class="tip-txt"><strong>Generation Sort</strong> places the oldest generation at the very top and each subsequent generation one row lower — great for seeing the full lineage at a glance. <strong>↺ Reset layout</strong> snaps nodes back to their calculated positions without zooming, so you don't lose your current view.</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="layout-panel">
+      <div class="lp-header">🗂 &nbsp;Choose a layout</div>
+      <div class="lp-grid">
+        <div class="layout-opt sel">
+          <div class="lo-ico">🌳</div>
+          <div class="lo-lbl">Compact</div>
+          <div class="lo-desc">Traditional family tree</div>
+        </div>
+        <div class="layout-opt">
+          <div class="lo-ico">📊</div>
+          <div class="lo-lbl">Generation Sort</div>
+          <div class="lo-desc">Oldest generation at top</div>
+        </div>
+        <div class="layout-opt">
+          <div class="lo-ico">↕</div>
+          <div class="lo-lbl">Vertical</div>
+          <div class="lo-desc">Multi-marriage aware</div>
+        </div>
+        <div class="layout-opt">
+          <div class="lo-ico">↑</div>
+          <div class="lo-lbl">Ancestor</div>
+          <div class="lo-desc">All ancestors upward</div>
+        </div>
+        <div class="layout-opt">
+          <div class="lo-ico">🌀</div>
+          <div class="lo-lbl">Fan Chart</div>
+          <div class="lo-desc">Circular ancestry view</div>
+        </div>
+        <div class="layout-opt">
+          <div class="lo-ico">📐</div>
+          <div class="lo-lbl">Pedigree</div>
+          <div class="lo-desc">Left-to-right ancestors</div>
+        </div>
+      </div>
+      <!-- Canvas toolbar mockup — matches TreeControls.tsx exactly -->
+      <div style="padding:10px 14px 14px">
+        <div style="font-size:8px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Canvas toolbar (floating, top-left of canvas)</div>
+        <div style="display:flex;align-items:center;gap:3px;padding:5px 7px;background:white;border:1px solid var(--border);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);flex-wrap:wrap">
+
+          <!-- Zoom out: MinusIcon (horizontal line SVG) -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Zoom out">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><line x1="2" y1="7" x2="12" y2="7"/></svg>
+          </div>
+          <!-- Zoom % -->
+          <div style="font-size:7px;font-family:monospace;color:#94a3b8;min-width:26px;text-align:center">100%</div>
+          <!-- Zoom in: PlusIcon SVG -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Zoom in">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="2" x2="7" y2="12"/><line x1="2" y1="7" x2="12" y2="7"/></svg>
+          </div>
+          <!-- Fit view: FitIcon (nested rects SVG) -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Fit view">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="12" height="12" rx="1"/><rect x="4" y="4" width="6" height="6"/></svg>
+          </div>
+
+          <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
+
+          <!-- Generation Sort: pyramid SVG (active/highlighted) -->
+          <div style="width:22px;height:22px;border-radius:6px;background:var(--brand);color:white;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(99,102,241,.4)" title="Generation sort">
+            <svg width="12" height="11" viewBox="0 0 14 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="4.5" y="0.5" width="5" height="2.5" rx="0.5"/><line x1="5.5" y1="3" x2="3" y2="5.5"/><line x1="8.5" y1="3" x2="11" y2="5.5"/><rect x="0.5" y="5.5" width="5" height="2.5" rx="0.5"/><rect x="8.5" y="5.5" width="5" height="2.5" rx="0.5"/><line x1="3" y1="8" x2="2.5" y2="10.5"/><line x1="11" y1="8" x2="11.5" y2="10.5"/><rect x="0.5" y="10.5" width="4" height="2" rx="0.5"/><rect x="9.5" y="10.5" width="4" height="2" rx="0.5"/></svg>
+          </div>
+          <!-- Vertical ↕ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Vertical (multi-marriage aware)">↕</div>
+          <!-- Horizontal ↔ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Horizontal">↔</div>
+          <!-- Ancestor ↑ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Ancestor chart">↑</div>
+          <!-- Descendant ↓ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Descendant chart">↓</div>
+          <!-- Descendants+spouses: DescendantFamilyIcon SVG -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Descendants + spouses">
+            <svg width="13" height="11" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="8" cy="2" r="1.8" fill="currentColor" stroke="none"/><line x1="8" y1="3.8" x2="8" y2="5.5"/><line x1="3.5" y1="5.5" x2="12.5" y2="5.5"/><line x1="3.5" y1="5.5" x2="3.5" y2="7.5"/><line x1="12.5" y1="5.5" x2="12.5" y2="7.5"/><circle cx="1.8" cy="10.5" r="1.5"/><line x1="3.3" y1="10.5" x2="4" y2="10.5"/><circle cx="5.3" cy="10.5" r="1.5"/><circle cx="10" cy="10.5" r="1.5"/><line x1="11.5" y1="10.5" x2="12.2" y2="10.5"/><circle cx="13.7" cy="10.5" r="1.5"/></svg>
+          </div>
+          <!-- Ancestors+spouses: AncestorFamilyIcon SVG -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Ancestors + spouses">
+            <svg width="13" height="11" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="1.8" cy="3.5" r="1.5"/><line x1="3.3" y1="3.5" x2="4" y2="3.5"/><circle cx="5.3" cy="3.5" r="1.5"/><circle cx="10" cy="3.5" r="1.5"/><line x1="11.5" y1="3.5" x2="12.2" y2="3.5"/><circle cx="13.7" cy="3.5" r="1.5"/><line x1="3.5" y1="5" x2="3.5" y2="8.5"/><line x1="12.5" y1="5" x2="12.5" y2="8.5"/><line x1="3.5" y1="8.5" x2="12.5" y2="8.5"/><line x1="8" y1="8.5" x2="8" y2="10.2"/><circle cx="8" cy="12" r="1.8" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <!-- Fan ◑ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Fan chart (180°)">◑</div>
+          <!-- Ancestry fan ◎ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Ancestry fan (360°)">◎</div>
+          <!-- Pedigree ⊢ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;background:#f8fafc" title="Pedigree chart">⊢</div>
+
+          <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
+
+          <!-- Expand all ⊞ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;color:#475569;background:#f8fafc" title="Expand all branches">⊞</div>
+          <!-- Collapse ⊟ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;color:#475569;background:#f8fafc" title="Collapse to focus">⊟</div>
+
+          <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
+
+          <!-- Reset layout ↺ -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:#475569;background:#f8fafc" title="Reset layout">↺</div>
+          <!-- Compact view: CompactViewIcon SVG (two cards top → one card bottom) -->
+          <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Compact view">
+            <svg width="11" height="10" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="0.5" y="0.5" width="4" height="2.5" rx="0.5"/><rect x="9.5" y="0.5" width="4" height="2.5" rx="0.5"/><rect x="5" y="9" width="4" height="2.5" rx="0.5"/><line x1="2.5" y1="3" x2="2.5" y2="5.5"/><line x1="11.5" y1="3" x2="11.5" y2="5.5"/><line x1="2.5" y1="5.5" x2="11.5" y2="5.5"/><line x1="7" y1="5.5" x2="7" y2="9"/></svg>
+          </div>
+        </div>
+        <!-- Annotation legend -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-top:7px">
+          <div style="font-size:7.5px;color:#475569"><svg width="9" height="8" viewBox="0 0 14 13" fill="none" stroke="#6366f1" stroke-width="1.3" stroke-linecap="round" style="vertical-align:middle;margin-right:2px"><rect x="4.5" y="0.5" width="5" height="2.5" rx="0.5"/><line x1="5.5" y1="3" x2="3" y2="5.5"/><line x1="8.5" y1="3" x2="11" y2="5.5"/><rect x="0.5" y="5.5" width="5" height="2.5" rx="0.5"/><rect x="8.5" y="5.5" width="5" height="2.5" rx="0.5"/></svg> <strong style="color:#6366f1">Generation Sort</strong></div>
+          <div style="font-size:7.5px;color:#475569">↕ Vertical (multi-marriage aware)</div>
+          <div style="font-size:7.5px;color:#475569">↑ Ancestor &nbsp; ↓ Descendant</div>
+          <div style="font-size:7.5px;color:#475569">◑ Fan (180°) &nbsp; ◎ Fan (360°) &nbsp; ⊢ Pedigree</div>
+          <div style="font-size:7.5px;color:#475569">⊞ Expand all &nbsp; ⊟ Collapse</div>
+          <div style="font-size:7.5px;color:#475569">↺ Reset layout (positions only, no zoom)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 13 — SEARCH
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s16">
+  <div class="pane-l">
+    <div class="slide-tag">Step 10</div>
+    <h2 class="slide-h">Search across all your trees</h2>
+    <p class="slide-sub">Quickly find any person, tree, or discover how two people are related.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click "Search" in the sidebar</div><div class="sd">Or press <strong>Ctrl + Space</strong> on the canvas for in-tree search</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Members tab</div><div class="sd">Search for any person by name across all your trees. Filter by a specific tree using the dropdown.</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Trees tab</div><div class="sd">Search all trees you have access to, whether you own them or were invited</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Relationship tab</div><div class="sd">Pick two people and instantly find out how they are related (e.g. "2nd cousins once removed")</div></div></li>
+    </ul>
+  </div>
+  <div class="pane-r">
+    <div class="app-wrap">
+      <div class="app-sidebar">
+        <div class="sidebar-logo">🌳 OurFamRoots</div>
+        <div class="nav-item">Dashboard</div>
+        <div class="nav-item active">Search</div>
+        <div class="nav-item">Reports</div>
+        <div class="nav-item">Settings</div>
+      </div>
+      <div class="app-main" style="padding:12px">
+        <div class="search-page" style="padding:0">
+          <div class="search-ph" style="margin-bottom:8px">Search</div>
+          <div class="search-tabs">
+            <div class="stab active">Members</div>
+            <div class="stab">Trees</div>
+            <div class="stab">Relationship</div>
+          </div>
+          <div class="search-bar">
+            <div class="search-inp-wrap">
+              <span class="search-ico">🔍</span>
+              <div class="mock-inp focused" style="padding-left:22px;margin-bottom:0">Johnson…</div>
+            </div>
+            <div class="search-select">All trees</div>
+          </div>
+          <div>
+            <div class="search-result">
+              <div class="sr-av">AJ</div>
+              <div><div class="sr-name">Alice Johnson</div><div class="sr-sub">Johnson Family · 5 connections</div></div>
+            </div>
+            <div class="search-result">
+              <div class="sr-av pink">MJ</div>
+              <div><div class="sr-name">Mary Johnson</div><div class="sr-sub">Johnson Family · Mother of Alice</div></div>
+            </div>
+            <div class="search-result">
+              <div class="sr-av green">RJ</div>
+              <div><div class="sr-name">Robert Johnson</div><div class="sr-sub">Johnson Family · Father of Alice</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 14 — SHARE & COLLABORATE
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s17">
+  <div class="pane-l">
+    <div class="slide-tag">Step 11</div>
+    <h2 class="slide-h">Share your tree with family</h2>
+    <p class="slide-sub">Invite relatives to view or collaborate on your family tree together.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click "Members" in the tree top bar</div><div class="sd">This opens the collaboration panel for that specific tree</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Enter an email address</div><div class="sd">Type the email of the person you want to invite, then select their role</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Choose a role</div><div class="sd"><span style="background:#ede9fe;color:#7c3aed;border-radius:4px;padding:1px 5px;font-size:11px;font-weight:700">Owner</span> full control &nbsp;
+        <span style="background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;font-size:11px;font-weight:700">Editor</span> can add &amp; edit &nbsp;
+        <span style="background:#f1f5f9;color:#475569;border-radius:4px;padding:1px 5px;font-size:11px;font-weight:700">Viewer</span> read-only</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Send the invitation</div><div class="sd">They receive an email with an invitation link. Once accepted, they can access the tree.</div></div></li>
+    </ul>
+  </div>
+  <div class="pane-r">
+    <div class="share-modal">
+      <div class="sm-header">
+        <div class="sm-h">Share "Johnson Family"</div>
+        <div class="sm-sub">Invite people to view or edit this tree</div>
+      </div>
+      <div class="sm-invite">
+        <div class="sm-invite-inp">bob@example.com</div>
+        <div style="border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:9px;color:var(--text);background:white">Editor ▾</div>
+        <div class="sm-invite-btn">Invite</div>
+      </div>
+      <div class="sm-members">
+        <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Current members</div>
+        <div class="sm-member">
+          <div class="sm-av">AJ</div>
+          <div style="flex:1">
+            <div class="sm-name">Alice Johnson</div>
+            <div class="sm-email">alice@example.com</div>
+          </div>
+          <span class="role-badge rb-owner">Owner</span>
+        </div>
+        <div class="sm-member">
+          <div class="sm-av" style="background:#dcfce7;color:#15803d">BK</div>
+          <div style="flex:1">
+            <div class="sm-name">Bob Kim</div>
+            <div class="sm-email">bob@example.com</div>
+          </div>
+          <span class="role-badge rb-editor">Editor</span>
+        </div>
+        <div class="sm-member">
+          <div class="sm-av" style="background:#f1f5f9;color:#475569">GP</div>
+          <div style="flex:1">
+            <div class="sm-name">Grandpa Pete</div>
+            <div class="sm-email">pete@example.com</div>
+          </div>
+          <span class="role-badge rb-viewer">Viewer</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 15 — REPORTS
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s18">
+  <div class="pane-l">
+    <div class="slide-tag">Step 12</div>
+    <h2 class="slide-h">View reports &amp; export data</h2>
+    <p class="slide-sub">See stats across all your trees, filter, sort, and export your genealogy data.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">Click "Reports" in the sidebar</div><div class="sd">See summary cards: total trees, total people, and collaborators</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">Search &amp; filter the table</div><div class="sd">Type to search by name, filter by role, or change how many rows are shown per page</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Sort any column</div><div class="sd">Click column headings (Tree, Role, People, Members) to sort ascending or descending</div></div></li>
+      <li class="step"><div class="sn">4</div><div class="sb"><div class="sl">Export from the tree canvas</div><div class="sd">Inside a tree, use the Export button to download as <strong>PDF</strong>, <strong>CSV</strong>, <strong>.frt</strong>, or <strong>.zip with photos</strong></div></div></li>
+    </ul>
+  </div>
+  <div class="pane-r">
+    <div class="app-wrap">
+      <div class="app-sidebar">
+        <div class="sidebar-logo">🌳 OurFamRoots</div>
+        <div class="nav-item">Dashboard</div>
+        <div class="nav-item">Search</div>
+        <div class="nav-item active">Reports</div>
+        <div class="nav-item">Settings</div>
+      </div>
+      <div class="app-main" style="padding:12px">
+        <div class="reports-ph">Reports</div>
+        <div class="stat-cards">
+          <div class="stat-card"><div class="sc-ico">🌳</div><div class="sc-val">3</div><div class="sc-lbl">Family trees</div></div>
+          <div class="stat-card"><div class="sc-ico">👤</div><div class="sc-val">37</div><div class="sc-lbl">Total people</div></div>
+          <div class="stat-card"><div class="sc-ico">👥</div><div class="sc-val">8</div><div class="sc-lbl">Collaborators</div></div>
+        </div>
+        <div class="rep-toolbar">
+          <div class="rt-inp" style="position:relative;padding-left:20px">🔍 &nbsp;Search trees…</div>
+          <div class="rt-sel">All roles ▾</div>
+          <div class="rt-sel">10/page ▾</div>
+        </div>
+        <div class="rep-table">
+          <div class="rt-head">
+            <span>Tree <span class="sort-indicator">↑</span></span>
+            <span>Role</span>
+            <span class="rt-r">People</span>
+            <span class="rt-r">Members</span>
+          </div>
+          <div class="rt-row"><span class="rt-link">Johnson Family</span><span>Owner</span><span class="rt-r">12</span><span class="rt-r">3</span></div>
+          <div class="rt-row" style="background:#fafafa"><span class="rt-link">Smith Family</span><span>Editor</span><span class="rt-r">18</span><span class="rt-r">4</span></div>
+          <div class="rt-row"><span class="rt-link">Lee Family</span><span>Viewer</span><span class="rt-r">7</span><span class="rt-r">1</span></div>
+          <div class="pag-row">
+            <span>Showing 1–3 of 3</span>
+            <div class="pag-btns">
+              <div class="pag-arrow">← Prev</div>
+              <div class="pag-btn active">1</div>
+              <div class="pag-arrow">Next →</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 16 — SETTINGS (bonus)
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s19">
+  <div class="pane-l">
+    <div class="slide-tag">Bonus</div>
+    <h2 class="slide-h">Personalise your account</h2>
+    <p class="slide-sub">Head to Settings any time to update your profile, security, and appearance.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">👤</div><div class="sb"><div class="sl">Profile tab</div><div class="sd">Update your name, email address, and upload a profile photo</div></div></li>
+      <li class="step"><div class="sn">🔒</div><div class="sb"><div class="sl">Security tab</div><div class="sd">Change your password any time — use a strong, unique password</div></div></li>
+      <li class="step"><div class="sn">🎨</div><div class="sb"><div class="sl">Appearance tab</div><div class="sd">Choose from colour themes: Light, Dark, Ocean, Forest, and more. The canvas also has its own theming!</div></div></li>
+      <li class="step"><div class="sn">🔔</div><div class="sb"><div class="sl">Notifications tab</div><div class="sd">View in-app notifications and manage your <strong>broadcast email</strong> subscription. Toggle off if you don't want to receive broadcast emails from the administrator.</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">📧</div><div class="tip-txt">Broadcast emails (notices, alerts, event announcements) are sent by the site administrator. You can <strong>unsubscribe</strong> any time from Settings → Notifications.</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="app-wrap">
+      <div class="app-sidebar">
+        <div class="sidebar-logo">🌳 OurFamRoots</div>
+        <div class="nav-item">Dashboard</div>
+        <div class="nav-item">Search</div>
+        <div class="nav-item">Reports</div>
+        <div class="nav-item active">Settings</div>
+      </div>
+      <div class="app-main" style="padding:12px">
+        <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:10px">Settings</div>
+        <!-- Tabs -->
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:12px">
+          <div class="stab" style="font-size:9px">Profile</div>
+          <div class="stab" style="font-size:9px">Security</div>
+          <div class="stab" style="font-size:9px">Appearance</div>
+          <div class="stab active" style="font-size:9px">Notifications</div>
+        </div>
+        <!-- Broadcast subscription toggle -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text)">Broadcast emails</div>
+            <div style="font-size:8px;color:var(--muted);margin-top:2px">Receive notices, alerts &amp; event emails from the administrator</div>
+          </div>
+          <div class="highlighted" style="width:32px;height:18px;background:var(--brand);border-radius:20px;position:relative;flex-shrink:0">
+            <div style="width:14px;height:14px;background:white;border-radius:50%;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,.2)"></div>
+          </div>
+        </div>
+        <!-- Notification list -->
+        <div style="font-size:9px;font-weight:700;color:var(--text);margin-bottom:6px">Recent notifications</div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f8fafc">
+            <div style="font-size:14px">🌳</div>
+            <div style="flex:1"><div style="font-size:9px;font-weight:600;color:var(--text)">You were invited to Smith Family</div><div style="font-size:8px;color:var(--muted)">2 hours ago</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f8fafc">
+            <div style="font-size:14px">👤</div>
+            <div style="flex:1"><div style="font-size:9px;font-weight:600;color:var(--text)">Bob joined your Johnson Family tree</div><div style="font-size:8px;color:var(--muted)">1 day ago</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 17 — UNDER CONSTRUCTION PAGE
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s20">
+  <div class="pane-l">
+    <div class="slide-tag">Good to know</div>
+    <h2 class="slide-h">Under Construction page</h2>
+    <p class="slide-sub">Occasionally you may see an "Under Construction" page when visiting OurFamRoots. Here's what it means.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">🔧</div><div class="sb"><div class="sl">Scheduled maintenance</div><div class="sd">The site administrator may temporarily take the site offline for updates, migrations, or maintenance work</div></div></li>
+      <li class="step"><div class="sn">💬</div><div class="sb"><div class="sl">Custom message</div><div class="sd">The page will show a message from the administrator explaining what's happening and when to check back</div></div></li>
+      <li class="step"><div class="sn">⏳</div><div class="sb"><div class="sl">Temporary</div><div class="sd">Maintenance windows are brief. Your data is safe — just try again later and the site will be back up</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">✅</div><div class="tip-txt">Your trees, people, and all your data are <strong>completely safe</strong> during maintenance. Nothing is lost — the site is just temporarily unavailable.</div></div>
+  </div>
+  <div class="pane-r">
+    <div class="browser">
+      <div class="browser-bar">
+        <div class="browser-dots"><div class="bd bd-r"></div><div class="bd bd-y"></div><div class="bd bd-g"></div></div>
+        <div class="browser-url">ourfamroots.com</div>
+      </div>
+      <div class="browser-content" style="background:linear-gradient(135deg,#fffbeb,#fff7ed);padding:30px 20px;text-align:center;min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="width:48px;height:48px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;margin-bottom:14px">
+          <span style="font-size:24px">🔧</span>
+        </div>
+        <div style="font-size:18px;font-weight:800;color:#1e293b;margin-bottom:6px">Under Construction</div>
+        <div style="font-size:11px;color:#64748b;line-height:1.6;max-width:280px;margin-bottom:16px">
+          We are currently performing scheduled maintenance. Please check back soon!
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:9px;color:#94a3b8">
+          <span style="font-weight:600">OurFamRoots</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 18 — YOU'RE READY!
+═══════════════════════════════════════════════ -->
+<div class="slide layout-end" id="s21">
+  <div style="font-size:72px;margin-bottom:14px">🎉</div>
+  <h2 class="end-h">You're ready to start!</h2>
+  <p class="end-sub">Here's your quick-reference cheat sheet to keep handy</p>
+  <div class="end-grid">
+    <div class="end-card">
+      <div class="ec-ico">🔐</div>
+      <div><div class="ec-h">Sign Up / Google</div><div class="ec-p">Register with email or <strong>Continue with Google</strong> for instant access</div></div>
+    </div>
+    <div class="end-card">
+      <div class="ec-ico">🌳</div>
+      <div><div class="ec-h">New Tree</div><div class="ec-p">Dashboard → <strong>+ New tree</strong> → Name it → Create</div></div>
+    </div>
+    <div class="end-card">
+      <div class="ec-ico">👶</div>
+      <div><div class="ec-h">Child Types</div><div class="ec-p">Biological (solid), Adoptive (long dash), Step (short dash), Foster (dash-dot)</div></div>
+    </div>
+    <div class="end-card">
+      <div class="ec-ico">💔</div>
+      <div><div class="ec-h">Divorce</div><div class="ec-p">Toggle <strong>Divorced</strong> on any union — line turns grey dashed. Remarriage auto-labels.</div></div>
+    </div>
+    <div class="end-card">
+      <div class="ec-ico">👥</div>
+      <div><div class="ec-h">Collaborate</div><div class="ec-p">Tree canvas → <strong>Members</strong> → Enter email → Choose role → Invite</div></div>
+    </div>
+    <div class="end-card">
+      <div class="ec-ico">📥</div>
+      <div><div class="ec-h">Export</div><div class="ec-p">Tree canvas → <strong>Export</strong> → PDF / CSV / .frt / .zip</div></div>
+    </div>
+  </div>
+  <div style="margin-top:24px;font-size:13px;color:#166534;font-weight:600">
+    🌳 &nbsp;ourfamroots.com
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     SLIDE 19 — TROUBLESHOOTING: MEMBERS NOT VISIBLE
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s22">
+  <div class="pane-l">
+    <div class="slide-tag" style="color:#f59e0b">🔧 Troubleshooting</div>
+    <h2 class="slide-h">Members not showing in tree?</h2>
+
+    <div class="ts-header">
+      <div class="ts-header-ico">⚠️</div>
+      <div class="ts-header-txt"><strong>Problem:</strong> You added people but some (or all) of them are missing from the canvas — the tree looks incomplete or blank.</div>
+    </div>
+
+    <ul class="steps">
+      <li class="step">
+        <div class="sn sn-warn">1</div>
+        <div class="sb">
+          <div class="sl">Open the Layouts panel</div>
+          <div class="sd">Click the <strong>Layouts</strong> button in the canvas top bar (top-right area). This opens the layout &amp; view-control panel.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-warn">2</div>
+        <div class="sb">
+          <div class="sl">Click "Expand all branches"</div>
+          <div class="sd">Look for the <strong>⊞ Expand all branches</strong> icon or button. This forces every collapsed node and hidden sub-branch to become visible on the canvas.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-warn">3</div>
+        <div class="sb">
+          <div class="sl">Select "Vertical ↕"</div>
+          <div class="sd">Click the <strong>↕ Vertical</strong> layout icon. This resets the tree to a clean multi-marriage-aware top-down arrangement so all members are laid out in view.</div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="tip" style="background:#fefce8;border-color:#fde68a">
+      <div class="tip-ico">💡</div>
+      <div class="tip-txt" style="color:#713f12">
+        <strong>Still not seeing everyone?</strong> Scroll/zoom out on the canvas — some nodes may be off-screen to the right or below. Press <strong>Ctrl+Space</strong> to search for a specific person by name and jump directly to them.
+      </div>
+    </div>
+  </div>
+
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:500px">
+
+      <!-- Step 1: Top bar with Layouts button highlighted -->
+      <div style="background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)">
+        <div style="background:#f8fafc;border-bottom:1px solid var(--border);padding:6px 10px;font-size:9px;font-weight:700;color:var(--muted)">
+          STEP 1 — Click "Layouts" in the top bar
+        </div>
+        <!-- Canvas top bar mockup -->
+        <div class="canvas-topbar" style="padding:0 10px;gap:8px;height:42px">
+          <span style="font-size:9px;color:var(--light)">← Dashboard</span>
+          <span style="width:1px;height:12px;background:var(--border)"></span>
+          <span style="font-size:10px;font-weight:700;color:var(--text)">Johnson Family</span>
+          <span style="font-size:9px;color:var(--light)">5 people</span>
+          <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+            <!-- Layouts button highlighted -->
+            <div class="cc-btn highlighted" style="background:var(--brand-xlight);color:var(--brand)">
+              <span class="cc-icon">🗂</span> Layouts
+            </div>
+            <div class="cc-btn">🎨 Theme</div>
+            <div class="cc-btn">Members</div>
+            <div style="background:var(--brand);color:white;border-radius:6px;padding:4px 8px;font-size:8px;font-weight:700">+ Add</div>
+          </div>
+        </div>
+        <div style="padding:6px 10px;background:#eef2ff;font-size:9px;color:var(--brand);font-weight:600">
+          ☝️ Click here to open the Layouts panel
+        </div>
+      </div>
+
+      <!-- Steps 2 & 3: Layouts panel with both options highlighted -->
+      <div style="background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)">
+        <div style="background:#f8fafc;border-bottom:1px solid var(--border);padding:6px 10px;font-size:9px;font-weight:700;color:var(--muted)">
+          STEPS 2 &amp; 3 — Inside the Layouts panel
+        </div>
+        <div style="padding:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <!-- Expand all — highlighted amber -->
+          <div class="layout-opt highlighted-amber" style="background:#fffbeb">
+            <div class="lo-ico">⊞</div>
+            <div class="lo-lbl" style="color:#92400e">Expand all branches</div>
+            <div class="lo-desc" style="color:#b45309">Shows all hidden nodes</div>
+            <div style="margin-top:5px">
+              <span class="callout"><span class="callout-num">2</span>Click this</span>
+            </div>
+          </div>
+          <!-- Vertical layout — highlighted brand -->
+          <div class="layout-opt highlighted" style="background:var(--brand-xlight)">
+            <div class="lo-ico">↕</div>
+            <div class="lo-lbl" style="color:var(--brand-dark)">Vertical</div>
+            <div class="lo-desc" style="color:var(--brand)">Multi-marriage aware</div>
+            <div style="margin-top:5px">
+              <span class="callout"><span class="callout-num">3</span>Then this</span>
+            </div>
+          </div>
+          <!-- Other layouts (dimmed) -->
+          <div class="layout-opt" style="opacity:.45">
+            <div class="lo-ico">📊</div>
+            <div class="lo-lbl">Generation Sort</div>
+            <div class="lo-desc">Other options</div>
+          </div>
+          <div class="layout-opt" style="opacity:.45">
+            <div class="lo-ico">🌀</div>
+            <div class="lo-lbl">Fan Chart</div>
+            <div class="lo-desc">Other options</div>
+          </div>
+          <div class="layout-opt" style="opacity:.45">
+            <div class="lo-ico">📐</div>
+            <div class="lo-lbl">Pedigree</div>
+            <div class="lo-desc">Other options</div>
+          </div>
+          <div class="layout-opt" style="opacity:.45">
+            <div class="lo-ico">↔️</div>
+            <div class="lo-lbl">Horizontal</div>
+            <div class="lo-desc">Other options</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 20 — MORE TROUBLESHOOTING
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s23">
+  <div class="pane-l">
+    <div class="slide-tag" style="color:#f59e0b">🔧 Troubleshooting</div>
+    <h2 class="slide-h">More common issues &amp; fixes</h2>
+    <p class="slide-sub">Quick solutions for other things that can go wrong.</p>
+
+    <ul class="steps">
+      <li class="step">
+        <div class="sn sn-warn">?</div>
+        <div class="sb">
+          <div class="sl">Canvas looks jumbled or overlapping</div>
+          <div class="sd">Open <strong>Layouts → Vertical ↕</strong> to auto-arrange all nodes into a clean top-down layout.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-warn">?</div>
+        <div class="sb">
+          <div class="sl">A person appears disconnected / floating</div>
+          <div class="sd">Click the floating node, open their panel, and use <strong>Add parent</strong>, <strong>Add spouse</strong>, or <strong>Add child</strong> to connect them to the tree.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-warn">?</div>
+        <div class="sb">
+          <div class="sl">Can't add or edit people</div>
+          <div class="sd">You may be a <strong>Viewer</strong> on this tree. Ask the tree owner to upgrade your role to <strong>Editor</strong> or <strong>Admin</strong>.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-ok">✓</div>
+        <div class="sb">
+          <div class="sl">Canvas is completely blank</div>
+          <div class="sd">Hard-refresh the page (<strong>Ctrl + Shift + R</strong> / <strong>Cmd + Shift + R</strong>) to force a fresh data load.</div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="tip">
+      <div class="tip-ico">🛟</div>
+      <div class="tip-txt"><strong>Tip:</strong> When in doubt — try <strong>Ctrl + Shift + R</strong> (hard refresh) first. Most display issues clear up after a fresh reload.</div>
+    </div>
+  </div>
+
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:500px">
+
+      <!-- Issue/fix cards grid -->
+      <div class="issue-grid">
+
+        <div class="issue-card">
+          <div class="issue-label"><div class="issue-ico">🙈</div><div class="issue-h">Nodes hidden / collapsed</div></div>
+          <div class="issue-problem">Some branches show a "+" indicator but won't open</div>
+          <div class="issue-fix"><strong>Fix:</strong> Layouts → <strong>Expand all branches</strong> to force-expand every node at once</div>
+        </div>
+
+        <div class="issue-card">
+          <div class="issue-label"><div class="issue-ico">🔀</div><div class="issue-h">Tree layout is messy</div></div>
+          <div class="issue-problem">Nodes overlap or lines cross in confusing ways</div>
+          <div class="issue-fix"><strong>Fix:</strong> Layouts → <strong>Vertical ↕</strong> resets to a clean auto-layout</div>
+        </div>
+
+        <div class="issue-card">
+          <div class="issue-label"><div class="issue-ico">🔍</div><div class="issue-h">Can't find a specific person</div></div>
+          <div class="issue-problem">You know they were added but can't see them on the canvas</div>
+          <div class="issue-fix"><strong>Fix:</strong> Press <strong>Ctrl + Space</strong> → search by name → canvas jumps to them</div>
+        </div>
+
+        <div class="issue-card">
+          <div class="issue-label"><div class="issue-ico">🔒</div><div class="issue-h">Can't edit / add people</div></div>
+          <div class="issue-problem">"+ Add person" button is missing or greyed out</div>
+          <div class="issue-fix"><strong>Fix:</strong> You are a <strong>Viewer</strong>. Ask the tree owner to change your role to Editor</div>
+        </div>
+
+        <div class="issue-card">
+          <div class="issue-label"><div class="issue-ico">⛓️</div><div class="issue-h">Person is floating / disconnected</div></div>
+          <div class="issue-problem">A node appears isolated with no connecting lines</div>
+          <div class="issue-fix"><strong>Fix:</strong> Click the node → side panel → use <strong>Add parent / spouse / child</strong></div>
+        </div>
+
+        <div class="issue-card">
+          <div class="issue-label"><div class="issue-ico">🔄</div><div class="issue-h">Canvas is blank / won't load</div></div>
+          <div class="issue-problem">The canvas area is empty even though the tree has people</div>
+          <div class="issue-fix"><strong>Fix:</strong> Hard refresh: <strong>Ctrl + Shift + R</strong> (Windows) or <strong>⌘ + Shift + R</strong> (Mac)</div>
+        </div>
+
+      </div>
+
+      <!-- Quick-reference bottom row -->
+      <div style="background:white;border:1px solid var(--border);border-radius:10px;padding:10px 14px;display:flex;gap:20px;flex-wrap:wrap">
+        <div style="font-size:9px;font-weight:700;color:var(--text);margin-bottom:3px;width:100%">⌨️ Keyboard shortcuts for the canvas</div>
+        <div style="font-size:9px;color:var(--muted)"><kbd style="background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-family:monospace">Ctrl+Space</kbd> — Search people</div>
+        <div style="font-size:9px;color:var(--muted)"><kbd style="background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-family:monospace">Scroll</kbd> — Zoom in / out</div>
+        <div style="font-size:9px;color:var(--muted)"><kbd style="background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-family:monospace">Drag</kbd> — Pan the canvas</div>
+        <div style="font-size:9px;color:var(--muted)"><kbd style="background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-family:monospace">Ctrl+Shift+R</kbd> — Hard refresh</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     SLIDE 21 — TIPS & TRICKS: CTRL INTERACTIONS
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s24">
+  <div class="pane-l">
+    <div class="slide-tag tip-tag">💡 Tips &amp; Tricks</div>
+    <h2 class="slide-h">Power moves with <span class="ctrl-key" style="font-size:18px;vertical-align:middle;padding:3px 10px">Ctrl</span></h2>
+    <p class="slide-sub">Hold <strong>Ctrl</strong> on the canvas to unlock drag-and-drop control — without accidentally opening someone's profile.</p>
+
+    <ul class="steps">
+      <li class="step">
+        <div class="sn sn-purple">1</div>
+        <div class="sb">
+          <div class="sl">Drag any person node</div>
+          <div class="sd">Hold <span class="ctrl-key">Ctrl</span> + press and hold the left mouse button on a person card, then drag it to a new position. Release to drop.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-purple">2</div>
+        <div class="sb">
+          <div class="sl">Multi-select members</div>
+          <div class="sd">Hold <span class="ctrl-key">Ctrl</span> and click each person node you want. All clicked nodes are selected at once — useful for moving a whole generation together.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-purple">3</div>
+        <div class="sb">
+          <div class="sl">Drag a union ring</div>
+          <div class="sd">Hold <span class="ctrl-key">Ctrl</span> + press and hold on the dashed <strong>union ring</strong> (💑) between two spouses, then drag to reposition the coupling node independently.</div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="tip" style="background:#f5f3ff;border-color:#c4b5fd;margin-top:18px">
+      <div class="tip-ico">💡</div>
+      <div class="tip-txt" style="color:#4c1d95">
+        <strong>Why Ctrl?</strong> A plain click on any node opens its detail panel. Holding Ctrl switches the canvas into drag/select mode so you can rearrange without accidentally opening profiles.
+      </div>
+    </div>
+  </div>
+
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:500px">
+
+      <!-- ── Demo 1: Ctrl + drag person node ── -->
+      <div style="background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)">
+        <div class="demo-hdr">
+          <span class="ctrl-key">Ctrl</span><span style="color:#a78bfa">+</span>
+          <span>🖱 Hold &amp; drag on a person card</span>
+          <span style="margin-left:auto;color:#8b5cf6">→ Reposition node</span>
+        </div>
+        <div class="demo-canvas" style="height:76px">
+          <svg class="demo-grid" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="tg1" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#a78bfa"/></pattern></defs><rect width="100%" height="100%" fill="url(#tg1)"/></svg>
+          <!-- Ghost (original position) -->
+          <div class="node-ghost" style="top:22px;left:30px">👤 Alice J.</div>
+          <!-- Arrow -->
+          <div style="position:absolute;top:30px;left:112px;font-size:16px;color:#8b5cf6;font-weight:900">→</div>
+          <!-- Dragging node (elevated, rotated) -->
+          <div class="node-drag" style="top:14px;left:136px">👤 Alice J.</div>
+          <!-- Ctrl badge -->
+          <span class="ctrl-key ctrl-badge-abs">Ctrl held ✓</span>
+        </div>
+      </div>
+
+      <!-- ── Demo 2: Multi-select ── -->
+      <div style="background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)">
+        <div class="demo-hdr">
+          <span class="ctrl-key">Ctrl</span><span style="color:#a78bfa">+</span>
+          <span>🖱 Click each person</span>
+          <span style="margin-left:auto;color:#8b5cf6">→ Multi-select members</span>
+        </div>
+        <div class="demo-canvas" style="height:76px">
+          <svg class="demo-grid" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="tg2" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#a78bfa"/></pattern></defs><rect width="100%" height="100%" fill="url(#tg2)"/></svg>
+          <!-- Three selected nodes -->
+          <div class="node-selected" style="top:20px;left:18px">
+            👤 Alice
+            <div class="sel-tick">✓</div>
+          </div>
+          <div class="node-selected" style="top:20px;left:130px">
+            👴 Robert
+            <div class="sel-tick">✓</div>
+          </div>
+          <div class="node-selected" style="top:20px;left:252px">
+            👵 Mary
+            <div class="sel-tick">✓</div>
+          </div>
+          <!-- Selection count pill -->
+          <div style="position:absolute;bottom:8px;left:18px;background:#8b5cf6;color:white;border-radius:20px;padding:2px 10px;font-size:8px;font-weight:700">3 selected</div>
+          <span class="ctrl-key ctrl-badge-abs">Ctrl held ✓</span>
+        </div>
+      </div>
+
+      <!-- ── Demo 3: Ctrl + drag union ring ── -->
+      <div style="background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)">
+        <div class="demo-hdr">
+          <span class="ctrl-key">Ctrl</span><span style="color:#a78bfa">+</span>
+          <span>🖱 Hold &amp; drag the union ring</span>
+          <span style="margin-left:auto;color:#8b5cf6">→ Reposition union</span>
+        </div>
+        <div class="demo-canvas" style="height:88px">
+          <svg class="demo-grid" xmlns="http://www.w3.org/2000/svg">
+            <defs><pattern id="tg3" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#a78bfa"/></pattern></defs>
+            <rect width="100%" height="100%" fill="url(#tg3)"/>
+            <!-- Connector lines from parents to union -->
+            <line x1="65" y1="30" x2="82" y2="58" stroke="#a78bfa" stroke-width="1.5" opacity=".5"/>
+            <line x1="155" y1="30" x2="130" y2="58" stroke="#a78bfa" stroke-width="1.5" opacity=".5"/>
+          </svg>
+          <!-- Spouse nodes -->
+          <div style="position:absolute;top:10px;left:18px;border:2px solid #a78bfa;border-radius:8px;padding:4px 9px;font-size:8px;font-weight:700;color:#6d28d9;background:white">👴 Robert</div>
+          <div style="position:absolute;top:10px;left:122px;border:2px solid #ec4899;border-radius:8px;padding:4px 9px;font-size:8px;font-weight:700;color:#9d174d;background:white">👵 Mary</div>
+          <!-- Ghost union ring (original) -->
+          <div class="union-ghost" style="top:44px;left:86px">💑</div>
+          <!-- Dragging union ring -->
+          <div class="union-drag" style="top:34px;left:186px">💑</div>
+          <!-- Arrow -->
+          <div style="position:absolute;top:52px;left:134px;font-size:16px;color:#8b5cf6;font-weight:900">→</div>
+          <span class="ctrl-key ctrl-badge-abs">Ctrl held ✓</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 22 — MORE CANVAS TIPS & SHORTCUTS
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s25">
+  <div class="pane-l">
+    <div class="slide-tag tip-tag">💡 Tips &amp; Tricks</div>
+    <h2 class="slide-h">More canvas tips to know</h2>
+    <p class="slide-sub">Master these everyday interactions to work faster and smarter.</p>
+
+    <ul class="steps">
+      <li class="step">
+        <div class="sn sn-purple">4</div>
+        <div class="sb">
+          <div class="sl">Zoom in &amp; out</div>
+          <div class="sd">Roll the <strong>scroll wheel</strong> (mouse) or use a <strong>two-finger pinch</strong> (trackpad) anywhere on the canvas to zoom.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-purple">5</div>
+        <div class="sb">
+          <div class="sl">Pan the canvas</div>
+          <div class="sd">Click and drag on any <strong>empty area</strong> of the canvas (not on a node) to scroll in any direction.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-purple">6</div>
+        <div class="sb">
+          <div class="sl">Jump to any person (Ctrl + Space)</div>
+          <div class="sd">Press <span class="ctrl-key">Ctrl</span> <span class="ctrl-key">Space</span> to open the quick-search overlay. Start typing and the canvas flies to that person.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="sn sn-purple">7</div>
+        <div class="sb">
+          <div class="sl">Open a person's profile</div>
+          <div class="sd"><strong>Click</strong> any node (without Ctrl) to open the side panel — shows relatives, photo, and edit options.</div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="tip" style="background:#f5f3ff;border-color:#c4b5fd">
+      <div class="tip-ico">🚀</div>
+      <div class="tip-txt" style="color:#4c1d95">
+        <strong>Pro move:</strong> Use <span class="ctrl-key">Ctrl</span>+click to select a family group, then <span class="ctrl-key">Ctrl</span>+drag one of them to move the entire selection together in one action!
+      </div>
+    </div>
+  </div>
+
+  <div class="pane-r">
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:500px">
+
+      <!-- ── Complete shortcut reference table ── -->
+      <div style="background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)">
+        <div class="sc-head">⌨️ &nbsp;Complete Canvas Shortcut Reference</div>
+        <table class="sc-table">
+          <tr>
+            <td><span class="ctrl-key">Ctrl</span> + 🖱 drag node</td>
+            <td>Reposition any person node</td>
+          </tr>
+          <tr>
+            <td><span class="ctrl-key">Ctrl</span> + 🖱 click</td>
+            <td>Multi-select nodes one by one</td>
+          </tr>
+          <tr>
+            <td><span class="ctrl-key">Ctrl</span> + 🖱 drag ring</td>
+            <td>Reposition a union ring node</td>
+          </tr>
+          <tr>
+            <td><span class="ctrl-key">Ctrl</span> + <span class="ctrl-key">Space</span></td>
+            <td>Open quick-search overlay</td>
+          </tr>
+          <tr>
+            <td>🖱 Scroll wheel</td>
+            <td>Zoom in / zoom out</td>
+          </tr>
+          <tr>
+            <td>🖱 Drag empty area</td>
+            <td>Pan the canvas in any direction</td>
+          </tr>
+          <tr>
+            <td>🖱 Click a node</td>
+            <td>Open person detail side panel</td>
+          </tr>
+          <tr>
+            <td><span class="ctrl-key">Esc</span></td>
+            <td>Close panel / deselect all</td>
+          </tr>
+          <tr>
+            <td><span class="ctrl-key">Ctrl</span> + <span class="ctrl-key">Shift</span> + <span class="ctrl-key">R</span></td>
+            <td>Hard refresh (fixes display glitches)</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ── Power tip cards ── -->
+      <div class="ptip-grid">
+        <div class="ptip">
+          <div class="ptip-ico">🎯</div>
+          <div class="ptip-h">Batch-move a generation</div>
+          <div class="ptip-d"><span class="ctrl-key" style="font-size:8px">Ctrl</span>+click all grandparents, then <span class="ctrl-key" style="font-size:8px">Ctrl</span>+drag one to move the whole group at once.</div>
+        </div>
+        <div class="ptip">
+          <div class="ptip-ico">🔎</div>
+          <div class="ptip-h">Can't see someone? Search!</div>
+          <div class="ptip-d">Press <strong>Ctrl + Space</strong> and type their name. The canvas automatically flies to them.</div>
+        </div>
+        <div class="ptip">
+          <div class="ptip-ico">📐</div>
+          <div class="ptip-h">Auto-tidy messy layouts</div>
+          <div class="ptip-d">Layouts → <strong>Expand all branches</strong>, then <strong>Vertical ↕</strong> to reset everything cleanly.</div>
+        </div>
+        <div class="ptip">
+          <div class="ptip-ico">💾</div>
+          <div class="ptip-h">Save your arrangement</div>
+          <div class="ptip-d">Use <strong>Layouts → Save layout</strong> after arranging nodes exactly how you like — reload it any time.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</div><!-- /.deck -->
+
+<!-- ── Navigation ── -->
+<div class="nav-bar">
+  <button class="nav-btn" id="btnPrev" onclick="go(-1)" title="Previous (← Arrow)">&#8592;</button>
+  <span class="nav-counter" id="counter">1 / 25</span>
+  <button class="nav-btn" id="btnNext" onclick="go(1)" title="Next (→ Arrow)">&#8594;</button>
+</div>
+
+<div class="dots" id="dots"></div>
+
+<div class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> to navigate &nbsp;&nbsp; <kbd>F</kbd> fullscreen</div>
+
+<div class="progress"><div class="progress-fill" id="progress"></div></div>
+
+<script>
+const TOTAL = 25;
+let cur = 1;
+
+// Build dots
+const dotsEl = document.getElementById('dots');
+for (let i = 1; i <= TOTAL; i++) {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i === 1 ? ' active' : '');
+  d.onclick = () => goTo(i);
+  d.style.cursor = 'pointer';
+  dotsEl.appendChild(d);
+}
+
+function goTo(n) {
+  if (n < 1 || n > TOTAL) return;
+  document.getElementById('s' + cur).classList.remove('active');
+  dotsEl.children[cur - 1].classList.remove('active');
+  cur = n;
+  document.getElementById('s' + cur).classList.add('active');
+  dotsEl.children[cur - 1].classList.add('active');
+  document.getElementById('counter').textContent = cur + ' / ' + TOTAL;
+  document.getElementById('btnPrev').disabled = cur === 1;
+  document.getElementById('btnNext').disabled = cur === TOTAL;
+  document.getElementById('progress').style.width = ((cur / TOTAL) * 100) + '%';
+}
+
+function go(d) { goTo(cur + d); }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+  else if (e.key === 'f' || e.key === 'F') {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+    else document.exitFullscreen().catch(()=>{});
+  }
+});
+
+// Init
+goTo(1);
+</script>
+</body>
+</html>

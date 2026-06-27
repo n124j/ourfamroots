@@ -1,0 +1,85 @@
+{{- range list "blue" "green" }}
+{{- $slot := . }}
+{{- $isActive := eq $slot $.Values.blueGreen.activeSlot }}
+{{- $replicas := index (index $.Values.blueGreen.api $slot) "replicaCount" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-{{ $slot }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "ourfamroots.labels" $ | nindent 4 }}
+    app: api
+    slot: {{ $slot }}
+  annotations:
+    deployment.kubernetes.io/active: {{ $isActive | quote }}
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      app: api
+      slot: {{ $slot }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: api
+        slot: {{ $slot }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+    spec:
+      serviceAccountName: ourfamroots-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: api
+          image: {{ include "ourfamroots.apiImage" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: ourfamroots-config
+            - secretRef:
+                name: ourfamroots-secrets
+          resources:
+            {{- toYaml $.Values.api.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: api
+                topologyKey: kubernetes.io/hostname
+{{- end }}

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+    <linearGradient id="canopy-top" x1="32" y1="4" x2="32" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#86efac"/>
+      <stop offset="0.5" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+    <linearGradient id="trunk-g" x1="28" y1="0" x2="36" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d97706"/>
+      <stop offset="1" stop-color="#92400e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+
+  <!-- Canopy — overlapping circles create organic leafy silhouette -->
+  <circle cx="32" cy="24" r="16" fill="#16a34a"/>
+  <circle cx="20" cy="27" r="11" fill="#22c55e"/>
+  <circle cx="44" cy="27" r="11" fill="#15803d"/>
+  <circle cx="25" cy="14" r="11" fill="#4ade80"/>
+  <circle cx="39" cy="14" r="11" fill="#22c55e"/>
+  <circle cx="32" cy="9"  r="10" fill="#86efac"/>
+
+  <!-- Fill the gap between canopy and trunk -->
+  <rect x="22" y="28" width="20" height="10" fill="#16a34a"/>
+
+  <!-- Trunk -->
+  <rect x="27" y="36" width="10" height="16" rx="4" fill="url(#trunk-g)"/>
+
+  <!-- Canopy highlight (top-left catch-light) -->
+  <circle cx="26" cy="14" r="6" fill="white" opacity="0.18"/>
+</svg>

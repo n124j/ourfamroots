@@ -1,0 +1,417 @@
+erDiagram
+    %% ─────────────────────────────────────────────
+    %% OurFamRoots — Entity-Relationship Diagram
+    %% PostgreSQL 15 · Multi-tenant Row-Level Schema
+    %% ─────────────────────────────────────────────
+
+    %% ── CORE / AUTH ──────────────────────────────
+    tenants {
+        uuid   id PK
+        text   slug UK
+        text   name
+        text   plan
+        bool   is_active
+        ts     created_at
+        ts     updated_at
+    }
+
+    users {
+        uuid   id PK
+        uuid   tenant_id FK
+        text   email UK
+        text   password_hash
+        text   display_name
+        text   avatar_url
+        text   locale
+        bool   is_verified
+        bool   is_active
+        ts     last_login_at
+        ts     created_at
+        ts     updated_at
+    }
+
+    user_oauth_providers {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   user_id FK
+        text   provider
+        text   provider_user_id
+        jsonb  profile_data
+        ts     created_at
+    }
+
+    subscriptions {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   user_id FK
+        text   plan
+        text   status
+        ts     current_period_start
+        ts     current_period_end
+        text   stripe_subscription_id
+        ts     created_at
+        ts     updated_at
+    }
+
+    %% ── TREES ────────────────────────────────────
+    trees {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   owner_id FK
+        text   name
+        text   description
+        bool   is_public
+        text   privacy_level
+        int    person_count
+        ts     created_at
+        ts     updated_at
+    }
+
+    tree_collaborators {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   user_id FK
+        text   role
+        ts     granted_at
+        uuid   granted_by FK
+    }
+
+    invitations {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   invited_by FK
+        text   email
+        text   role
+        text   token UK
+        text   status
+        ts     expires_at
+        ts     accepted_at
+        ts     created_at
+    }
+
+    %% ── PERSONS ──────────────────────────────────
+    persons {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        text   sex
+        text   privacy_level
+        bool   is_living
+        bool   is_deceased
+        text   display_given_name
+        text   display_surname
+        tsvec  search_vector
+        jsonb  custom_fields
+        bool   is_deleted
+        ts     deleted_at
+        int    version
+        ts     created_at
+        ts     updated_at
+        uuid   created_by FK
+        uuid   updated_by FK
+    }
+
+    person_names {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   person_id FK
+        text   name_type
+        text   given_name
+        text   surname
+        text   prefix
+        text   suffix
+        text   nickname
+        text   full_name_text
+        bool   is_primary
+        ts     valid_from
+        ts     valid_to
+    }
+
+    %% ── FAMILY GROUPS (GEDCOM FAM) ───────────────
+    family_groups {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   parent1_id FK
+        uuid   parent2_id FK
+        text   union_type
+        bool   is_divorced
+        ts     created_at
+        ts     updated_at
+    }
+
+    family_group_members {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   family_group_id FK
+        uuid   person_id FK
+        text   member_role
+        text   parentage_type
+        int    birth_order
+        ts     created_at
+    }
+
+    %% ── RELATIONSHIPS (non-family) ───────────────
+    relationships {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   person1_id FK
+        uuid   person2_id FK
+        text   relationship_type
+        text   notes
+        text   confidence_level
+        ts     created_at
+        ts     updated_at
+    }
+
+    %% ── PLACES & EVENTS ──────────────────────────
+    places {
+        uuid    id PK
+        uuid    tenant_id FK
+        text    name
+        text    city
+        text    county
+        text    state_province
+        text    country
+        text    country_code
+        numeric latitude
+        numeric longitude
+        text    geoid
+        ts      created_at
+    }
+
+    events {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   person_id FK
+        uuid   family_group_id FK
+        text   event_type
+        date   event_date
+        text   event_date_qualifier
+        text   event_date_range_end
+        uuid   place_id FK
+        text   description
+        text   confidence_level
+        ts     created_at
+        ts     updated_at
+    }
+
+    event_participants {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   event_id FK
+        uuid   person_id FK
+        text   participant_role
+    }
+
+    %% ── SOURCES & CITATIONS ──────────────────────
+    sources {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        text   title
+        text   author
+        text   publisher
+        text   publication_date
+        text   repository
+        text   call_number
+        text   url
+        text   source_type
+        ts     created_at
+        ts     updated_at
+    }
+
+    source_citations {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   source_id FK
+        text   entity_type
+        uuid   entity_id
+        text   page_ref
+        text   quality
+        text   notes
+        ts     created_at
+    }
+
+    %% ── MEDIA ────────────────────────────────────
+    media {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   uploaded_by FK
+        text   media_type
+        text   original_filename
+        text   storage_key
+        text   thumbnail_key
+        jsonb  variants
+        bigint file_size_bytes
+        text   mime_type
+        text   perceptual_hash
+        int    width_px
+        int    height_px
+        text   status
+        ts     created_at
+        ts     updated_at
+    }
+
+    media_attachments {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   media_id FK
+        text   entity_type
+        uuid   entity_id
+        text   caption
+        jsonb  face_region
+        ts     created_at
+    }
+
+    %% ── DNA ──────────────────────────────────────
+    dna_kits {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   person_id FK
+        uuid   uploaded_by FK
+        text   provider
+        text   kit_id
+        text   haplogroup_maternal
+        text   haplogroup_paternal
+        ts     tested_at
+        ts     created_at
+    }
+
+    dna_matches {
+        uuid    id PK
+        uuid    tenant_id FK
+        uuid    kit1_id FK
+        uuid    kit2_id FK
+        numeric shared_cm
+        numeric shared_pct
+        int     longest_segment_cm
+        int     num_segments
+        text    predicted_relationship
+        text    confidence_level
+        ts      created_at
+    }
+
+    %% ── COLLABORATION ────────────────────────────
+    comments {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   author_id FK
+        text   entity_type
+        uuid   entity_id
+        uuid   parent_comment_id FK
+        text   body
+        bool   is_deleted
+        ts     created_at
+        ts     updated_at
+    }
+
+    notifications {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   user_id FK
+        text   notification_type
+        text   entity_type
+        uuid   entity_id
+        jsonb  payload
+        bool   is_read
+        ts     read_at
+        ts     created_at
+    }
+
+    %% ── AUDIT (PARTITIONED) ──────────────────────
+    version_history {
+        uuid   id PK
+        uuid   tenant_id FK
+        text   entity_type
+        uuid   entity_id
+        int    version
+        jsonb  snapshot
+        uuid   changed_by FK
+        ts     created_at
+    }
+
+    audit_log {
+        uuid   id PK
+        uuid   tenant_id FK
+        text   action
+        text   entity_type
+        uuid   entity_id
+        uuid   actor_id FK
+        text   actor_ip
+        text   actor_ua
+        jsonb  old_values
+        jsonb  new_values
+        ts     created_at
+    }
+
+    %% ── JOBS ─────────────────────────────────────
+    import_jobs {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   user_id FK
+        text   format
+        text   status
+        text   storage_key
+        int    total_records
+        int    processed_records
+        int    error_count
+        jsonb  error_details
+        ts     started_at
+        ts     completed_at
+        ts     created_at
+    }
+
+    export_jobs {
+        uuid   id PK
+        uuid   tenant_id FK
+        uuid   tree_id FK
+        uuid   user_id FK
+        text   format
+        text   status
+        text   storage_key
+        text   download_url
+        ts     url_expires_at
+        ts     started_at
+        ts     completed_at
+        ts     created_at
+    }
+
+    %% ── RELATIONSHIPS ────────────────────────────
+    tenants              ||--o{ users                 : "has"
+    tenants              ||--o{ trees                 : "owns"
+    users                ||--o{ trees                 : "owns"
+    users                ||--o{ user_oauth_providers  : "has"
+    users                ||--o| subscriptions         : "has"
+    trees                ||--o{ tree_collaborators    : "has"
+    trees                ||--o{ invitations           : "has"
+    trees                ||--o{ persons               : "contains"
+    trees                ||--o{ family_groups         : "contains"
+    trees                ||--o{ sources               : "has"
+    trees                ||--o{ media                 : "has"
+    persons              ||--o{ person_names          : "has"
+    persons              ||--o{ family_group_members  : "belongs to"
+    persons              ||--o{ events                : "has"
+    persons              ||--o{ relationships         : "person1"
+    persons              ||--o{ relationships         : "person2"
+    persons              ||--o{ dna_kits              : "has"
+    family_groups        ||--o{ family_group_members  : "has"
+    family_groups        ||--o{ events                : "has"
+    events               ||--o{ event_participants    : "has"
+    events               }o--o| places                : "at"
+    sources              ||--o{ source_citations      : "cited by"
+    media                ||--o{ media_attachments     : "attached to"
+    dna_kits             ||--o{ dna_matches           : "kit1"
+    dna_kits             ||--o{ dna_matches           : "kit2"
+    users                ||--o{ comments              : "writes"
+    users                ||--o{ notifications         : "receives"
+    users                ||--o{ version_history       : "creates"
+    users                ||--o{ audit_log             : "actor"
+    trees                ||--o{ import_jobs           : "has"
+    trees                ||--o{ export_jobs           : "has"

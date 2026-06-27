@@ -1,0 +1,125 @@
+groups:
+  - name: api.slo
+    interval: 30s
+    rules:
+      # ── Availability SLO: 99.9% success rate ──────────────────────────────
+      - record: job:http_requests_total:rate5m
+        expr: rate(http_requests_total[5m])
+
+      - record: job:http_errors_total:rate5m
+        expr: rate(http_requests_total{status=~"5.."}[5m])
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.001
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "Error rate exceeds SLO ({{ $value | humanizePercentage }})"
+          runbook: "https://wiki.example.com/runbooks/high-error-rate"
+
+      # ── Latency SLO: P95 < 500ms ──────────────────────────────────────────
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          slo: latency
+        annotations:
+          summary: "P95 API latency {{ $value | humanizeDuration }} exceeds 500ms"
+
+      - alert: CriticalP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: critical
+          slo: latency
+        annotations:
+          summary: "P99 API latency {{ $value | humanizeDuration }} exceeds 2s"
+
+  - name: celery.workers
+    rules:
+      - alert: CeleryQueueDepthHigh
+        expr: celery_queue_length{queue="media"} > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Media queue depth {{ $value }} — workers may be undersized"
+
+      - alert: CeleryWorkerDown
+        expr: celery_workers < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No Celery workers running"
+
+      - alert: CeleryTaskFailureRate
+        expr: |
+          rate(celery_tasks_total{state="FAILURE"}[5m])
+          /
+          rate(celery_tasks_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery task failure rate {{ $value | humanizePercentage }}"
+
+  - name: infrastructure
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unreachable"
+
+      - alert: PostgresConnectionsHigh
+        expr: |
+          pg_stat_database_numbackends{datname="ourfamroots"}
+          / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connection pool at {{ $value | humanizePercentage }}"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unreachable"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory at {{ $value | humanizePercentage }}"
+
+      - alert: DiskFull
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"}
+          / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk < 15% free on {{ $labels.instance }}"

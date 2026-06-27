@@ -1,0 +1,4636 @@
+openapi: "3.1.0"
+
+info:
+  title: OurFamRoots API
+  version: "1.0.0"
+  description: |
+    ## OurFamRoots REST API — v1
+
+    A multi-tenant genealogy platform API following REST conventions.
+
+    ### Versioning
+    URL-path versioning: all v1 endpoints are prefixed `/api/v1`.
+    Breaking changes increment the major version (`/api/v2`).
+    Minor/patch changes are backward-compatible and do not change the URL.
+
+    ### Authentication
+    Two tokens are issued on login:
+    - **Access token** — short-lived JWT (15 min), passed as `Authorization: Bearer <token>`
+    - **Refresh token** — long-lived (30 days), stored as an `HttpOnly SameSite=Strict` cookie
+
+    ### Multi-tenancy
+    Every request is scoped to a tenant derived from the JWT `tenant_id` claim.
+    Tenant is never supplied by the caller — it is always resolved server-side from the token.
+
+    ### Rate limiting
+    All endpoints return rate-limit headers:
+    - `X-RateLimit-Limit` — requests allowed in the current window
+    - `X-RateLimit-Remaining` — requests remaining in the current window
+    - `X-RateLimit-Reset` — Unix timestamp when the window resets
+    - `Retry-After` — seconds to wait (only present on 429 responses)
+
+    Default limits by plan:
+    | Plan        | Requests/min | Burst |
+    |-------------|-------------|-------|
+    | FREE        | 60          | 10    |
+    | BASIC       | 300         | 30    |
+    | PREMIUM     | 1000        | 100   |
+    | PROFESSIONAL| 5000        | 500   |
+
+    ### Pagination
+    List endpoints use **cursor-based pagination**:
+    ```
+    GET /api/v1/trees/{treeId}/persons?limit=50&cursor=<opaque_cursor>
+    ```
+    Response envelope:
+    ```json
+    {
+      "data": [...],
+      "pagination": {
+        "cursor": "next_page_cursor",
+        "hasMore": true,
+        "totalCount": 1234
+      }
+    }
+    ```
+
+    ### Error format
+    All errors follow [RFC 7807](https://datatracker.ietf.org/doc/html/rfc7807):
+    ```json
+    {
+      "type": "https://ourfamroots.com/errors/validation-error",
+      "title": "Validation Error",
+      "status": 422,
+      "detail": "The request body contains invalid fields.",
+      "instance": "/api/v1/trees/abc/persons",
+      "errors": [
+        { "field": "sex", "code": "INVALID_ENUM", "message": "Must be one of: MALE, FEMALE, OTHER, UNKNOWN" }
+      ],
+      "requestId": "req_01hzab..."
+    }
+    ```
+
+  contact:
+    name: OurFamRoots Engineering
+    email: api@ourfamroots.com
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.ourfamroots.com/api/v1
+    description: Production
+  - url: https://api.staging.ourfamroots.com/api/v1
+    description: Staging
+  - url: http://localhost:7004/api/v1
+    description: Local development
+
+# ──────────────────────────────────────────────────────────────
+# SECURITY SCHEMES
+# ──────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT access token issued on login. Expires in 15 minutes.
+        Payload includes: sub (user_id), tenant_id, email, roles, plan.
+
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: >
+        HttpOnly SameSite=Strict cookie holding the refresh token.
+        Used only on POST /auth/refresh and POST /auth/logout.
+
+  # ──────────────────────────────────────────────────────────
+  # COMMON PARAMETERS
+  # ──────────────────────────────────────────────────────────
+  parameters:
+    treeId:
+      name: treeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Family tree identifier
+
+    personId:
+      name: personId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Person identifier
+
+    familyGroupId:
+      name: familyGroupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Family group identifier
+
+    eventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Event identifier
+
+    mediaId:
+      name: mediaId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Media item identifier
+
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: User identifier
+
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+      description: Maximum number of items to return
+
+    cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: Opaque pagination cursor from a previous response
+
+  # ──────────────────────────────────────────────────────────
+  # COMMON HEADERS
+  # ──────────────────────────────────────────────────────────
+  headers:
+    X-RateLimit-Limit:
+      schema:
+        type: integer
+      description: Request limit for the current window
+    X-RateLimit-Remaining:
+      schema:
+        type: integer
+      description: Requests remaining in the current window
+    X-RateLimit-Reset:
+      schema:
+        type: integer
+      description: Unix timestamp when the rate limit window resets
+    X-Request-ID:
+      schema:
+        type: string
+      description: Unique request identifier for tracing
+
+  # ──────────────────────────────────────────────────────────
+  # SCHEMAS
+  # ──────────────────────────────────────────────────────────
+  schemas:
+
+    # ── Enums ───────────────────────────────────────────────
+    PersonSex:
+      type: string
+      enum: [MALE, FEMALE, OTHER, UNKNOWN]
+
+    PrivacyLevel:
+      type: string
+      enum: [PUBLIC, FAMILY, PRIVATE]
+
+    NameType:
+      type: string
+      enum: [BIRTH, MARRIED, ALSO_KNOWN_AS, NICKNAME, RELIGIOUS, ADOPTED, OTHER]
+
+    UnionType:
+      type: string
+      enum: [MARRIAGE, CIVIL_UNION, DOMESTIC_PARTNERSHIP, COHABITATION, UNKNOWN]
+
+    ParentageType:
+      type: string
+      enum: [BIOLOGICAL, ADOPTIVE, STEP, FOSTER, UNKNOWN]
+
+    RelationshipType:
+      type: string
+      enum: [SPOUSE, PARTNER, GODPARENT, GUARDIAN, MENTOR, CUSTOM]
+
+    EventType:
+      type: string
+      enum:
+        - BIRTH
+        - DEATH
+        - BAPTISM
+        - BURIAL
+        - CREMATION
+        - MARRIAGE
+        - DIVORCE
+        - ENGAGEMENT
+        - ANNULMENT
+        - IMMIGRATION
+        - EMIGRATION
+        - NATURALIZATION
+        - OCCUPATION
+        - RETIREMENT
+        - GRADUATION
+        - MILITARY_SERVICE
+        - MILITARY_DISCHARGE
+        - RESIDENCE
+        - CENSUS
+        - MEDICAL
+        - RELIGIOUS
+        - CUSTOM
+
+    EventDateQualifier:
+      type: string
+      enum: [EXACT, ABOUT, BEFORE, AFTER, BETWEEN, CALCULATED, ESTIMATED]
+
+    ConfidenceLevel:
+      type: string
+      enum: [PROVEN, PROBABLE, POSSIBLE, UNVERIFIED]
+
+    MediaType:
+      type: string
+      enum: [PHOTO, DOCUMENT, AUDIO, VIDEO, OTHER]
+
+    CollaboratorRole:
+      type: string
+      enum: [VIEWER, CONTRIBUTOR, EDITOR, ADMIN]
+
+    # ── Error ───────────────────────────────────────────────
+    Error:
+      type: object
+      required: [type, title, status, requestId]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: "https://ourfamroots.com/errors/validation-error"
+        title:
+          type: string
+          example: "Validation Error"
+        status:
+          type: integer
+          example: 422
+        detail:
+          type: string
+          example: "The request body contains invalid fields."
+        instance:
+          type: string
+          example: "/api/v1/trees/abc/persons"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+        requestId:
+          type: string
+          example: "req_01hzab3k7x"
+
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          example: "sex"
+        code:
+          type: string
+          example: "INVALID_ENUM"
+        message:
+          type: string
+          example: "Must be one of: MALE, FEMALE, OTHER, UNKNOWN"
+
+    # ── Pagination ──────────────────────────────────────────
+    Pagination:
+      type: object
+      required: [hasMore]
+      properties:
+        cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page (null if no more pages)
+        hasMore:
+          type: boolean
+        totalCount:
+          type: integer
+          description: Total matching records (expensive; only returned when requested)
+
+    # ── Auth / Tokens ───────────────────────────────────────
+    TokenPair:
+      type: object
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived JWT (15 min)
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          example: 900
+          description: Access token TTL in seconds
+        user:
+          $ref: "#/components/schemas/UserProfile"
+
+    # ── User ────────────────────────────────────────────────
+    UserProfile:
+      type: object
+      required: [id, email, displayName, isVerified, plan, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          maxLength: 100
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        locale:
+          type: string
+          example: "en"
+        timezone:
+          type: string
+          example: "America/New_York"
+        isVerified:
+          type: boolean
+        plan:
+          type: string
+          enum: [FREE, BASIC, PREMIUM, FAMILY, PROFESSIONAL]
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        locale:
+          type: string
+          pattern: "^[a-z]{2}(-[A-Z]{2})?$"
+        timezone:
+          type: string
+
+    # ── Tree ────────────────────────────────────────────────
+    Tree:
+      type: object
+      required: [id, name, ownerId, isPublic, privacyLevel, personCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        ownerId:
+          type: string
+          format: uuid
+        isPublic:
+          type: boolean
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+        personCount:
+          type: integer
+        myRole:
+          $ref: "#/components/schemas/CollaboratorRole"
+          description: The calling user's role in this tree
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTreeRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        isPublic:
+          type: boolean
+          default: false
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+          default: FAMILY
+
+    UpdateTreeRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        isPublic:
+          type: boolean
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+
+    Collaborator:
+      type: object
+      required: [userId, role, grantedAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        role:
+          $ref: "#/components/schemas/CollaboratorRole"
+        grantedAt:
+          type: string
+          format: date-time
+
+    Invitation:
+      type: object
+      required: [id, email, role, status, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/CollaboratorRole"
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, DECLINED, EXPIRED, REVOKED]
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Person ──────────────────────────────────────────────
+    PersonName:
+      type: object
+      required: [id, nameType, isPrimary]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nameType:
+          $ref: "#/components/schemas/NameType"
+        givenName:
+          type: string
+          nullable: true
+        surname:
+          type: string
+          nullable: true
+        prefix:
+          type: string
+          nullable: true
+        suffix:
+          type: string
+          nullable: true
+        nickname:
+          type: string
+          nullable: true
+        fullNameText:
+          type: string
+          nullable: true
+          description: Free-form override for non-Western names
+        isPrimary:
+          type: boolean
+        validFrom:
+          type: string
+          format: date
+          nullable: true
+        validTo:
+          type: string
+          format: date
+          nullable: true
+
+    Person:
+      type: object
+      required: [id, treeId, sex, privacyLevel, isLiving, isDeceased, names, version, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        treeId:
+          type: string
+          format: uuid
+        sex:
+          $ref: "#/components/schemas/PersonSex"
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+        isLiving:
+          type: boolean
+        isDeceased:
+          type: boolean
+        displayGivenName:
+          type: string
+          nullable: true
+        displaySurname:
+          type: string
+          nullable: true
+        names:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonName"
+        customFields:
+          type: object
+          additionalProperties: true
+        gedcomXref:
+          type: string
+          nullable: true
+        version:
+          type: integer
+          description: Optimistic lock version — must be echoed on PATCH requests
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PersonSummary:
+      type: object
+      description: Lightweight representation used in list responses and tree views
+      required: [id, sex, isLiving, isDeceased]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sex:
+          $ref: "#/components/schemas/PersonSex"
+        isLiving:
+          type: boolean
+        isDeceased:
+          type: boolean
+        displayGivenName:
+          type: string
+          nullable: true
+        displaySurname:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+          description: Presigned URL for the person's profile photo
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+        birthDate:
+          type: string
+          format: date
+          nullable: true
+          description: Full birth date (ISO 8601 YYYY-MM-DD)
+        deathDate:
+          type: string
+          format: date
+          nullable: true
+          description: Full death date (ISO 8601 YYYY-MM-DD)
+        birthYear:
+          type: integer
+          nullable: true
+          description: Year-only fallback when full birth date is unknown
+        deathYear:
+          type: integer
+          nullable: true
+          description: Year-only fallback when full death date is unknown
+        facebookHandle:
+          type: string
+          nullable: true
+          description: Facebook username (without @ or URL prefix)
+        xHandle:
+          type: string
+          nullable: true
+          description: X / Twitter handle (without @ or URL prefix)
+        linkedinHandle:
+          type: string
+          nullable: true
+          description: LinkedIn username (without URL prefix)
+
+    CreatePersonNameInput:
+      type: object
+      required: [nameType, isPrimary]
+      properties:
+        nameType:
+          $ref: "#/components/schemas/NameType"
+        givenName:
+          type: string
+          maxLength: 200
+          nullable: true
+        surname:
+          type: string
+          maxLength: 200
+          nullable: true
+        prefix:
+          type: string
+          maxLength: 50
+          nullable: true
+        suffix:
+          type: string
+          maxLength: 50
+          nullable: true
+        nickname:
+          type: string
+          maxLength: 200
+          nullable: true
+        fullNameText:
+          type: string
+          maxLength: 500
+          nullable: true
+        isPrimary:
+          type: boolean
+          default: false
+        validFrom:
+          type: string
+          format: date
+          nullable: true
+        validTo:
+          type: string
+          format: date
+          nullable: true
+
+    CreatePersonRequest:
+      type: object
+      required: [names]
+      properties:
+        sex:
+          $ref: "#/components/schemas/PersonSex"
+          default: UNKNOWN
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+          default: FAMILY
+        isLiving:
+          type: boolean
+          default: true
+        isDeceased:
+          type: boolean
+          default: false
+        names:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CreatePersonNameInput"
+          description: At least one name required; exactly one must have isPrimary=true
+        customFields:
+          type: object
+          additionalProperties: true
+
+    UpdatePersonRequest:
+      type: object
+      required: [version]
+      minProperties: 2
+      properties:
+        version:
+          type: integer
+          description: Must match current server version (optimistic locking)
+        sex:
+          $ref: "#/components/schemas/PersonSex"
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+        isLiving:
+          type: boolean
+        isDeceased:
+          type: boolean
+        customFields:
+          type: object
+          additionalProperties: true
+
+    AncestorNode:
+      type: object
+      required: [person, depth, familyGroupId]
+      properties:
+        person:
+          $ref: "#/components/schemas/PersonSummary"
+        depth:
+          type: integer
+          description: "1 = parent, 2 = grandparent, etc."
+        familyGroupId:
+          type: string
+          format: uuid
+        parentageType:
+          $ref: "#/components/schemas/ParentageType"
+
+    # ── Family Group ─────────────────────────────────────────
+    FamilyGroup:
+      type: object
+      required: [id, treeId, unionType, isDivorced, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        treeId:
+          type: string
+          format: uuid
+        parent1:
+          $ref: "#/components/schemas/PersonSummary"
+          nullable: true
+        parent2:
+          $ref: "#/components/schemas/PersonSummary"
+          nullable: true
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/FamilyGroupChild"
+        unionType:
+          $ref: "#/components/schemas/UnionType"
+        isDivorced:
+          type: boolean
+        gedcomXref:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    FamilyGroupChild:
+      type: object
+      required: [person, parentageType]
+      properties:
+        person:
+          $ref: "#/components/schemas/PersonSummary"
+        parentageType:
+          $ref: "#/components/schemas/ParentageType"
+        birthOrder:
+          type: integer
+          nullable: true
+
+    CreateFamilyGroupRequest:
+      type: object
+      properties:
+        parent1Id:
+          type: string
+          format: uuid
+          nullable: true
+        parent2Id:
+          type: string
+          format: uuid
+          nullable: true
+        unionType:
+          $ref: "#/components/schemas/UnionType"
+          default: MARRIAGE
+        isDivorced:
+          type: boolean
+          default: false
+      description: At least one parentId should be provided
+
+    AddFamilyMemberRequest:
+      type: object
+      required: [personId, memberRole]
+      properties:
+        personId:
+          type: string
+          format: uuid
+        memberRole:
+          type: string
+          enum: [PARENT, CHILD]
+        parentageType:
+          $ref: "#/components/schemas/ParentageType"
+          description: Required when memberRole = CHILD
+        birthOrder:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    Relationship:
+      type: object
+      required: [id, person1Id, person2Id, relationshipType, confidenceLevel, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        person1Id:
+          type: string
+          format: uuid
+        person2Id:
+          type: string
+          format: uuid
+        relationshipType:
+          $ref: "#/components/schemas/RelationshipType"
+        notes:
+          type: string
+          nullable: true
+        confidenceLevel:
+          $ref: "#/components/schemas/ConfidenceLevel"
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateRelationshipRequest:
+      type: object
+      required: [person1Id, person2Id, relationshipType]
+      properties:
+        person1Id:
+          type: string
+          format: uuid
+        person2Id:
+          type: string
+          format: uuid
+        relationshipType:
+          $ref: "#/components/schemas/RelationshipType"
+        notes:
+          type: string
+          maxLength: 2000
+          nullable: true
+        confidenceLevel:
+          $ref: "#/components/schemas/ConfidenceLevel"
+          default: UNVERIFIED
+
+    # ── Place ────────────────────────────────────────────────
+    Place:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        city:
+          type: string
+          nullable: true
+        county:
+          type: string
+          nullable: true
+        stateProvince:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        countryCode:
+          type: string
+          pattern: "^[A-Z]{2}$"
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+
+    # ── Event ────────────────────────────────────────────────
+    Event:
+      type: object
+      required: [id, eventType, eventDateQualifier, confidenceLevel, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        personId:
+          type: string
+          format: uuid
+          nullable: true
+        familyGroupId:
+          type: string
+          format: uuid
+          nullable: true
+        eventType:
+          $ref: "#/components/schemas/EventType"
+        eventDate:
+          type: string
+          format: date
+          nullable: true
+        eventDateQualifier:
+          $ref: "#/components/schemas/EventDateQualifier"
+        eventDateRangeEnd:
+          type: string
+          format: date
+          nullable: true
+        eventDateOriginal:
+          type: string
+          nullable: true
+          description: Raw GEDCOM date string
+        place:
+          $ref: "#/components/schemas/Place"
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        confidenceLevel:
+          $ref: "#/components/schemas/ConfidenceLevel"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateEventRequest:
+      type: object
+      required: [eventType]
+      properties:
+        personId:
+          type: string
+          format: uuid
+          nullable: true
+        familyGroupId:
+          type: string
+          format: uuid
+          nullable: true
+        eventType:
+          $ref: "#/components/schemas/EventType"
+        eventDate:
+          type: string
+          format: date
+          nullable: true
+        eventDateQualifier:
+          $ref: "#/components/schemas/EventDateQualifier"
+          default: EXACT
+        eventDateRangeEnd:
+          type: string
+          format: date
+          nullable: true
+        eventDateOriginal:
+          type: string
+          nullable: true
+        placeId:
+          type: string
+          format: uuid
+          nullable: true
+        newPlace:
+          $ref: "#/components/schemas/CreatePlaceRequest"
+          nullable: true
+          description: Create a new place inline; mutually exclusive with placeId
+        description:
+          type: string
+          maxLength: 5000
+          nullable: true
+        confidenceLevel:
+          $ref: "#/components/schemas/ConfidenceLevel"
+          default: UNVERIFIED
+      description: Exactly one of personId or familyGroupId must be provided
+
+    CreatePlaceRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 500
+        city:
+          type: string
+          nullable: true
+        county:
+          type: string
+          nullable: true
+        stateProvince:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        countryCode:
+          type: string
+          pattern: "^[A-Z]{2}$"
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          nullable: true
+
+    # ── Media ────────────────────────────────────────────────
+    MediaUploadRequest:
+      type: object
+      required: [filename, mimeType, fileSizeBytes]
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+        mimeType:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/gif
+            - image/webp
+            - image/heic
+            - application/pdf
+            - audio/mpeg
+            - audio/wav
+            - video/mp4
+            - video/quicktime
+        fileSizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 524288000
+          description: Maximum 500 MB
+      description: Request a pre-signed upload URL. Upload the file directly to S3 using the returned URL.
+
+    MediaUploadResponse:
+      type: object
+      required: [mediaId, uploadUrl, expiresAt]
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: Media record created in PENDING status
+        uploadUrl:
+          type: string
+          format: uri
+          description: Pre-signed S3 PUT URL — valid for 15 minutes
+        expiresAt:
+          type: string
+          format: date-time
+
+    Media:
+      type: object
+      required: [id, mediaType, originalFilename, status, fileSizeBytes, mimeType, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        mediaType:
+          $ref: "#/components/schemas/MediaType"
+        originalFilename:
+          type: string
+        thumbnailUrl:
+          type: string
+          format: uri
+          nullable: true
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaVariant"
+        fileSizeBytes:
+          type: integer
+        mimeType:
+          type: string
+        widthPx:
+          type: integer
+          nullable: true
+        heightPx:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, READY, FAILED, DELETED]
+        uploadedBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MediaVariant:
+      type: object
+      required: [size, url, width, height]
+      properties:
+        size:
+          type: string
+          example: "800w"
+        url:
+          type: string
+          format: uri
+        width:
+          type: integer
+        height:
+          type: integer
+
+    MediaAttachment:
+      type: object
+      required: [id, mediaId, entityType, entityId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        mediaId:
+          type: string
+          format: uuid
+        entityType:
+          type: string
+          enum: [person, family_group, event, tree]
+        entityId:
+          type: string
+          format: uuid
+        caption:
+          type: string
+          nullable: true
+        faceRegion:
+          type: object
+          nullable: true
+          description: Normalised bounding box {x, y, width, height} for face tags
+          properties:
+            x:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            y:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            width:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            height:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateAttachmentRequest:
+      type: object
+      required: [entityType, entityId]
+      properties:
+        entityType:
+          type: string
+          enum: [person, family_group, event, tree]
+        entityId:
+          type: string
+          format: uuid
+        caption:
+          type: string
+          maxLength: 1000
+          nullable: true
+        faceRegion:
+          type: object
+          nullable: true
+          properties:
+            x:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            y:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            width:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            height:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+
+    # ── Search ───────────────────────────────────────────────
+    PersonSearchResult:
+      type: object
+      required: [person, score]
+      properties:
+        person:
+          $ref: "#/components/schemas/PersonSummary"
+        score:
+          type: number
+          format: float
+          description: Relevance score (0–1)
+        matchedFields:
+          type: array
+          items:
+            type: string
+          example: ["displaySurname", "displayGivenName"]
+
+    # ── Export / Import ──────────────────────────────────────
+    ExportJob:
+      type: object
+      required: [id, format, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum: [GEDCOM_551, GEDCOM_70, PDF_PEDIGREE, PDF_FAMILY_BOOK, CSV, JSON]
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED]
+        downloadUrl:
+          type: string
+          format: uri
+          nullable: true
+        urlExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ImportJob:
+      type: object
+      required: [id, format, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum: [GEDCOM_551, GEDCOM_70, CSV, JSON]
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED]
+        totalRecords:
+          type: integer
+        processedRecords:
+          type: integer
+        errorCount:
+          type: integer
+        errorDetails:
+          type: array
+          items:
+            type: object
+            properties:
+              line:
+                type: integer
+              code:
+                type: string
+              message:
+                type: string
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── .frt native backup format ─────────────────────────────
+    FrtPerson:
+      type: object
+      description: Person record within a .frt backup file
+      required: [id, display_given_name, display_surname, sex, is_living, is_deceased]
+      properties:
+        id:
+          type: string
+        display_given_name:
+          type: string
+        display_surname:
+          type: string
+        sex:
+          type: string
+          enum: [MALE, FEMALE, OTHER, UNKNOWN]
+        is_living:
+          type: boolean
+        is_deceased:
+          type: boolean
+        photo_url:
+          type: string
+          nullable: true
+        birth_date:
+          type: string
+          format: date
+          nullable: true
+          description: Full birth date (ISO 8601 YYYY-MM-DD)
+        death_date:
+          type: string
+          format: date
+          nullable: true
+          description: Full death date (ISO 8601 YYYY-MM-DD)
+        birth_year:
+          type: integer
+          nullable: true
+          description: Year-only fallback when full birth date is unknown
+        death_year:
+          type: integer
+          nullable: true
+          description: Year-only fallback when full death date is unknown
+        facebook_handle:
+          type: string
+          nullable: true
+        x_handle:
+          type: string
+          nullable: true
+        linkedin_handle:
+          type: string
+          nullable: true
+
+    FrtFamilyGroup:
+      type: object
+      description: Family group record within a .frt backup file
+      required: [id, union_type, parent_ids, children]
+      properties:
+        id:
+          type: string
+        union_type:
+          type: string
+          enum: [MARRIAGE, PARTNERSHIP, COHABITATION, UNKNOWN]
+        custom_label:
+          type: string
+          nullable: true
+          description: User-defined label overriding the auto-generated ordinal
+        parent_ids:
+          type: array
+          items:
+            type: string
+        children:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [BIOLOGICAL, ADOPTIVE, STEP, FOSTER, UNKNOWN]
+
+    FrtBackup:
+      type: object
+      description: Complete .frt backup file structure for export and import
+      required: [frt_version, tree_name, persons, family_groups]
+      properties:
+        frt_version:
+          type: string
+          example: "1.0"
+        exported_at:
+          type: string
+          format: date-time
+        tree_name:
+          type: string
+        tree_description:
+          type: string
+          nullable: true
+        persons:
+          type: array
+          items:
+            $ref: "#/components/schemas/FrtPerson"
+        family_groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/FrtFamilyGroup"
+
+  # ──────────────────────────────────────────────────────────
+  # COMMON RESPONSES
+  # ──────────────────────────────────────────────────────────
+  responses:
+    400BadRequest:
+      description: Bad Request — malformed JSON or missing required fields
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    401Unauthorized:
+      description: Unauthorized — missing or invalid access token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    403Forbidden:
+      description: Forbidden — valid token but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    404NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    409Conflict:
+      description: Conflict — optimistic lock version mismatch or duplicate resource
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    422UnprocessableEntity:
+      description: Unprocessable Entity — validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    429TooManyRequests:
+      description: Too Many Requests — rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+# ──────────────────────────────────────────────────────────────
+# GLOBAL SECURITY (override per-operation where needed)
+# ──────────────────────────────────────────────────────────────
+security:
+  - BearerAuth: []
+
+# ──────────────────────────────────────────────────────────────
+# TAGS
+# ──────────────────────────────────────────────────────────────
+tags:
+  - name: Authentication
+    description: Register, login, logout, token refresh, OAuth, password reset
+  - name: Users
+    description: Current user profile and preferences
+  - name: Trees
+    description: Family tree CRUD, collaborators, invitations, import/export
+  - name: Persons
+    description: Person CRUD, names, ancestor/descendant traversal
+  - name: Relationships
+    description: Family groups, family members, non-family relationships
+  - name: Events
+    description: Life events for persons and family groups
+  - name: Media
+    description: Photo and document upload, management, and attachment
+  - name: Search
+    description: Full-text, fuzzy, and structured person and place search
+  - name: Places
+    description: Normalised place registry
+
+# ──────────────────────────────────────────────────────────────
+# PATHS
+# ──────────────────────────────────────────────────────────────
+paths:
+
+  # ============================================================
+  # AUTHENTICATION
+  # ============================================================
+
+  /auth/register:
+    post:
+      tags: [Authentication]
+      operationId: register
+      summary: Register a new user account
+      description: |
+        Creates a new user in the shared `ourfamroots-system` tenant (configured by
+        `DEFAULT_TENANT_SLUG`). No JWT is issued — the account cannot log in until
+        the verification email link is clicked.
+
+        **No `tenant_slug` field** — all users join the single shared workspace.
+        The first user ever to register becomes `ADMIN`; all subsequent users
+        receive the `STANDARD` role.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, given_name, family_name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+                  description: >
+                    Must contain at least one uppercase letter and one digit.
+                given_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                family_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        "204":
+          description: Account created — verification email sent. No body, no session cookie.
+        "409":
+          description: Email already registered in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Authenticate with email and password
+      description: |
+        Returns an access token (JSON body) and sets an `HttpOnly` refresh token
+        cookie. Login is blocked with `403 account-not-verified` until the
+        user's email has been verified (either via the link in the registration
+        email or manually by an Admin).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                rememberMe:
+                  type: boolean
+                  default: false
+                  description: Extends refresh token TTL from 30 days to 90 days
+      responses:
+        "200":
+          description: Login successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: "HttpOnly SameSite=Lax refresh_token cookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Email not verified (`type` = `account-not-verified`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "423":
+          description: Account locked after too many failed attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Invalidate the current session
+      security:
+        - BearerAuth: []
+        - CookieAuth: []
+      responses:
+        "204":
+          description: Logged out — refresh token revoked and cookie cleared
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshToken
+      summary: Issue a new access token using the refresh cookie
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, expiresIn]
+                properties:
+                  accessToken:
+                    type: string
+                  expiresIn:
+                    type: integer
+                    example: 900
+        "401":
+          description: Refresh token missing, expired, or revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /auth/verify-email:
+    post:
+      tags: [Authentication]
+      operationId: verifyEmail
+      summary: Verify email address with token from verification email
+      description: |
+        Marks the user's email as verified. The token is a 64-character hex
+        string embedded in the verification link emailed at registration time.
+        After verification the user can log in normally.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: 64-character hex token from the verification email
+      responses:
+        "204":
+          description: Email verified — no body
+        "401":
+          description: Token invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/resend-verification:
+    post:
+      tags: [Authentication]
+      operationId: resendVerification
+      summary: Resend the email verification link
+      description: |
+        Generates a new verification token and sends a fresh verification email.
+        Always returns `204` regardless of whether the email exists or is already
+        verified, to prevent account enumeration.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "204":
+          description: Verification email sent (or silently ignored if not applicable)
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      operationId: forgotPassword
+      summary: Request a password reset email
+      description: |
+        Sends a password reset link to the given email address.
+
+        - If the email is **unknown** — returns `204` silently (prevents enumeration).
+        - If the account **email is not verified** — returns `403 account-not-verified`.
+          The user must verify their email before they can reset their password.
+          Use `POST /auth/resend-verification` to get a new verification link.
+        - If the account is **verified** — sends a reset email and returns `204`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "204":
+          description: Reset email sent (or silently ignored for unknown address)
+        "403":
+          description: |
+            Account email not verified (`type` = `account-not-verified`).
+            Verify the email first before requesting a password reset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      operationId: resetPassword
+      summary: Reset password using token from reset email
+      description: |
+        Sets a new password for the account identified by the reset token.
+        On success the token is invalidated and all existing refresh tokens
+        for the account are revoked (forcing re-login on all devices).
+
+        Also used as the **account activation** flow for admin-created users:
+        the activation email contains a link to this endpoint so the user can
+        set their own password on first access.
+
+        If the account email was not previously verified, successfully using
+        a reset token automatically marks it as verified.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token:
+                  type: string
+                  description: Token from the password reset or activation email
+                new_password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+                  description: >
+                    Must contain at least one uppercase letter and one digit.
+      responses:
+        "204":
+          description: Password updated — all sessions revoked
+        "401":
+          description: Token invalid or expired (`type` = `token-invalid` or `token-expired`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: New password does not meet strength requirements
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/oauth/{provider}:
+    get:
+      tags: [Authentication]
+      operationId: oauthRedirect
+      summary: Redirect to OAuth provider authorisation page
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, facebook, apple]
+        - name: redirectUri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+      responses:
+        "302":
+          description: Redirect to provider
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+
+  /auth/oauth/{provider}/callback:
+    get:
+      tags: [Authentication]
+      operationId: oauthCallback
+      summary: Handle OAuth provider callback
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, facebook, apple]
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OAuth login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "409":
+          description: Email already registered with a different provider
+
+  # ============================================================
+  # USERS
+  # ============================================================
+
+  /users/me:
+    get:
+      tags: [Users]
+      operationId: getMe
+      summary: Get the current user's profile
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+    patch:
+      tags: [Users]
+      operationId: updateMe
+      summary: Update the current user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+    delete:
+      tags: [Users]
+      operationId: deleteMe
+      summary: Delete the current user's account (scheduled deletion — 30-day grace period)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmPassword]
+              properties:
+                confirmPassword:
+                  type: string
+      responses:
+        "202":
+          description: Deletion scheduled — 30-day grace period before permanent removal
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /users/me/change-password:
+    post:
+      tags: [Users]
+      operationId: changePassword
+      summary: Change password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 10
+                  maxLength: 128
+      responses:
+        "200":
+          description: Password changed — all existing sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /users/me/sessions:
+    get:
+      tags: [Users]
+      operationId: listSessions
+      summary: List active sessions for the current user
+      responses:
+        "200":
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sessionId:
+                          type: string
+                        deviceInfo:
+                          type: string
+                          nullable: true
+                        ipAddress:
+                          type: string
+                        lastUsedAt:
+                          type: string
+                          format: date-time
+                        isCurrent:
+                          type: boolean
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+    delete:
+      tags: [Users]
+      operationId: revokeAllSessions
+      summary: Revoke all sessions except the current one
+      responses:
+        "204":
+          description: All other sessions revoked
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  # ============================================================
+  # TREES
+  # ============================================================
+
+  /trees:
+    get:
+      tags: [Trees]
+      operationId: listTrees
+      summary: List trees the current user owns or collaborates on
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: role
+          in: query
+          schema:
+            $ref: "#/components/schemas/CollaboratorRole"
+          description: Filter by user's role in the tree
+      responses:
+        "200":
+          description: List of trees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tree"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+    post:
+      tags: [Trees]
+      operationId: createTree
+      summary: Create a new family tree
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTreeRequest"
+      responses:
+        "201":
+          description: Tree created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tree"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /trees/{treeId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Trees]
+      operationId: getTree
+      summary: Get a family tree by ID
+      responses:
+        "200":
+          description: Tree detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tree"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    patch:
+      tags: [Trees]
+      operationId: updateTree
+      summary: Update a tree's metadata
+      description: Requires ADMIN or EDITOR role, or tree ownership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTreeRequest"
+      responses:
+        "200":
+          description: Updated tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tree"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Trees]
+      operationId: deleteTree
+      summary: Delete a tree and all its data
+      description: Owner only. Irreversible after 30-day grace period.
+      responses:
+        "202":
+          description: Tree deletion scheduled
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/collaborators:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Trees]
+      operationId: listCollaborators
+      summary: List collaborators on a tree
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: List of collaborators
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Collaborator"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/collaborators/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/userId"
+    patch:
+      tags: [Trees]
+      operationId: updateCollaboratorRole
+      summary: Update a collaborator's role
+      description: ADMIN or owner only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  $ref: "#/components/schemas/CollaboratorRole"
+      responses:
+        "200":
+          description: Updated collaborator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collaborator"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Trees]
+      operationId: removeCollaborator
+      summary: Remove a collaborator from a tree
+      description: ADMIN or owner only (a user can also remove themselves)
+      responses:
+        "204":
+          description: Collaborator removed
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/invitations:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Trees]
+      operationId: listInvitations
+      summary: List pending invitations for a tree
+      responses:
+        "200":
+          description: Invitations list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invitation"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Trees]
+      operationId: sendInvitation
+      summary: Send an invitation to collaborate on a tree
+      description: ADMIN or owner only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  $ref: "#/components/schemas/CollaboratorRole"
+      responses:
+        "201":
+          description: Invitation sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "409":
+          description: Invitation already pending for this email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /invitations/{token}/accept:
+    post:
+      tags: [Trees]
+      operationId: acceptInvitation
+      summary: Accept a tree collaboration invitation
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Invitation accepted — user is now a collaborator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tree"
+        "400":
+          description: Token invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /trees/{treeId}/export:
+    post:
+      tags: [Trees]
+      operationId: exportTree
+      summary: Enqueue a tree export job
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format:
+                  type: string
+                  enum: [GEDCOM_551, GEDCOM_70, PDF_PEDIGREE, PDF_FAMILY_BOOK, CSV, JSON]
+                options:
+                  type: object
+                  properties:
+                    includeMedia:
+                      type: boolean
+                      default: false
+                    privacyFilter:
+                      $ref: "#/components/schemas/PrivacyLevel"
+                      description: Exclude persons with stricter privacy level
+      responses:
+        "202":
+          description: Export job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJob"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /trees/{treeId}/export/{jobId}:
+    get:
+      tags: [Trees]
+      operationId: getExportJob
+      summary: Poll export job status and retrieve download URL when complete
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Export job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJob"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/import:
+    post:
+      tags: [Trees]
+      operationId: importTree
+      summary: Upload a GEDCOM or other file and enqueue an import job
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, format]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Max 50 MB
+                format:
+                  type: string
+                  enum: [GEDCOM_551, GEDCOM_70, CSV, JSON]
+      responses:
+        "202":
+          description: Import job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "413":
+          description: File too large (max 50 MB)
+
+  /trees/{treeId}/import/{jobId}:
+    get:
+      tags: [Trees]
+      operationId: getImportJob
+      summary: Poll import job status
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Import job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+
+  # ── .frt native backup import ─────────────────────────────────
+  /trees/import:
+    post:
+      tags: [Trees]
+      operationId: importFrtTree
+      summary: Import a .frt backup file as a new tree
+      description: |
+        Creates a new tree from a OurFamRoots .frt backup file. All persons are
+        re-created with new UUIDs. Imported fields include life dates (birth_date,
+        death_date, birth_year, death_year), social handles (facebook_handle,
+        x_handle, linkedin_handle), and family group custom labels.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FrtBackup"
+      responses:
+        "201":
+          description: Tree imported successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tree_id:
+                    type: string
+                    format: uuid
+                  tree_name:
+                    type: string
+                  person_count:
+                    type: integer
+                  family_group_count:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /trees/{treeId}/export-log:
+    post:
+      tags: [Trees]
+      operationId: logTreeExport
+      summary: Record a tree export event in the audit log
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Export event logged
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  # ============================================================
+  # PERSONS
+  # ============================================================
+
+  /trees/{treeId}/persons:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Persons]
+      operationId: listPersons
+      summary: List persons in a tree
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: surname
+          in: query
+          schema:
+            type: string
+          description: Filter by surname (prefix match)
+        - name: sex
+          in: query
+          schema:
+            $ref: "#/components/schemas/PersonSex"
+        - name: isLiving
+          in: query
+          schema:
+            type: boolean
+        - name: orderBy
+          in: query
+          schema:
+            type: string
+            enum: [surname, givenName, createdAt, updatedAt]
+            default: surname
+      responses:
+        "200":
+          description: Paginated list of persons
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PersonSummary"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Persons]
+      operationId: createPerson
+      summary: Create a new person in a tree
+      description: Requires CONTRIBUTOR, EDITOR, or ADMIN role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePersonRequest"
+      responses:
+        "201":
+          description: Person created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /trees/{treeId}/persons/{personId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/personId"
+    get:
+      tags: [Persons]
+      operationId: getPerson
+      summary: Get a person by ID
+      parameters:
+        - name: include
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [names, events, media, sources, familyGroups]
+          style: form
+          explode: false
+          description: Comma-separated list of related resources to embed in the response
+      responses:
+        "200":
+          description: Person detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    patch:
+      tags: [Persons]
+      operationId: updatePerson
+      summary: Update a person's attributes
+      description: >
+        Requires CONTRIBUTOR, EDITOR, or ADMIN role.
+        The `version` field must match the current server version (optimistic locking).
+        On conflict, the server returns 409 with the current version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePersonRequest"
+      responses:
+        "200":
+          description: Updated person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+        "409":
+          description: Version conflict — another edit was saved concurrently
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - type: object
+                    properties:
+                      currentVersion:
+                        type: integer
+                        description: The version currently on the server
+
+    delete:
+      tags: [Persons]
+      operationId: deletePerson
+      summary: Soft-delete a person
+      description: >
+        Sets is_deleted=true. Person remains in version_history.
+        Requires EDITOR or ADMIN role.
+      responses:
+        "204":
+          description: Person soft-deleted
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/persons/{personId}/restore:
+    post:
+      tags: [Persons]
+      operationId: restorePerson
+      summary: Restore a soft-deleted person
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+        - $ref: "#/components/parameters/personId"
+      responses:
+        "200":
+          description: Person restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/persons/{personId}/names:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/personId"
+    get:
+      tags: [Persons]
+      operationId: listPersonNames
+      summary: List all names for a person
+      responses:
+        "200":
+          description: Person names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PersonName"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Persons]
+      operationId: addPersonName
+      summary: Add a name to a person
+      description: >
+        Requires CONTRIBUTOR or higher role.
+        If isPrimary=true, the current primary name is demoted automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePersonNameInput"
+      responses:
+        "201":
+          description: Name added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonName"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /trees/{treeId}/persons/{personId}/names/{nameId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/personId"
+      - name: nameId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Persons]
+      operationId: updatePersonName
+      summary: Update a person's name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePersonNameInput"
+      responses:
+        "200":
+          description: Name updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonName"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Persons]
+      operationId: deletePersonName
+      summary: Delete a name record
+      description: Cannot delete the only primary name
+      responses:
+        "204":
+          description: Name deleted
+        "400":
+          description: Cannot delete the only primary name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/persons/{personId}/ancestors:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/personId"
+    get:
+      tags: [Persons]
+      operationId: getAncestors
+      summary: Get all ancestors of a person (unlimited generations)
+      parameters:
+        - name: maxDepth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: parentageTypes
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ParentageType"
+          style: form
+          explode: false
+          description: "Filter by parentage type (default: all types)"
+      responses:
+        "200":
+          description: Ancestor list ordered by depth
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AncestorNode"
+                  subject:
+                    $ref: "#/components/schemas/PersonSummary"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/persons/{personId}/descendants:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/personId"
+    get:
+      tags: [Persons]
+      operationId: getDescendants
+      summary: Get all descendants of a person (unlimited generations)
+      parameters:
+        - name: maxDepth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: parentageTypes
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ParentageType"
+          style: form
+          explode: false
+      responses:
+        "200":
+          description: Descendant list ordered by depth
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AncestorNode"
+                  subject:
+                    $ref: "#/components/schemas/PersonSummary"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/persons/{personId}/history:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/personId"
+    get:
+      tags: [Persons]
+      operationId: getPersonHistory
+      summary: Get version history for a person
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Version history entries newest-first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version:
+                          type: integer
+                        snapshot:
+                          $ref: "#/components/schemas/Person"
+                        changedBy:
+                          type: string
+                          format: uuid
+                          nullable: true
+                        changedAt:
+                          type: string
+                          format: date-time
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  # ============================================================
+  # RELATIONSHIPS
+  # ============================================================
+
+  /trees/{treeId}/family-groups:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Relationships]
+      operationId: listFamilyGroups
+      summary: List family groups in a tree
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: personId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter family groups containing this person (as parent or child)
+      responses:
+        "200":
+          description: Paginated family groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FamilyGroup"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Relationships]
+      operationId: createFamilyGroup
+      summary: Create a family group
+      description: Requires CONTRIBUTOR or higher role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFamilyGroupRequest"
+      responses:
+        "201":
+          description: Family group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyGroup"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /trees/{treeId}/family-groups/{familyGroupId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/familyGroupId"
+    get:
+      tags: [Relationships]
+      operationId: getFamilyGroup
+      summary: Get a family group by ID
+      responses:
+        "200":
+          description: Family group detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    patch:
+      tags: [Relationships]
+      operationId: updateFamilyGroup
+      summary: Update a family group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parent1Id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                parent2Id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                unionType:
+                  $ref: "#/components/schemas/UnionType"
+                isDivorced:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated family group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Relationships]
+      operationId: deleteFamilyGroup
+      summary: Delete a family group
+      description: EDITOR or ADMIN only. Removes the group and all member links; persons are not deleted.
+      responses:
+        "204":
+          description: Family group deleted
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/family-groups/{familyGroupId}/members:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/familyGroupId"
+    post:
+      tags: [Relationships]
+      operationId: addFamilyMember
+      summary: Add a person to a family group
+      description: >
+        CONTRIBUTOR or higher required.
+        A family group can have at most 2 PARENT members.
+        CHILD members are unlimited.
+        parentageType is required for CHILD role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddFamilyMemberRequest"
+      responses:
+        "200":
+          description: Member added — returns updated family group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyGroup"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "409":
+          description: Person already in this family group, or parent slots are full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /trees/{treeId}/family-groups/{familyGroupId}/members/{personId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/familyGroupId"
+      - $ref: "#/components/parameters/personId"
+    delete:
+      tags: [Relationships]
+      operationId: removeFamilyMember
+      summary: Remove a person from a family group
+      responses:
+        "200":
+          description: Member removed — returns updated family group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    patch:
+      tags: [Relationships]
+      operationId: updateFamilyMember
+      summary: Update a member's parentage type or birth order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parentageType:
+                  $ref: "#/components/schemas/ParentageType"
+                birthOrder:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+      responses:
+        "200":
+          description: Updated — returns updated family group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FamilyGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/relationships:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Relationships]
+      operationId: listRelationships
+      summary: List non-family-group relationships in a tree
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: personId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter relationships involving this person
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/RelationshipType"
+      responses:
+        "200":
+          description: List of relationships
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Relationship"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Relationships]
+      operationId: createRelationship
+      summary: Create a non-family-group relationship
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRelationshipRequest"
+      responses:
+        "201":
+          description: Relationship created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Relationship"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "409":
+          description: This relationship pair already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /trees/{treeId}/relationships/{relationshipId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - name: relationshipId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Relationships]
+      operationId: deleteRelationship
+      summary: Delete a relationship
+      responses:
+        "204":
+          description: Relationship deleted
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  # ============================================================
+  # EVENTS
+  # ============================================================
+
+  /trees/{treeId}/events:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: List events in a tree
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: personId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter events for a specific person
+        - name: familyGroupId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter events for a specific family group
+        - name: eventType
+          in: query
+          schema:
+            $ref: "#/components/schemas/EventType"
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Paginated events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Event"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Events]
+      operationId: createEvent
+      summary: Create a life event
+      description: >
+        Requires CONTRIBUTOR or higher.
+        Exactly one of personId or familyGroupId must be provided.
+        Provide either placeId (existing place) or newPlace (creates a new place record).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventRequest"
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /trees/{treeId}/events/{eventId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/eventId"
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Get an event by ID
+      responses:
+        "200":
+          description: Event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    patch:
+      tags: [Events]
+      operationId: updateEvent
+      summary: Update an event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                eventDate:
+                  type: string
+                  format: date
+                  nullable: true
+                eventDateQualifier:
+                  $ref: "#/components/schemas/EventDateQualifier"
+                eventDateRangeEnd:
+                  type: string
+                  format: date
+                  nullable: true
+                eventDateOriginal:
+                  type: string
+                  nullable: true
+                placeId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                description:
+                  type: string
+                  maxLength: 5000
+                  nullable: true
+                confidenceLevel:
+                  $ref: "#/components/schemas/ConfidenceLevel"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Events]
+      operationId: deleteEvent
+      summary: Delete an event
+      description: EDITOR or ADMIN only
+      responses:
+        "204":
+          description: Event deleted
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  # ============================================================
+  # PLACES
+  # ============================================================
+
+  /places:
+    get:
+      tags: [Places]
+      operationId: listPlaces
+      summary: List places known to this tenant
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Fuzzy name search
+        - name: countryCode
+          in: query
+          schema:
+            type: string
+            pattern: "^[A-Z]{2}$"
+      responses:
+        "200":
+          description: Paginated places
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Place"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+    post:
+      tags: [Places]
+      operationId: createPlace
+      summary: Create a new place
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlaceRequest"
+      responses:
+        "201":
+          description: Place created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  # ============================================================
+  # MEDIA (Photos & Documents)
+  # ============================================================
+
+  /trees/{treeId}/media:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Media]
+      operationId: listMedia
+      summary: List media items in a tree
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: mediaType
+          in: query
+          schema:
+            $ref: "#/components/schemas/MediaType"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PROCESSING, READY, FAILED]
+      responses:
+        "200":
+          description: Paginated media items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Media"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Media]
+      operationId: requestMediaUpload
+      summary: Request a pre-signed upload URL for a media file
+      description: >
+        Two-step upload flow:
+        1. POST here to receive a pre-signed S3 PUT URL and a mediaId.
+        2. PUT the file binary directly to the S3 URL (client-to-S3, no API proxy).
+        3. The media record transitions from PENDING → PROCESSING → READY automatically.
+        Poll GET /trees/{treeId}/media/{mediaId} to check status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaUploadRequest"
+      responses:
+        "201":
+          description: Pre-signed URL issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaUploadResponse"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "413":
+          description: File size exceeds plan limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /trees/{treeId}/media/{mediaId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/mediaId"
+    get:
+      tags: [Media]
+      operationId: getMedia
+      summary: Get a media item by ID
+      responses:
+        "200":
+          description: Media item detail with signed URLs for original and variants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    patch:
+      tags: [Media]
+      operationId: updateMedia
+      summary: Update media metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                originalFilename:
+                  type: string
+                  maxLength: 255
+      responses:
+        "200":
+          description: Updated media item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Media]
+      operationId: deleteMedia
+      summary: Soft-delete a media item
+      description: Marks the record as DELETED; S3 object is removed by a background job
+      responses:
+        "204":
+          description: Media deleted
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/{treeId}/media/{mediaId}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/mediaId"
+    get:
+      tags: [Media]
+      operationId: listAttachments
+      summary: List all entity attachments for a media item
+      responses:
+        "200":
+          description: Attachment list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MediaAttachment"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Media]
+      operationId: createAttachment
+      summary: Attach a media item to a person, family group, event, or tree
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAttachmentRequest"
+      responses:
+        "201":
+          description: Attachment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaAttachment"
+        "400":
+          $ref: "#/components/responses/400BadRequest"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "409":
+          description: Already attached to this entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /trees/{treeId}/media/{mediaId}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+      - $ref: "#/components/parameters/mediaId"
+      - name: attachmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Media]
+      operationId: updateAttachment
+      summary: Update attachment caption or face region
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                caption:
+                  type: string
+                  maxLength: 1000
+                  nullable: true
+                faceRegion:
+                  type: object
+                  nullable: true
+                  properties:
+                    x:
+                      type: number
+                      format: float
+                      minimum: 0
+                      maximum: 1
+                    y:
+                      type: number
+                      format: float
+                      minimum: 0
+                      maximum: 1
+                    width:
+                      type: number
+                      format: float
+                      minimum: 0
+                      maximum: 1
+                    height:
+                      type: number
+                      format: float
+                      minimum: 0
+                      maximum: 1
+      responses:
+        "200":
+          description: Updated attachment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaAttachment"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Media]
+      operationId: deleteAttachment
+      summary: Remove an entity attachment (does not delete the media file)
+      responses:
+        "204":
+          description: Attachment removed
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  # ============================================================
+  # SEARCH
+  # ============================================================
+
+  /search/persons:
+    get:
+      tags: [Search]
+      operationId: searchPersons
+      summary: Full-text and fuzzy person search within the caller's trees
+      description: >
+        Searches across all trees the calling user has access to.
+        Accepts a free-form query (full-text + trigram fuzzy) and optional structured filters.
+        Persons marked PRIVATE are excluded unless the caller is an ADMIN or the tree owner.
+        Living persons have their birth details redacted in results unless privacyLevel is PUBLIC.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 200
+          description: >
+            Search query — matched against given name, surname, nickname, full name.
+            Supports fuzzy matching (typo-tolerant).
+        - name: treeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Limit search to a specific tree
+        - name: sex
+          in: query
+          schema:
+            $ref: "#/components/schemas/PersonSex"
+        - name: birthYearFrom
+          in: query
+          schema:
+            type: integer
+        - name: birthYearTo
+          in: query
+          schema:
+            type: integer
+        - name: deathYearFrom
+          in: query
+          schema:
+            type: integer
+        - name: deathYearTo
+          in: query
+          schema:
+            type: integer
+        - name: birthPlace
+          in: query
+          schema:
+            type: string
+          description: Fuzzy place name filter on birth event
+        - name: isLiving
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Search results ranked by relevance
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination, query]
+                properties:
+                  query:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PersonSearchResult"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "400":
+          description: Query too short or malformed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  /search/places:
+    get:
+      tags: [Search]
+      operationId: searchPlaces
+      summary: Fuzzy place name search with optional geo-bias
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+        - name: countryCode
+          in: query
+          schema:
+            type: string
+            pattern: "^[A-Z]{2}$"
+        - name: latitude
+          in: query
+          schema:
+            type: number
+            format: double
+          description: Geo-bias centre latitude
+        - name: longitude
+          in: query
+          schema:
+            type: number
+            format: double
+          description: Geo-bias centre longitude
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Matching places
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Place"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /search/global:
+    get:
+      tags: [Search]
+      operationId: globalSearch
+      summary: Cross-entity global search (persons, trees, places, events)
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 200
+        - name: types
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [person, tree, place, event]
+            default: [person, tree, place]
+          style: form
+          explode: false
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Global search results grouped by entity type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persons:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PersonSearchResult"
+                  trees:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tree"
+                  places:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Place"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "429":
+          $ref: "#/components/responses/429TooManyRequests"
+
+  # ============================================================
+  # HEALTH / META
+  # ============================================================
+
+  /health:
+    get:
+      tags: []
+      operationId: healthCheck
+      summary: API health check
+      security: []
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  version:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+        "503":
+          description: API is unhealthy
+
+  # ============================================================
+  # ADMIN — User management (ADMIN app_role required)
+  # ============================================================
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: listUsers
+      summary: List all users in the tenant
+      description: |
+        Returns a paginated list of all users in the caller's tenant.
+        Requires `ADMIN` app role with a verified email address.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+          description: Search by name or email (case-insensitive)
+        - name: app_role
+          in: query
+          schema:
+            type: string
+            enum: [ADMIN, STANDARD, AUDITOR]
+        - name: verified
+          in: query
+          schema: { type: boolean }
+          description: Filter by email verification status
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [created_at_desc, created_at_asc, name_asc, email_asc, last_login_desc]
+            default: created_at_desc
+      responses:
+        "200":
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminUser"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Admin]
+      operationId: createUser
+      summary: Create a new user and send an activation email
+      description: |
+        Creates a user in the tenant with a random unusable password.
+        Sends an activation email containing a link to `POST /auth/reset-password`
+        where the user sets their own password.
+
+        **Side effects:**
+        - Activation email sent immediately.
+        - Activity log entry created: `event_type = ADMIN_CREATE`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, given_name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                given_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                family_name:
+                  type: string
+                  maxLength: 100
+                  default: ""
+                app_role:
+                  type: string
+                  enum: [ADMIN, STANDARD, AUDITOR]
+                  default: STANDARD
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "409":
+          description: Email already exists in tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    patch:
+      tags: [Admin]
+      operationId: updateUser
+      summary: Update a user's profile, role, or verification status
+      description: |
+        Partial update — all body fields are optional.
+
+        **Verification change side effects:**
+        - `email_verified = true` → sends "account verified" email, logs `ADMIN_VERIFY`.
+        - `email_verified = false` → sends "verification removed" email, logs `ADMIN_UNVERIFY`.
+
+        **Activation/deactivation via this endpoint:**
+        - `is_active = true` → logs `ADMIN_ACTIVATE`.
+        - `is_active = false` → logs `ADMIN_DEACTIVATE`.
+        - Name/role-only changes → logs `ADMIN_UPDATE`.
+
+        **Self-protection** (when `userId` equals the caller's own ID):
+        - Cannot change own `app_role` away from `ADMIN` → `400`.
+        - Cannot set own `is_active = false` → `400`.
+        - Cannot set own `email_verified = false` → `400`.
+        - Name changes are always allowed.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                given_name:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                family_name:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                app_role:
+                  type: string
+                  enum: [ADMIN, STANDARD, AUDITOR]
+                is_active:
+                  type: boolean
+                email_verified:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "400":
+          description: |
+            Self-protection rule violated (e.g. cannot change own role or
+            deactivate own account).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Admin]
+      operationId: deactivateUser
+      summary: Deactivate (soft-delete) a user
+      description: |
+        Sets `is_active = false` and immediately revokes all of the user's
+        active refresh tokens (forcing sign-out on all devices).
+
+        **Side effects:**
+        - "Your account has been deactivated" email sent to the user.
+        - Activity log entry created: `event_type = ADMIN_DEACTIVATE`.
+
+        **Self-protection:** Cannot deactivate your own account → `400`.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: User deactivated — no body
+        "400":
+          description: Cannot deactivate your own account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/users/{userId}/verify:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Admin]
+      operationId: adminVerifyUser
+      summary: Manually verify a user's email address
+      description: |
+        Marks `email_verified = true` without requiring the user to click an
+        email link.
+
+        **Side effects:**
+        - "Your account is verified" email sent with a sign-in link.
+        - Activity log entry created: `event_type = ADMIN_VERIFY`.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /trees/merge:
+    post:
+      tags: [Trees]
+      operationId: mergeTrees
+      summary: Merge multiple family trees into one new tree
+      description: |
+        **Admin only.** Creates a new family tree by merging two or more existing
+        trees. Each source tree contributes a "pivot person" — a real-world person
+        who appears in multiple trees. All pivot persons are collapsed into a single
+        person in the resulting tree; every other person is copied with a new ID.
+
+        Family groups are rewritten to use the new person IDs. Photo URL references
+        are preserved. The calling admin becomes OWNER of the merged tree; source
+        trees are left untouched.
+
+        A `MERGE_TREES` audit log entry is written to the new tree.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_tree_name, sources]
+              properties:
+                new_tree_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  example: Combined Shah Family
+                new_tree_description:
+                  type: string
+                  maxLength: 1000
+                  nullable: true
+                sources:
+                  type: array
+                  minItems: 2
+                  description: At least two source trees with their pivot persons.
+                  items:
+                    type: object
+                    required: [tree_id, pivot_person_id]
+                    properties:
+                      tree_id:
+                        type: string
+                        format: uuid
+                      pivot_person_id:
+                        type: string
+                        format: uuid
+                        description: ID of the person in this tree who represents the shared real-world ancestor.
+      responses:
+        "201":
+          description: Merged tree created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tree_id:    { type: string, format: uuid }
+                  tree_name:  { type: string }
+                  person_count: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          description: One of the source trees or pivot persons was not found
+          $ref: "#/components/responses/404NotFound"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/trees/{treeId}/persons:
+    parameters:
+      - name: treeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Tree whose persons to list
+    get:
+      tags: [Admin]
+      operationId: adminListTreePersons
+      summary: List persons in a tree (for admin tooling)
+      description: |
+        Returns a lightweight list of all non-deleted persons in the given tree,
+        scoped to the admin's tenant. Intended for dropdown / picker UIs such as
+        the "Merge Trees" pivot-person selector in the Admin Dashboard.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Person list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:                   { type: string, format: uuid }
+                    display_given_name:   { type: string }
+                    display_surname:      { type: string }
+                    photo_url:            { type: string, nullable: true }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+# ============================================================
+# AdminUser schema — referenced by admin endpoints above
+# (add to components.schemas in a full spec refactor)
+# ============================================================
+# AdminUser:
+#   type: object
+#   required: [id, email, app_role, email_verified, is_active, created_at]
+#   properties:
+#     id:               { type: string, format: uuid }
+#     email:            { type: string, format: email }
+#     given_name:       { type: string, nullable: true }
+#     family_name:      { type: string, nullable: true }
+#     app_role:         { type: string, enum: [SUPER_ADMIN, ADMIN, STANDARD, AUDITOR] }
+#     email_verified:   { type: boolean }
+#     is_active:        { type: boolean }
+#     last_login_at:    { type: string, format: date-time, nullable: true }
+#     created_at:       { type: string, format: date-time }
+
+# ============================================================
+# Site Settings — Maintenance Mode
+# ============================================================
+
+  /site-settings/maintenance:
+    get:
+      tags: [Site Settings]
+      operationId: getMaintenanceStatus
+      summary: Get current maintenance mode status
+      description: |
+        Returns whether the site is in maintenance (Under Construction) mode
+        and the customisable message shown to visitors. This endpoint is public
+        and does not require authentication.
+      security: []
+      responses:
+        "200":
+          description: Current maintenance status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maintenance_mode:    { type: boolean }
+                  maintenance_message: { type: string }
+    put:
+      tags: [Site Settings]
+      operationId: updateMaintenanceStatus
+      summary: Update maintenance mode (Super Admin only)
+      description: |
+        Toggle maintenance mode on or off and optionally update the message
+        shown to visitors. When enabled, all non-Super-Admin users see an
+        "Under Construction" page. The Super Admin can continue to use the
+        site normally.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maintenance_mode:    { type: boolean, nullable: true }
+                maintenance_message: { type: string, nullable: true, maxLength: 2000 }
+      responses:
+        "200":
+          description: Updated maintenance status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maintenance_mode:    { type: boolean }
+                  maintenance_message: { type: string }
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+# ============================================================
+# Broadcast Email
+# ============================================================
+
+  /broadcast/recipients:
+    get:
+      tags: [Broadcast]
+      operationId: listBroadcastRecipients
+      summary: List eligible broadcast recipients
+      description: |
+        Returns all active, verified users eligible to receive broadcast emails.
+        Users who have unsubscribed are included but flagged with
+        `broadcast_unsubscribed: true`. Super Admin only.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Filter by name or email (ILIKE)
+      responses:
+        "200":
+          description: Recipient list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:                      { type: string, format: uuid }
+                        email:                   { type: string, format: email }
+                        given_name:              { type: string, nullable: true }
+                        family_name:             { type: string, nullable: true }
+                        app_role:                { type: string }
+                        broadcast_unsubscribed:  { type: boolean }
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /broadcast/send:
+    post:
+      tags: [Broadcast]
+      operationId: sendBroadcast
+      summary: Send a broadcast email
+      description: |
+        Compose and send an email to all active verified users or a selected
+        subset. Users who have unsubscribed are automatically excluded.
+        A log entry is saved to broadcast history and the action is recorded
+        in the activity feed. Super Admin only.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, body]
+              properties:
+                subject:       { type: string, minLength: 1, maxLength: 200 }
+                body:          { type: string, minLength: 1, maxLength: 10000 }
+                category:      { type: string, enum: [notice, alert, event, update], default: notice }
+                recipient_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: Specific user IDs. Empty array = send to all.
+      responses:
+        "200":
+          description: Send result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent_count:   { type: integer }
+                  failed_count: { type: integer }
+        "400":
+          description: No eligible recipients
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /broadcast/history:
+    get:
+      tags: [Broadcast]
+      operationId: listBroadcastHistory
+      summary: List broadcast email history
+      description: |
+        Returns a paginated list of past broadcast emails with subject, body,
+        category, recipient list, and sent/failed counts. Super Admin only.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: Broadcast history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:                   { type: string, format: uuid }
+                        sender_display_name:  { type: string }
+                        subject:              { type: string }
+                        body:                 { type: string }
+                        category:             { type: string }
+                        recipient_count:      { type: integer }
+                        sent_count:           { type: integer }
+                        failed_count:         { type: integer }
+                        recipient_emails:     { type: array, items: { type: string } }
+                        created_at:           { type: string, format: date-time }
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /broadcast/history/{logId}:
+    parameters:
+      - name: logId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Broadcast]
+      operationId: deleteBroadcastLog
+      summary: Delete a broadcast log entry
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Log entry not found
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+# ============================================================
+# User Broadcast Subscription
+# ============================================================
+
+  /users/me/broadcast-subscription:
+    get:
+      tags: [Users]
+      operationId: getBroadcastSubscription
+      summary: Get broadcast email subscription status
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Subscription status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcast_unsubscribed: { type: boolean }
+    put:
+      tags: [Users]
+      operationId: updateBroadcastSubscription
+      summary: Update broadcast email subscription preference
+      description: |
+        Allows users to opt out of (or back into) broadcast emails from the
+        site administrator. Unsubscribed users are excluded from future
+        broadcast sends.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                unsubscribed: { type: boolean }
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcast_unsubscribed: { type: boolean }
+

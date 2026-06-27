@@ -1,0 +1,40 @@
+# Celery worker image — shares the same base as the API image
+# but CMD runs celery instead of uvicorn.
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev libjpeg-dev zlib1g-dev libwebp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements/base.txt requirements/base.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements/base.txt
+
+
+FROM python:3.11-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 libjpeg62-turbo libwebp7 poppler-utils curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app
+
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY --chown=app:app . .
+RUN python -m compileall -q src/
+
+USER app
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD celery -A src.infrastructure.media.celery_app inspect ping -d celery@$HOSTNAME || exit 1
+
+CMD ["celery", \
+     "-A", "src.infrastructure.media.celery_app", \
+     "worker", \
+     "--loglevel=info", \
+     "--queues=media,default", \
+     "--concurrency=4", \
+     "--max-tasks-per-child=50", \
+     "--hostname=worker@%h"]

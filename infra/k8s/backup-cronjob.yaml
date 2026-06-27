@@ -1,0 +1,154 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: ourfamroots
+spec:
+  schedule: "0 2 * * *"    # 02:00 UTC daily
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600   # fail if it takes > 1 hour
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999   # postgres uid in alpine image
+          containers:
+            - name: pg-dump
+              image: postgres:15-alpine
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: DB_PASSWORD
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: S3_BUCKET
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  DATE=$(date +%Y-%m-%d-%H%M%S)
+                  BACKUP_FILE="backups/postgres/${DATE}.dump"
+
+                  echo "Starting pg_dump → s3://${S3_BUCKET}/${BACKUP_FILE}"
+
+                  pg_dump \
+                    --host=postgres \
+                    --port=5432 \
+                    --username=postgres \
+                    --dbname=ourfamroots \
+                    --format=custom \
+                    --compress=9 \
+                    --no-password \
+                  | aws s3 cp - "s3://${S3_BUCKET}/${BACKUP_FILE}" \
+                      --region us-east-1 \
+                      --sse aws:kms
+
+                  echo "Backup complete: s3://${S3_BUCKET}/${BACKUP_FILE}"
+
+                  # Prune backups older than 30 days
+                  aws s3 ls "s3://${S3_BUCKET}/backups/postgres/" \
+                    | awk '{print $4}' \
+                    | while read key; do
+                        TIMESTAMP=$(echo "$key" | grep -oP '\d{4}-\d{2}-\d{2}')
+                        if [ -n "$TIMESTAMP" ]; then
+                          AGE=$(( ($(date +%s) - $(date -d "$TIMESTAMP" +%s)) / 86400 ))
+                          if [ "$AGE" -gt 30 ]; then
+                            echo "Deleting old backup: $key"
+                            aws s3 rm "s3://${S3_BUCKET}/backups/postgres/$key"
+                          fi
+                        fi
+                      done
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+---
+# Weekly full backup on Sundays at 03:00 UTC — kept for 1 year
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup-weekly
+  namespace: ourfamroots
+spec:
+  schedule: "0 3 * * 0"
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 2
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 7200
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          containers:
+            - name: pg-dump-weekly
+              image: postgres:15-alpine
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: DB_PASSWORD
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: ourfamroots-secrets
+                      key: S3_BUCKET
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  DATE=$(date +%Y-%m-%d)
+                  BACKUP_FILE="backups/postgres/weekly/${DATE}.dump"
+
+                  pg_dump \
+                    --host=postgres --port=5432 --username=postgres \
+                    --dbname=ourfamroots --format=custom --compress=9 \
+                  | aws s3 cp - "s3://${S3_BUCKET}/${BACKUP_FILE}" \
+                      --region us-east-1 --sse aws:kms
+
+                  echo "Weekly backup: s3://${S3_BUCKET}/${BACKUP_FILE}"
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
