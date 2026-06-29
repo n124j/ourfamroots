@@ -97,7 +97,16 @@ export default function RegisterPage() {
             </>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+                e.preventDefault();
+                e.currentTarget.requestSubmit();
+              }
+            }}
+            className="space-y-4"
+          >
             {/* Name row */}
             <div className="grid grid-cols-2 gap-3">
               <div>

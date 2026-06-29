@@ -13,6 +13,7 @@ import { Handle, Position, type NodeProps } from 'reactflow';
 import type { FamilyGroupNodeData } from '../../types';
 import { FAMILY_NODE_SIZE } from '../../types';
 import { useThemeStore } from '@store/theme.store';
+import { useCanvasStore } from '@store/canvas.store';
 
 const UNION_ICONS: Record<FamilyGroupNodeData['unionType'], string> = {
   MARRIAGE: '💍',
@@ -39,7 +40,41 @@ function FamilyGroupNodeComponent({ data, selected }: NodeProps<FamilyGroupNodeD
   const { unionType, showUnionIcon } = data;
   const color   = UNION_COLORS[unionType];
   const icon    = UNION_ICONS[unionType];
-  const nodeBg  = useThemeStore((s) => s.theme.nodeBg);
+  const theme   = useThemeStore((s) => s.theme);
+  const nodeBg  = theme.nodeBg;
+  const isHeritage = useCanvasStore((s) => s.viewStyle) === 'heritage';
+
+  if (isHeritage) {
+    const dotSize = 10;
+    const offset = (FAMILY_NODE_SIZE - dotSize) / 2;
+    return (
+      <>
+        <Handle type="target" position={Position.Top} id="parent-top" className="!opacity-0 !pointer-events-none" />
+        <Handle type="target" position={Position.Left} id="parent-left" className="!opacity-0 !pointer-events-none" />
+        <Handle type="target" position={Position.Right} id="parent-right" className="!opacity-0 !pointer-events-none" />
+        <div
+          style={{
+            width: FAMILY_NODE_SIZE,
+            height: FAMILY_NODE_SIZE,
+            position: 'relative',
+            cursor: 'pointer',
+          }}
+          title={`${UNION_TOOLTIPS[unionType]} — click to add a child`}
+        >
+          <div style={{
+            position: 'absolute',
+            top: offset,
+            left: offset,
+            width: dotSize,
+            height: dotSize,
+            borderRadius: '50%',
+            background: theme.edgeColor,
+          }} />
+        </div>
+        <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none" />
+      </>
+    );
+  }
 
   return (
     <>

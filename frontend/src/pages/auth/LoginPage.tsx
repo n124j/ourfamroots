@@ -146,7 +146,16 @@ export default function LoginPage() {
           )}
 
           {/* Email/password form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+                e.preventDefault();
+                e.currentTarget.requestSubmit();
+              }
+            }}
+            className="space-y-4"
+          >
             <div>
               <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-1.5">
                 {t('auth.email')}

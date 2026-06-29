@@ -35,6 +35,7 @@ import { FamilyGroupNode } from './nodes/FamilyGroupNode';
 import { ParentChildEdge } from './edges/ParentChildEdge';
 import { UnionEdge } from './edges/UnionEdge';
 import { TreeControls } from './controls/TreeControls';
+import { TimelineView } from './TimelineView';
 import { useTreeLayout } from './useTreeLayout';
 import { useExpandCollapse } from './useExpandCollapse';
 import { ancestorSubgraphIds } from './algorithms/ancestorChart';
@@ -470,14 +471,21 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
     setTimeout(() => fitView({ duration: 600, padding: 0.12 }), 150);
   }, [graph, expandedNodeIds, expandAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const viewStyle = useCanvasStore((s) => s.viewStyle);
+  const isHeritage = viewStyle === 'heritage';
   const layoutOpts = useMemo(
     () => ({
       ...DEFAULT_LAYOUT_OPTIONS,
       mode: layoutMode,
       direction: layoutMode === 'horizontal' ? ('LR' as const) : ('TB' as const),
       focusPersonId: focusPersonId ?? undefined,
+      ...(isHeritage ? {
+        personNodeHeight: 150,
+        nodeVGap: 70,
+        nodeHGap: 36,
+      } : {}),
     }),
-    [layoutMode, focusPersonId]
+    [layoutMode, focusPersonId, isHeritage]
   );
 
   // ── Draggable node positions ───────────────────────────────────────────────
@@ -908,6 +916,24 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
           <div className="text-4xl mb-3">🌳</div>
           <p className="text-slate-700 font-medium">{t('legend.noPeopleYet')}</p>
           <p className="text-sm text-slate-500 mt-1">{t('legend.addPersonToStart')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Timeline view: completely different rendering ─────────────────────────
+  if (viewStyle === 'timeline' && graph) {
+    return (
+      <div ref={containerRef} className="w-full h-full relative" style={{ background: canvasTheme.canvasBg }}>
+        {!isPdfMode && (
+          <TreeControls
+            graph={graph}
+            onExpandAll={handleExpandAll}
+            onCollapseAll={handleCollapseAll}
+          />
+        )}
+        <div className="w-full h-full pt-14">
+          <TimelineView graph={graph} />
         </div>
       </div>
     );

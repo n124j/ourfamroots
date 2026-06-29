@@ -139,7 +139,7 @@ function computeGenerations(
 
 export function familyTreeLayout(
   graph: ApiTreeGraph,
-  opts: { nodeHGap?: number; nodeVGap?: number; coupleGap?: number; margin?: number; alignByBirthYear?: boolean } = {},
+  opts: { nodeHGap?: number; nodeVGap?: number; coupleGap?: number; margin?: number; alignByBirthYear?: boolean; personNodeHeight?: number } = {},
 ): PositionedNode[] {
   if (graph.persons.length === 0) return [];
 
@@ -181,14 +181,16 @@ export function familyTreeLayout(
   // ── Phase 1: generation numbers ──────────────────────────────────────────────
   const genMap = computeGenerations(graph, personParentFG, personChildFGs, fgById, opts.alignByBirthYear ?? false);
 
-  const ROW_H = PH + vGap;
+  const nodeH = opts.personNodeHeight ?? PH;
+  const ROW_H = nodeH + vGap;
   const yPerson = (id: string)  => MARGIN + (genMap.get(id) ?? 0) * ROW_H;
   const yFG     = (fgId: string) => {
     const fg = fgById.get(fgId)!;
     const maxParentGen = fg.parentIds.length
       ? Math.max(...fg.parentIds.map((id) => genMap.get(id) ?? 0))
       : 0;
-    return MARGIN + maxParentGen * ROW_H + PH + vGap / 2 - FS / 2;
+    const fgOffset = opts.personNodeHeight ? nodeH + 16 : nodeH + vGap / 2 - FS / 2;
+    return MARGIN + maxParentGen * ROW_H + fgOffset;
   };
 
   // ── Phase 2: bottom-up subtree widths ────────────────────────────────────────

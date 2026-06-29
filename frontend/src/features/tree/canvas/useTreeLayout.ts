@@ -269,8 +269,9 @@ function applyLayout(
           })),
       };
       positions = familyTreeLayout(filteredGraph, {
-        nodeHGap: 20,
-        nodeVGap: 60,
+        nodeHGap: opts.nodeHGap ?? 20,
+        nodeVGap: opts.nodeVGap ?? 60,
+        personNodeHeight: opts.personNodeHeight,
       });
       break;
     }

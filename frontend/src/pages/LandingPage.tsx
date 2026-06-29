@@ -101,7 +101,16 @@ function LoginModal({ onClose, onSwitchToRegister, initialError }: {
         </>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form
+        onSubmit={handleSubmit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+            e.preventDefault();
+            e.currentTarget.requestSubmit();
+          }
+        }}
+        className="space-y-4"
+      >
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('auth.email')}</label>
           <input
@@ -263,7 +272,16 @@ function RegisterModal({ onClose, onSwitchToLogin, initialError }: {
         </>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form
+        onSubmit={handleSubmit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.target instanceof HTMLInputElement && e.target.type !== 'checkbox') {
+            e.preventDefault();
+            e.currentTarget.requestSubmit();
+          }
+        }}
+        className="space-y-4"
+      >
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('auth.firstName')}</label>

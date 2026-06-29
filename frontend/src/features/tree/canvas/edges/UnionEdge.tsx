@@ -60,14 +60,16 @@ function UnionEdgeComponent({
   selected,
   target: familyGroupId,
 }: EdgeProps<UnionEdgeData>) {
-  const edgeWidth   = useThemeStore((s) => s.theme.edgeWidth);
+  const theme       = useThemeStore((s) => s.theme);
+  const edgeWidth   = theme.edgeWidth;
+  const isHeritage  = useCanvasStore((s) => s.viewStyle) === 'heritage';
   const treeId      = useCanvasStore((s) => s.treeId);
   const token       = useAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
 
   const unionType   = data?.unionType ?? 'UNKNOWN';
   const isDivorced  = data?.isDivorced ?? false;
-  const color       = selected ? '#f97316' : isDivorced ? '#94a3b8' : UNION_COLORS[unionType];
+  const color       = selected ? '#f97316' : isDivorced ? '#94a3b8' : isHeritage ? theme.edgeColor : UNION_COLORS[unionType];
   const dashArray   = UNION_STROKE[unionType];
   const isSolid     = dashArray === 'solid';
   const isMarriage  = unionType === 'MARRIAGE';
@@ -209,6 +211,21 @@ function UnionEdgeComponent({
   if (startStr) tooltipParts.push(`Since: ${startStr}`);
   if (endStr)   tooltipParts.push(`Until: ${endStr}`);
   const tooltip = tooltipParts.join('\n');
+
+  // ── Heritage mode: orthogonal step line (vertical → horizontal → vertical) ──
+  if (isHeritage) {
+    const midY = (sourceY + targetY) / 2;
+    const stepPath = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+    return (
+      <>
+        <g style={{ opacity, transition: 'opacity 0.25s' }}>
+          <title>{tooltip}</title>
+          <path d={stepPath} stroke={color} strokeWidth={edgeWidth} fill="none" />
+          <path d={stepPath} stroke="transparent" strokeWidth={12} fill="none" />
+        </g>
+      </>
+    );
+  }
 
   // ── Marriage: double line (dotted when divorced) ─────────────────────────
   if (isMarriage) {

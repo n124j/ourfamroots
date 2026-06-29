@@ -51,11 +51,18 @@ export const THEME_PRESETS: CanvasTheme[] = [
     nodeText: '#1a3320', nodeSubtext: '#4a7a54', nodeHoverBg: '#e5f2e5',
     edgeColor: '#5a9a6a', edgeWidth: 1.5, edgeHighlight: '#2d7a3a',
   },
+  {
+    preset: 'heritage',
+    canvasBg: '#e8ddd0', canvasDot: '#d4c4b0',
+    nodeBg: '#f5ede2', nodeBorder: '#b8a48c',
+    nodeText: '#3d2b1f', nodeSubtext: '#7a6652', nodeHoverBg: '#ebe0d2',
+    edgeColor: '#6b5a4a', edgeWidth: 1.8, edgeHighlight: '#8b6914',
+  },
 ];
 
 export const PRESET_LABEL: Record<string, string> = {
   classic: 'Classic', dark: 'Dark', warm: 'Warm',
-  blueprint: 'Blueprint', forest: 'Forest', custom: 'Custom',
+  blueprint: 'Blueprint', forest: 'Forest', heritage: 'Heritage', custom: 'Custom',
 };
 
 interface ThemeStore {

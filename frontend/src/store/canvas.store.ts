@@ -9,6 +9,8 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { LayoutMode, UnionType, ParentageType } from '@features/tree/types';
 
+export type ViewStyle = 'default' | 'heritage' | 'timeline';
+
 export interface SelectedEdge {
   id: string;
   /** 'union' = person→family-group edge; 'parent-child' = family-group→person edge */
@@ -37,6 +39,9 @@ interface CanvasStore {
   layoutMode: LayoutMode;
   setLayoutMode: (mode: LayoutMode) => void;
 
+  viewStyle: ViewStyle;
+  setViewStyle: (style: ViewStyle) => void;
+
   zoom: number;
   setZoom: (z: number) => void;
   pan: { x: number; y: number };
@@ -64,7 +69,8 @@ const initialState = {
   focusPersonId: null,
   selectedPersonId: null,
   selectedEdge: null,
-  layoutMode: 'vertical' as LayoutMode, // "Vertical (multi-marriage aware)" — default on tree open
+  layoutMode: 'vertical' as LayoutMode,
+  viewStyle: 'default' as ViewStyle,
   zoom: 0.8,
   pan: { x: 0, y: 0 },
   expandedNodeIds: new Set<string>(),
@@ -83,6 +89,7 @@ export const useCanvasStore = create<CanvasStore>()(
       setSelectedPersonId: (id) => set({ selectedPersonId: id }),
       setSelectedEdge: (edge) => set({ selectedEdge: edge }),
       setLayoutMode: (mode) => set({ layoutMode: mode }),
+      setViewStyle: (style) => set({ viewStyle: style }),
       setZoom: (zoom) => set({ zoom }),
       setPan: (pan) => set({ pan }),
       setExpandedNodeIds: (ids) => set({ expandedNodeIds: ids }),

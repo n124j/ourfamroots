@@ -14,11 +14,13 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
+  getStraightPath,
   type EdgeProps,
 } from 'reactflow';
 import type { ParentChildEdgeData } from '../../types';
 import { PARENTAGE_STROKE } from '../../types';
 import { useThemeStore } from '@store/theme.store';
+import { useCanvasStore } from '@store/canvas.store';
 
 const PARENTAGE_LABELS: Partial<Record<ParentChildEdgeData['parentageType'], string>> = {
   ADOPTIVE: 'adopted',
@@ -51,10 +53,14 @@ function ParentChildEdgeComponent({
   const hl      = data?.isHighlighted;
   const opacity = selected ? 1 : hl === true ? 1 : hl === false ? 0.15 : 1;
 
-  const strokeColor = selected ? '#f97316' : hl === true ? theme.edgeHighlight : theme.edgeColor;
-  const strokeWidth = selected ? theme.edgeWidth * 3 : hl === true ? theme.edgeWidth * 2 : theme.edgeWidth;
+  const isHeritage = useCanvasStore((s) => s.viewStyle) === 'heritage';
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const strokeColor = selected ? '#f97316'
+    : hl === true ? theme.edgeHighlight : theme.edgeColor;
+  const strokeWidth = selected ? theme.edgeWidth * 3
+    : hl === true ? theme.edgeWidth * 2 : theme.edgeWidth;
+
+  const [bezierPath, bezierLabelX, bezierLabelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -64,11 +70,32 @@ function ParentChildEdgeComponent({
     curvature: 0.25,
   });
 
+  // Heritage: orthogonal step path (vertical down, horizontal, vertical down)
+  if (isHeritage) {
+    const midY = (sourceY + targetY) / 2;
+    const stepPath = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+    return (
+      <BaseEdge
+        id={id}
+        path={stepPath}
+        markerEnd={markerEnd}
+        style={{
+          stroke: strokeColor,
+          strokeWidth,
+          strokeDasharray: isSolid ? undefined : dashArray,
+          opacity,
+          transition: 'stroke 0.25s, stroke-width 0.25s, opacity 0.25s',
+          filter: selected ? 'drop-shadow(0 0 4px #f97316aa)' : undefined,
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <BaseEdge
         id={id}
-        path={edgePath}
+        path={bezierPath}
         markerEnd={markerEnd}
         style={{
           stroke: strokeColor,
@@ -85,7 +112,7 @@ function ParentChildEdgeComponent({
           <div
             className="absolute pointer-events-none"
             style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${bezierLabelX}px,${bezierLabelY}px)`,
             }}
           >
             <span className="px-1 py-0.5 text-[9px] font-medium rounded bg-white border border-slate-200 text-slate-500 shadow-sm">

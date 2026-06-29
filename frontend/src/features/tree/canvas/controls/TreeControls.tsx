@@ -8,11 +8,12 @@
  *   - Export (PNG)
  */
 
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useReactFlow } from 'reactflow';
 import type { LayoutMode } from '../../types';
 import { useCanvasStore } from '@store/canvas.store';
+import type { ViewStyle } from '@store/canvas.store';
 
 // ── Compact view icon (two parent cards → child card) ─────────────────────
 const CompactViewIcon = () => (
@@ -170,6 +171,81 @@ interface TreeControlsProps {
   onCollapseAll: () => void;
 }
 
+// ── Heritage view icon (ornamental frame) ───────────────────────────────
+const HeritageViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+    <rect x="1" y="1" width="12" height="12" rx="1.5" />
+    <rect x="2.5" y="2.5" width="9" height="9" rx="1" strokeDasharray="2 1" />
+    <circle cx="7" cy="6" r="2" />
+    <path d="M4 11.5c0-1.7 1.3-3 3-3s3 1.3 3 3" />
+  </svg>
+);
+
+// ── View style dropdown ─────────────────────────────────────────────────
+
+interface ViewStyleDropdownProps {
+  onSelect: (style: string) => void;
+  activeStyle: string;
+}
+
+const VIEW_STYLES = [
+  { id: 'default', label: 'Default', description: 'Standard modern tree view' },
+  { id: 'heritage', label: 'Heritage', description: 'Vintage parchment style with serif text' },
+  { id: 'timeline', label: 'Timeline', description: 'Horizontal timeline with year axis' },
+] as const;
+
+const ViewStyleDropdown = memo(({ onSelect, activeStyle }: ViewStyleDropdownProps) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="View styles"
+        className={[
+          'flex items-center justify-center gap-0.5 h-8 px-1.5 rounded-lg text-sm font-medium transition-colors',
+          activeStyle === 'heritage'
+            ? 'bg-brand-500 text-white shadow-sm'
+            : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-slate-200',
+        ].join(' ')}
+      >
+        <HeritageViewIcon />
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M1 3l3 3 3-3z" /></svg>
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-1 right-0 w-52 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden z-50">
+          {VIEW_STYLES.map((style) => (
+            <button
+              key={style.id}
+              onClick={() => { onSelect(style.id); setOpen(false); }}
+              className={[
+                'w-full text-left px-3 py-2.5 text-sm transition-colors',
+                activeStyle === style.id
+                  ? 'bg-brand-50 text-brand-700 font-medium'
+                  : 'text-slate-700 hover:bg-slate-50',
+              ].join(' ')}
+            >
+              <div className="font-medium">{style.label}</div>
+              <div className="text-xs text-slate-400 mt-0.5">{style.description}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+ViewStyleDropdown.displayName = 'ViewStyleDropdown';
+
 export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeControlsProps) => {
   const { t } = useTranslation();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
@@ -177,13 +253,13 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
   const setLayoutMode   = useCanvasStore((s) => s.setLayoutMode);
   const zoom            = useCanvasStore((s) => s.zoom);
   const bumpLayoutReset = useCanvasStore((s) => s.bumpLayoutReset);
+  const viewStyle       = useCanvasStore((s) => s.viewStyle);
+  const setViewStyle    = useCanvasStore((s) => s.setViewStyle);
 
   const handleFitView = useCallback(() => {
     fitView({ duration: 400, padding: 0.1 });
   }, [fitView]);
 
-  // Switching to any layout mode forces a full reset so dragged positions
-  // are discarded and the tree realigns in generation hierarchy.
   const handleLayoutMode = useCallback((mode: LayoutMode) => {
     setLayoutMode(mode);
     bumpLayoutReset();
@@ -195,6 +271,13 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
 
   const handleZoomIn  = useCallback(() => zoomIn({ duration: 200 }),  [zoomIn]);
   const handleZoomOut = useCallback(() => zoomOut({ duration: 200 }), [zoomOut]);
+
+  const handleViewStyle = useCallback((style: string) => {
+    setViewStyle(style as ViewStyle);
+    if (style === 'heritage') {
+      handleLayoutMode('compact');
+    }
+  }, [setViewStyle, handleLayoutMode]);
 
   return (
     <div className="absolute top-4 left-4 z-10 flex items-center gap-1 p-1.5 bg-white/90 backdrop-blur rounded-xl border border-slate-200 shadow-card">
@@ -254,6 +337,9 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
       >
         <CompactViewIcon />
       </CtrlBtn>
+
+      {/* View style dropdown */}
+      <ViewStyleDropdown onSelect={handleViewStyle} activeStyle={viewStyle} />
 
     </div>
   );
