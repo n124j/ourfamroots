@@ -110,6 +110,7 @@ const LEGEND_TITLE_KEYS: Record<LayoutMode, string> = {
   'descendant-family':          'legend.descendantsSpouses',
   'compact-descendant-family':  'legend.descendantsSpouses',
   'ancestor-family':            'legend.ancestorsSpouses',
+  'compact-ancestor-family':    'legend.ancestorsSpouses',
   pedigree:                     'legend.pedigreeChart',
 };
 
@@ -570,6 +571,7 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
           'descendant-family':          focusName ? `Descendants of ${focusName}` : 'Descendants + Spouses',
           'compact-descendant-family':  focusName ? `Descendants of ${focusName}` : 'Descendants + Spouses',
           'ancestor-family':            focusName ? `Ancestors of ${focusName}` : 'Ancestors + Spouses',
+          'compact-ancestor-family':    focusName ? `Ancestors of ${focusName}` : 'Ancestors + Spouses',
           pedigree:                     focusName ? `Pedigree — ${focusName}` : 'Pedigree Chart',
         };
         title = PDF_TITLES[layoutMode] ?? treeName;

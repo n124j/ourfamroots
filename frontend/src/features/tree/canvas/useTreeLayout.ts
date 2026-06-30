@@ -323,6 +323,37 @@ function applyLayout(
       break;
     }
 
+    case 'compact-ancestor-family': {
+      // Ancestors + spouses with compact tighter spacing — same subgraph as
+      // ancestor-family but runs the compact post-processing pass.
+      const visiblePersonIds = new Set(
+        nodes.filter((n) => n.type === 'person').map((n) => n.id)
+      );
+      const visibleFGIds = new Set(
+        nodes.filter((n) => n.type === 'family-group').map((n) => n.id)
+      );
+      const filteredGraph: ApiTreeGraph = {
+        treeId: graph.treeId,
+        persons: graph.persons.filter((p) => visiblePersonIds.has(p.id)),
+        familyGroups: graph.familyGroups
+          .filter((fg) => visibleFGIds.has(fg.id))
+          .map((fg) => ({
+            ...fg,
+            parentIds: fg.parentIds.filter((pid) => visiblePersonIds.has(pid)),
+            children: Object.fromEntries(
+              Object.entries(fg.children).filter(([cid]) => visiblePersonIds.has(cid))
+            ),
+          })),
+      };
+      positions = familyTreeLayout(filteredGraph, {
+        nodeHGap: opts.nodeHGap ?? 20,
+        nodeVGap: opts.nodeVGap ?? 60,
+        personNodeHeight: opts.personNodeHeight,
+        compact: true,
+      });
+      break;
+    }
+
     case 'ancestor-family':
     case 'descendant-family': {
       // Use familyTreeLayout so couples are kept adjacent.
@@ -466,7 +497,10 @@ export function useTreeLayout(
       filteredEdges = rawEdges.filter(
         (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
       );
-    } else if (layoutOpts.mode === 'ancestor-family' && layoutOpts.focusPersonId) {
+    } else if (
+      (layoutOpts.mode === 'ancestor-family' || layoutOpts.mode === 'compact-ancestor-family') &&
+      layoutOpts.focusPersonId
+    ) {
       const visibleIds = ancestorSubgraphIds(graph, layoutOpts.focusPersonId, 100);
       const preNodes = rawNodes.filter((n) => visibleIds.has(n.id));
       const preEdges = rawEdges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));

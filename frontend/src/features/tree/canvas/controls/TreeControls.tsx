@@ -275,9 +275,10 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
   }, [setLayoutMode, bumpLayoutReset]);
 
   const handleCompactView = useCallback((e: React.MouseEvent) => {
-    // Shift+click while in descendant-family (or already compact-descendant) → compact descendants
     if (e.shiftKey && (layoutMode === 'descendant-family' || layoutMode === 'compact-descendant-family')) {
       handleLayoutMode('compact-descendant-family');
+    } else if (e.shiftKey && (layoutMode === 'ancestor-family' || layoutMode === 'compact-ancestor-family')) {
+      handleLayoutMode('compact-ancestor-family');
     } else {
       handleLayoutMode('compact');
     }
@@ -326,18 +327,25 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
               (layoutMode === 'compact' || layoutMode === 'compact-descendant-family')
             ) {
               handleLayoutMode('compact-descendant-family');
+            } else if (
+              mode === 'ancestor-family' &&
+              e.shiftKey &&
+              (layoutMode === 'compact' || layoutMode === 'compact-ancestor-family')
+            ) {
+              handleLayoutMode('compact-ancestor-family');
             } else {
               handleLayoutMode(mode);
             }
           }}
           title={
-            mode === 'descendant-family'
+            mode === 'descendant-family' || mode === 'ancestor-family'
               ? t(titleKey) + ' · Shift+click with Compact for tight layout'
               : t(titleKey)
           }
           active={
             layoutMode === mode ||
-            (mode === 'descendant-family' && layoutMode === 'compact-descendant-family')
+            (mode === 'descendant-family' && layoutMode === 'compact-descendant-family') ||
+            (mode === 'ancestor-family' && layoutMode === 'compact-ancestor-family')
           }
         >
           {'icon' in rest ? rest.icon : rest.label}
@@ -364,8 +372,8 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
       {/* Compact family-tree view */}
       <CtrlBtn
         onClick={handleCompactView}
-        title={t('treeControls.compactView') + ' · Shift+click with Descendants for tight layout'}
-        active={layoutMode === 'compact' || layoutMode === 'compact-descendant-family'}
+        title={t('treeControls.compactView') + ' · Shift+click with Descendants or Ancestors for tight layout'}
+        active={layoutMode === 'compact' || layoutMode === 'compact-descendant-family' || layoutMode === 'compact-ancestor-family'}
       >
         <CompactViewIcon />
       </CtrlBtn>

@@ -32,6 +32,7 @@ export type LayoutMode =
   | 'descendant-family'          // descendants with spouses — couples shown together going down
   | 'compact-descendant-family'  // descendants + spouses with compact tighter spacing
   | 'ancestor-family'            // ancestors with spouses — couples shown together going up
+  | 'compact-ancestor-family'    // ancestors + spouses with compact tighter spacing
   | 'fan'                // polar fan chart — semicircle (180°)
   | 'ancestry-fan'       // ancestry fan chart — full circle (360°)
   | 'pedigree';          // horizontal binary ancestor tree (focus left, ancestors right)

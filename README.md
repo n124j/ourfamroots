@@ -1,4 +1,4 @@
-# OurFamRoots
+?# OurFamRoots
 
 A genealogy platform for building, exploring, and collaborating on family trees. Built with FastAPI, React, PostgreSQL, and Redis.
 
@@ -35,13 +35,25 @@ A genealogy platform for building, exploring, and collaborating on family trees.
     - [3. Run staging migrations](#3-run-staging-migrations)
     - [4. Seed staging accounts](#4-seed-staging-accounts)
   - [Production Deployment](#production-deployment)
-    - [Prerequisites](#prerequisites-1)
+    - [Production Prerequisites](#production-prerequisites)
     - [1. Configure secrets](#1-configure-secrets)
     - [2. Build and push images](#2-build-and-push-images)
     - [3. Deploy with Helm](#3-deploy-with-helm)
     - [4. Verify the deployment](#4-verify-the-deployment)
     - [Rolling back](#rolling-back)
     - [CI/CD pipeline](#cicd-pipeline)
+  - [GCP Deployment (Free Trial)](#gcp-deployment-free-trial)
+    - [Architecture on GCP](#architecture-on-gcp)
+    - [GCP Prerequisites](#gcp-prerequisites)
+    - [1. Create GCP project and enable APIs](#1-create-gcp-project-and-enable-apis)
+    - [2. Create infrastructure](#2-create-infrastructure)
+    - [3. Push images to Artifact Registry](#3-push-images-to-artifact-registry)
+    - [4. Store secrets in Secret Manager](#4-store-secrets-in-secret-manager)
+    - [5. Deploy to Cloud Run](#5-deploy-to-cloud-run)
+    - [6. Run migrations and seed data](#6-run-migrations-and-seed-data)
+    - [7. Access the app](#7-access-the-app)
+    - [Estimated trial costs](#estimated-trial-costs)
+    - [Tearing down](#tearing-down)
   - [Port Reference](#port-reference)
 
 ---
@@ -49,7 +61,7 @@ A genealogy platform for building, exploring, and collaborating on family trees.
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+| --- | --- |
 | Backend API | FastAPI (Python 3.11), Uvicorn, Celery |
 | Frontend | React 18, TypeScript, Vite, TanStack Query, Zustand, ReactFlow, Tailwind CSS |
 | Database | PostgreSQL 15 |
@@ -167,7 +179,7 @@ docker compose up -d
 This starts:
 
 | Service | Description | Port |
-|---------|-------------|------|
+| --- | --- | --- |
 | **PostgreSQL** | Primary database | 7000 |
 | **Redis** | Cache and Celery broker | 7001 |
 | **MinIO** (S3 API) | Local object storage for media uploads | 7002 |
@@ -208,7 +220,7 @@ python backend/scripts/seed_users.py
 This creates the following accounts in the `ourfamroots-system` tenant:
 
 | Email | Password | Role |
-|-------|----------|------|
+| --- | --- | --- |
 | `admin@ourfamroots.app` | `Admin@FR2024!` | ADMIN |
 | `user@ourfamroots.app` | `User@FR2024!` | STANDARD |
 | `auditor@ourfamroots.app` | `Auditor@FR2024!` | AUDITOR |
@@ -245,7 +257,7 @@ docker compose exec db psql -U postgres ourfamroots -f /seed_family.sql
 ### 5. Access the app
 
 | Service | URL | Notes |
-|---------|-----|-------|
+| --- | --- | --- |
 | Frontend | <http://localhost:7006> | Use a seed account or register |
 | Backend API | <http://localhost:7004> | REST API |
 | Swagger UI | <http://localhost:7004/docs> | Interactive API docs |
@@ -268,7 +280,7 @@ The default view when opening any tree is the **Ancestor chart** (focus person a
 ancestors climbing upward). Use the toolbar to switch between all available layouts:
 
 | Button | Mode | Description |
-|--------|------|-------------|
+| --- | --- | --- |
 | 📊 | Generation sort | Top-to-bottom sorted by generation |
 | ↕ | Vertical | Multi-marriage-aware top-to-bottom layout |
 | ↔ | Horizontal | Left-to-right generation layout |
@@ -316,14 +328,14 @@ Two dropdown menus at the end of the toolbar provide alternate rendering:
 **🎨 View Styles** (built-in):
 
 | Style | Description |
-|-------|-------------|
+| --- | --- |
 | Default | Standard modern card view |
 | Heritage | Vintage parchment cards with serif text, sepia photo filter, orthogonal (right-angle) connecting lines |
 
 **🧩 Extensions** (plug-in views):
 
 | Extension | Description |
-|-----------|-------------|
+| --- | --- |
 | Timeline | Horizontal year-axis view — each person is a coloured bar from birth to death |
 | Grid Cards | Sortable card grid (example extension) |
 
@@ -363,7 +375,7 @@ View extensions live in `frontend/src/extensions/views/`. Each extension is a fo
 with an `index.ts` that exports a `ViewPlugin` object. The registry auto-discovers all
 extensions via `import.meta.glob` at build time.
 
-```
+```text
 frontend/src/extensions/views/
   registry.ts           ← auto-discovery + ViewPlugin interface
   default/index.ts      ← built-in: standard view
@@ -390,7 +402,7 @@ OurFamRoots uses a native `.frt` backup format (JSON-based) for tree import and 
 The format preserves all person data including:
 
 | Field | Description |
-|-------|-------------|
+| --- | --- |
 | `display_given_name` / `display_surname` | Name fields |
 | `sex` | MALE, FEMALE, OTHER, UNKNOWN |
 | `is_living` / `is_deceased` | Living status |
@@ -534,7 +546,7 @@ kubectl create secret generic ourfamroots-secrets \
 Add the corresponding **GitHub Actions secrets** (prefix with `STG_` to distinguish from production):
 
 | Secret | Description |
-|--------|-------------|
+| --- | --- |
 | `STG_KUBE_CONFIG` | Base64-encoded kubeconfig for the staging cluster |
 | `STG_DB_PASSWORD` | PostgreSQL password |
 | `STG_REDIS_PASSWORD` | Redis password |
@@ -603,7 +615,7 @@ kubectl delete pod seed -n ourfamroots-staging
 Production runs on Kubernetes with blue/green deployments managed by GitHub Actions.
 Images are built by CI and pushed to GitHub Container Registry.
 
-### Prerequisites
+### Production Prerequisites
 
 - A Kubernetes cluster with an nginx ingress controller and `cert-manager` installed
 - `kubectl` pointing at your cluster
@@ -635,7 +647,7 @@ openssl rand -hex 64
 **GitHub Actions secrets** — add the following in Settings → Secrets → Actions:
 
 | Secret | Description |
-|--------|-------------|
+| --- | --- |
 | `KUBE_CONFIG` | Base64-encoded kubeconfig for your cluster |
 | `DB_PASSWORD` | PostgreSQL password |
 | `REDIS_PASSWORD` | Redis password |
@@ -741,7 +753,7 @@ kubectl rollout undo deployment/api-blue -n ourfamroots
 ### CI/CD pipeline
 
 | Branch | Trigger | Jobs run |
-|--------|---------|----------|
+| --- | --- | --- |
 | Any PR | Push | Tests + coverage gate (no deploy) |
 | `develop` | Push | Tests + coverage gate + build + staging deploy |
 | `main` | Push | Tests + coverage gate + build + production deploy |
@@ -763,10 +775,414 @@ kubectl rollout undo deployment/api-blue -n ourfamroots
 
 ---
 
+## GCP Deployment (Free Trial)
+
+Google Cloud's **$300 free trial credit** (valid for 90 days) is enough to run
+OurFamRoots on a minimal Cloud Run + Cloud SQL + Cloud Storage stack for the full
+trial period.
+
+> **Activate the trial:** [cloud.google.com/free](https://cloud.google.com/free).
+> A credit card is required for identity verification but you will **not** be charged
+> until you manually upgrade to a paid account.
+
+### Architecture on GCP
+
+| Local service | GCP equivalent |
+| --- | --- |
+| Backend API (Docker) | Cloud Run service |
+| Frontend (Docker) | Cloud Run service |
+| Celery worker (Docker) | Cloud Run service |
+| PostgreSQL | Cloud SQL for PostgreSQL 15 |
+| Redis | Memorystore for Redis |
+| MinIO (object storage) | Cloud Storage (via S3-compatible HMAC API) |
+| Docker images | Artifact Registry |
+| `backend/.env` secrets | Secret Manager |
+
+### GCP Prerequisites
+
+- [Google Cloud SDK (`gcloud`)](https://cloud.google.com/sdk/docs/install) installed
+  and initialised (`gcloud init`)
+- Docker Desktop running locally
+- A Google account with the free trial activated
+
+### 1. Create GCP project and enable APIs
+
+```bash
+# Replace PROJECT_ID with a globally unique identifier, e.g. ourfamroots-2025
+gcloud projects create PROJECT_ID --name="OurFamRoots"
+gcloud config set project PROJECT_ID
+
+# Link the free-trial billing account
+gcloud billing projects link PROJECT_ID \
+  --billing-account=$(gcloud billing accounts list \
+      --format="value(name)" --filter="open=true" | head -1)
+
+# Enable all required APIs
+gcloud services enable \
+  run.googleapis.com \
+  sqladmin.googleapis.com \
+  redis.googleapis.com \
+  storage.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  vpcaccess.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  iam.googleapis.com
+```
+
+### 2. Create infrastructure
+
+Export these variables once — every subsequent command reuses them:
+
+```bash
+export PROJECT_ID=ourfamroots-2025       # your GCP project ID
+export REGION=us-central1                # region closest to your users
+export DB_INSTANCE=ourfamroots-db
+export DB_NAME=ourfamroots
+export DB_USER=ourfamroots
+export DB_PASS=$(openssl rand -hex 16)   # save this — you'll need it later
+export BUCKET=ourfamroots-media-$PROJECT_ID
+export REDIS_INSTANCE=ourfamroots-cache
+export AR_REPO=ourfamroots
+export VPC_CONNECTOR=ourfamroots-vpc
+```
+
+**Cloud SQL (PostgreSQL 15):**
+
+```bash
+gcloud sql instances create $DB_INSTANCE \
+  --database-version=POSTGRES_15 \
+  --tier=db-f1-micro \
+  --region=$REGION \
+  --storage-size=10GB \
+  --storage-auto-increase \
+  --no-backup
+
+gcloud sql databases create $DB_NAME --instance=$DB_INSTANCE
+
+gcloud sql users create $DB_USER \
+  --instance=$DB_INSTANCE \
+  --password=$DB_PASS
+```
+
+> `db-f1-micro` is the smallest tier (1 shared vCPU, 614 MB RAM). Sufficient for
+> development and low-traffic use — costs ~$8/month from trial credit.
+
+**Cloud Storage bucket (replaces MinIO):**
+
+```bash
+gcloud storage buckets create gs://$BUCKET \
+  --location=$REGION \
+  --uniform-bucket-level-access
+```
+
+Cloud Storage is accessed via its S3-compatible XML API using HMAC keys — no code
+changes required. Generate a key for the default Compute service account:
+
+```bash
+export SA="$(gcloud projects describe $PROJECT_ID \
+  --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+
+gcloud storage hmac create $SA --project=$PROJECT_ID
+# ── Note the printed `accessId` and `secret` — store them as HMAC_KEY / HMAC_SECRET
+```
+
+**Memorystore for Redis:**
+
+```bash
+gcloud redis instances create $REDIS_INSTANCE \
+  --size=1 \
+  --region=$REGION \
+  --redis-version=redis_7_0 \
+  --tier=basic
+```
+
+> Takes 5–10 minutes to provision. The instance runs inside the default VPC, so Cloud
+> Run needs a serverless VPC connector to reach it.
+
+**Serverless VPC connector (Cloud Run → Redis):**
+
+```bash
+gcloud compute networks vpc-access connectors create $VPC_CONNECTOR \
+  --region=$REGION \
+  --range=10.8.0.0/28
+```
+
+**Artifact Registry repository:**
+
+```bash
+gcloud artifacts repositories create $AR_REPO \
+  --repository-format=docker \
+  --location=$REGION
+```
+
+### 3. Push images to Artifact Registry
+
+```bash
+export IMAGE_BASE=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO
+export TAG=$(git rev-parse --short HEAD)
+
+# Authenticate Docker with Artifact Registry
+gcloud auth configure-docker $REGION-docker.pkg.dev
+
+# Build and push the backend image
+docker build --target runtime -t $IMAGE_BASE/api:$TAG ./backend
+docker push $IMAGE_BASE/api:$TAG
+
+# Build and push the frontend image
+docker build -t $IMAGE_BASE/frontend:$TAG ./frontend
+docker push $IMAGE_BASE/frontend:$TAG
+```
+
+### 4. Store secrets in Secret Manager
+
+```bash
+# JWT signing key
+openssl rand -hex 64 | gcloud secrets create JWT_SECRET_KEY --data-file=-
+
+# Database password (the value exported in step 2)
+echo -n "$DB_PASS" | gcloud secrets create DB_PASSWORD --data-file=-
+
+# HMAC credentials for Cloud Storage (S3-compatible access)
+echo -n "<HMAC_KEY>"    | gcloud secrets create GCS_HMAC_KEY    --data-file=-
+echo -n "<HMAC_SECRET>" | gcloud secrets create GCS_HMAC_SECRET --data-file=-
+
+# Gmail SMTP credentials
+echo -n "<your-gmail-address>"      | gcloud secrets create SMTP_USER     --data-file=-
+echo -n "<your-gmail-app-password>" | gcloud secrets create SMTP_PASSWORD --data-file=-
+```
+
+Grant the Compute service account access to read all secrets and connect to Cloud SQL:
+
+```bash
+for SECRET in JWT_SECRET_KEY DB_PASSWORD GCS_HMAC_KEY GCS_HMAC_SECRET \
+              SMTP_USER SMTP_PASSWORD; do
+  gcloud secrets add-iam-policy-binding $SECRET \
+    --member="serviceAccount:$SA" \
+    --role="roles/secretmanager.secretAccessor"
+done
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SA" \
+  --role="roles/cloudsql.client"
+
+gcloud storage buckets add-iam-policy-binding gs://$BUCKET \
+  --member="serviceAccount:$SA" \
+  --role="roles/storage.objectAdmin"
+```
+
+### 5. Deploy to Cloud Run
+
+Fetch the values needed for environment variables:
+
+```bash
+export REDIS_HOST=$(gcloud redis instances describe $REDIS_INSTANCE \
+  --region=$REGION --format="value(host)")
+
+export CLOUD_SQL_CONN="$PROJECT_ID:$REGION:$DB_INSTANCE"
+
+# Cloud Storage S3-compatible endpoint
+export S3_ENDPOINT=https://storage.googleapis.com
+export S3_PUBLIC_URL=https://storage.googleapis.com/$BUCKET
+```
+
+**Deploy the backend API:**
+
+```bash
+gcloud run deploy ourfamroots-api \
+  --image=$IMAGE_BASE/api:$TAG \
+  --region=$REGION \
+  --platform=managed \
+  --allow-unauthenticated \
+  --add-cloudsql-instances=$CLOUD_SQL_CONN \
+  --vpc-connector=$VPC_CONNECTOR \
+  --vpc-egress=private-ranges-only \
+  --set-env-vars="ENVIRONMENT=production" \
+  --set-env-vars="DEFAULT_TENANT_SLUG=ourfamroots-system" \
+  --set-env-vars="DATABASE_URL=postgresql+asyncpg://$DB_USER:$(gcloud secrets versions access latest --secret=DB_PASSWORD)@/$DB_NAME?host=/cloudsql/$CLOUD_SQL_CONN" \
+  --set-env-vars="REDIS_URL=redis://$REDIS_HOST:6379/0" \
+  --set-env-vars="S3_BUCKET=$BUCKET,S3_REGION=$REGION" \
+  --set-env-vars="S3_ENDPOINT_URL=$S3_ENDPOINT,S3_PUBLIC_URL=$S3_PUBLIC_URL" \
+  --set-env-vars="SMTP_HOST=smtp.gmail.com,SMTP_PORT=587" \
+  --set-secrets="JWT_SECRET_KEY=JWT_SECRET_KEY:latest" \
+  --set-secrets="AWS_ACCESS_KEY_ID=GCS_HMAC_KEY:latest" \
+  --set-secrets="AWS_SECRET_ACCESS_KEY=GCS_HMAC_SECRET:latest" \
+  --set-secrets="SMTP_USER=SMTP_USER:latest,SMTP_PASSWORD=SMTP_PASSWORD:latest" \
+  --min-instances=0 \
+  --max-instances=3 \
+  --memory=512Mi \
+  --cpu=1
+```
+
+> The backend uses boto3's S3 client. Pointing `S3_ENDPOINT_URL` at
+> `https://storage.googleapis.com` and supplying HMAC credentials makes it talk to
+> Cloud Storage with no code changes.
+
+**Deploy the Celery worker:**
+
+```bash
+gcloud run deploy ourfamroots-worker \
+  --image=$IMAGE_BASE/api:$TAG \
+  --region=$REGION \
+  --platform=managed \
+  --no-allow-unauthenticated \
+  --add-cloudsql-instances=$CLOUD_SQL_CONN \
+  --vpc-connector=$VPC_CONNECTOR \
+  --vpc-egress=private-ranges-only \
+  --command="celery" \
+  --args="-A,src.worker.celery_app,worker,--loglevel=info" \
+  --set-env-vars="ENVIRONMENT=production" \
+  --set-env-vars="DEFAULT_TENANT_SLUG=ourfamroots-system" \
+  --set-env-vars="DATABASE_URL=postgresql+asyncpg://$DB_USER:$(gcloud secrets versions access latest --secret=DB_PASSWORD)@/$DB_NAME?host=/cloudsql/$CLOUD_SQL_CONN" \
+  --set-env-vars="REDIS_URL=redis://$REDIS_HOST:6379/0" \
+  --set-env-vars="S3_BUCKET=$BUCKET,S3_REGION=$REGION" \
+  --set-env-vars="S3_ENDPOINT_URL=$S3_ENDPOINT,S3_PUBLIC_URL=$S3_PUBLIC_URL" \
+  --set-env-vars="SMTP_HOST=smtp.gmail.com,SMTP_PORT=587" \
+  --set-secrets="JWT_SECRET_KEY=JWT_SECRET_KEY:latest" \
+  --set-secrets="AWS_ACCESS_KEY_ID=GCS_HMAC_KEY:latest" \
+  --set-secrets="AWS_SECRET_ACCESS_KEY=GCS_HMAC_SECRET:latest" \
+  --set-secrets="SMTP_USER=SMTP_USER:latest,SMTP_PASSWORD=SMTP_PASSWORD:latest" \
+  --min-instances=1 \
+  --max-instances=2 \
+  --memory=512Mi
+```
+
+**Deploy the frontend:**
+
+```bash
+export API_URL=$(gcloud run services describe ourfamroots-api \
+  --region=$REGION --format="value(status.url)")
+
+gcloud run deploy ourfamroots-frontend \
+  --image=$IMAGE_BASE/frontend:$TAG \
+  --region=$REGION \
+  --platform=managed \
+  --allow-unauthenticated \
+  --set-env-vars="VITE_API_BASE_URL=$API_URL/api/v1" \
+  --min-instances=0 \
+  --max-instances=2 \
+  --memory=256Mi
+```
+
+### 6. Run migrations and seed data
+
+Use **Cloud Run Jobs** to run one-off tasks without keeping a service alive:
+
+```bash
+export DB_URL="postgresql+asyncpg://$DB_USER:$(gcloud secrets versions access latest --secret=DB_PASSWORD)@/$DB_NAME?host=/cloudsql/$CLOUD_SQL_CONN"
+
+# Create the migration job
+gcloud run jobs create ourfamroots-migrate \
+  --image=$IMAGE_BASE/api:$TAG \
+  --region=$REGION \
+  --add-cloudsql-instances=$CLOUD_SQL_CONN \
+  --vpc-connector=$VPC_CONNECTOR \
+  --command="alembic" \
+  --args="upgrade,head" \
+  --set-env-vars="DATABASE_URL=$DB_URL"
+
+# Run it and wait
+gcloud run jobs execute ourfamroots-migrate --region=$REGION --wait
+
+# Create the seed job
+gcloud run jobs create ourfamroots-seed \
+  --image=$IMAGE_BASE/api:$TAG \
+  --region=$REGION \
+  --add-cloudsql-instances=$CLOUD_SQL_CONN \
+  --vpc-connector=$VPC_CONNECTOR \
+  --command="python" \
+  --args="scripts/seed_users.py" \
+  --set-env-vars="DATABASE_URL=$DB_URL"
+
+# Run it and wait
+gcloud run jobs execute ourfamroots-seed --region=$REGION --wait
+```
+
+> To re-run migrations after a future code update, just re-execute the job:
+> `gcloud run jobs execute ourfamroots-migrate --region=$REGION --wait`
+
+### 7. Access the app
+
+```bash
+# Print your live URLs
+echo "Frontend: $(gcloud run services describe ourfamroots-frontend \
+  --region=$REGION --format='value(status.url)')"
+echo "API:      $(gcloud run services describe ourfamroots-api \
+  --region=$REGION --format='value(status.url)')"
+```
+
+Log in with any [seed account](#system-accounts) or register a new account.
+
+> Cloud Run scales to zero when idle. The first request after a period of inactivity
+> takes a few extra seconds for a cold start. Set `--min-instances=1` on the API
+> service to eliminate cold starts (uses more trial credit).
+
+### Estimated trial costs
+
+| Service | Config | Est. cost / month |
+| --- | --- | --- |
+| Cloud Run (API + Frontend + Worker) | Scale-to-zero, low traffic | < $5 |
+| Cloud SQL for PostgreSQL | `db-f1-micro`, 10 GB SSD | ~$8 |
+| Memorystore for Redis | Basic tier, 1 GB | ~$35 |
+| Cloud Storage | First 5 GB/month free | ~$0 |
+| Artifact Registry | First 0.5 GB free | < $1 |
+| VPC Access Connector | Low throughput | < $1 |
+| **Total** | | **~$49 / month** |
+
+The $300 trial credit covers approximately **6 months** at minimal traffic before any
+charges apply.
+
+> **Reducing spend:** Patch the Cloud SQL instance to stop when unused:
+>
+> ```bash
+> gcloud sql instances patch $DB_INSTANCE --activation-policy=NEVER
+> # Restart it when needed:
+> gcloud sql instances patch $DB_INSTANCE --activation-policy=ALWAYS
+> ```
+>
+> Memorystore cannot be paused — delete and recreate it to save ~$35/month during
+> extended idle periods.
+
+### Tearing down
+
+Remove all GCP resources created by this guide to stop all billing:
+
+```bash
+# Cloud Run services and jobs
+gcloud run services delete ourfamroots-api ourfamroots-frontend ourfamroots-worker \
+  --region=$REGION --quiet
+gcloud run jobs delete ourfamroots-migrate ourfamroots-seed \
+  --region=$REGION --quiet
+
+# Cloud SQL instance (WARNING: destroys all data)
+gcloud sql instances delete $DB_INSTANCE --quiet
+
+# Memorystore
+gcloud redis instances delete $REDIS_INSTANCE --region=$REGION --quiet
+
+# VPC connector
+gcloud compute networks vpc-access connectors delete $VPC_CONNECTOR \
+  --region=$REGION --quiet
+
+# Cloud Storage bucket and contents
+gcloud storage rm -r gs://$BUCKET
+
+# Artifact Registry
+gcloud artifacts repositories delete $AR_REPO --location=$REGION --quiet
+
+# Secret Manager secrets
+for SECRET in JWT_SECRET_KEY DB_PASSWORD GCS_HMAC_KEY GCS_HMAC_SECRET \
+              SMTP_USER SMTP_PASSWORD; do
+  gcloud secrets delete $SECRET --quiet
+done
+```
+
+---
+
 ## Port Reference
 
 | Port | Service | Notes |
-|------|---------|-------|
+| --- | --- | --- |
 | 7000 | PostgreSQL | Primary database |
 | 7001 | Redis | Cache and Celery broker |
 | 7002 | MinIO S3 API | Also used as `S3_PUBLIC_URL` for presigned download links |
