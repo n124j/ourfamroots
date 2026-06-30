@@ -21,6 +21,7 @@ import type { ParentChildEdgeData } from '../../types';
 import { PARENTAGE_STROKE } from '../../types';
 import { useThemeStore } from '@store/theme.store';
 import { useCanvasStore } from '@store/canvas.store';
+import { getViewPlugin } from '@extensions/views/registry';
 
 const PARENTAGE_LABELS: Partial<Record<ParentChildEdgeData['parentageType'], string>> = {
   ADOPTIVE: 'adopted',
@@ -53,7 +54,9 @@ function ParentChildEdgeComponent({
   const hl      = data?.isHighlighted;
   const opacity = selected ? 1 : hl === true ? 1 : hl === false ? 0.15 : 1;
 
-  const isHeritage = useCanvasStore((s) => s.viewStyle) === 'heritage';
+  const viewStyle = useCanvasStore((s) => s.viewStyle);
+  const plugin = getViewPlugin(viewStyle);
+  const useOrthogonal = plugin?.orthogonalEdges ?? false;
 
   const strokeColor = selected ? '#f97316'
     : hl === true ? theme.edgeHighlight : theme.edgeColor;
@@ -70,8 +73,8 @@ function ParentChildEdgeComponent({
     curvature: 0.25,
   });
 
-  // Heritage: orthogonal step path (vertical down, horizontal, vertical down)
-  if (isHeritage) {
+  // Plugin orthogonal: step path (vertical down, horizontal, vertical down)
+  if (useOrthogonal) {
     const midY = (sourceY + targetY) / 2;
     const stepPath = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
     return (

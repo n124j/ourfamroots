@@ -14,6 +14,7 @@ import { useReactFlow } from 'reactflow';
 import type { LayoutMode } from '../../types';
 import { useCanvasStore } from '@store/canvas.store';
 import type { ViewStyle } from '@store/canvas.store';
+import { builtinViews, extensionViews, getViewPlugin } from '@extensions/views/registry';
 
 // ── Compact view icon (two parent cards → child card) ─────────────────────
 const CompactViewIcon = () => (
@@ -181,20 +182,18 @@ const HeritageViewIcon = () => (
   </svg>
 );
 
-// ── View style dropdown ─────────────────────────────────────────────────
+// ── Reusable toolbar dropdown ────────────────────────────────────────────
 
-interface ViewStyleDropdownProps {
-  onSelect: (style: string) => void;
-  activeStyle: string;
+interface ToolbarDropdownProps {
+  icon: React.ReactNode;
+  title: string;
+  items: readonly { id: string; label: string; description: string }[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  isActive?: boolean;
 }
 
-const VIEW_STYLES = [
-  { id: 'default', label: 'Default', description: 'Standard modern tree view' },
-  { id: 'heritage', label: 'Heritage', description: 'Vintage parchment style with serif text' },
-  { id: 'timeline', label: 'Timeline', description: 'Horizontal timeline with year axis' },
-] as const;
-
-const ViewStyleDropdown = memo(({ onSelect, activeStyle }: ViewStyleDropdownProps) => {
+const ToolbarDropdown = memo(({ icon, title, items, activeId, onSelect, isActive }: ToolbarDropdownProps) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -206,37 +205,39 @@ const ViewStyleDropdown = memo(({ onSelect, activeStyle }: ViewStyleDropdownProp
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  if (items.length === 0) return null;
+
   return (
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        title="View styles"
+        title={title}
         className={[
           'flex items-center justify-center gap-0.5 h-8 px-1.5 rounded-lg text-sm font-medium transition-colors',
-          activeStyle === 'heritage'
+          isActive
             ? 'bg-brand-500 text-white shadow-sm'
             : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-slate-200',
         ].join(' ')}
       >
-        <HeritageViewIcon />
+        {icon}
         <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M1 3l3 3 3-3z" /></svg>
       </button>
 
       {open && (
         <div className="absolute top-full mt-1 right-0 w-52 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden z-50">
-          {VIEW_STYLES.map((style) => (
+          {items.map((item) => (
             <button
-              key={style.id}
-              onClick={() => { onSelect(style.id); setOpen(false); }}
+              key={item.id}
+              onClick={() => { onSelect(item.id); setOpen(false); }}
               className={[
                 'w-full text-left px-3 py-2.5 text-sm transition-colors',
-                activeStyle === style.id
+                activeId === item.id
                   ? 'bg-brand-50 text-brand-700 font-medium'
                   : 'text-slate-700 hover:bg-slate-50',
               ].join(' ')}
             >
-              <div className="font-medium">{style.label}</div>
-              <div className="text-xs text-slate-400 mt-0.5">{style.description}</div>
+              <div className="font-medium">{item.label}</div>
+              <div className="text-xs text-slate-400 mt-0.5">{item.description}</div>
             </button>
           ))}
         </div>
@@ -244,7 +245,15 @@ const ViewStyleDropdown = memo(({ onSelect, activeStyle }: ViewStyleDropdownProp
     </div>
   );
 });
-ViewStyleDropdown.displayName = 'ViewStyleDropdown';
+ToolbarDropdown.displayName = 'ToolbarDropdown';
+
+// ── Extensions icon (puzzle piece) ──────────────────────────────────────
+const ExtensionsIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 1.5h3.5v3.5H11a1 1 0 0 0 0 2h1.5V11H9a1 1 0 0 1 0-2h0a1 1 0 0 1 0-2H9V3.5A2 2 0 0 1 9 1.5Z" />
+    <path d="M1.5 9V5.5H5a1 1 0 0 0 0-2H1.5V1.5H5a2 2 0 0 1 0 4h0a1 1 0 0 1 0 2H5V9" />
+  </svg>
+);
 
 export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeControlsProps) => {
   const { t } = useTranslation();
@@ -274,8 +283,9 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
 
   const handleViewStyle = useCallback((style: string) => {
     setViewStyle(style as ViewStyle);
-    if (style === 'heritage') {
-      handleLayoutMode('compact');
+    const plugin = getViewPlugin(style);
+    if (plugin?.layoutOverrides?.mode) {
+      handleLayoutMode(plugin.layoutOverrides.mode);
     }
   }, [setViewStyle, handleLayoutMode]);
 
@@ -338,8 +348,25 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
         <CompactViewIcon />
       </CtrlBtn>
 
-      {/* View style dropdown */}
-      <ViewStyleDropdown onSelect={handleViewStyle} activeStyle={viewStyle} />
+      {/* View styles (Default, Heritage) */}
+      <ToolbarDropdown
+        icon={<HeritageViewIcon />}
+        title={t('treeControls.viewStyles')}
+        items={builtinViews}
+        activeId={viewStyle}
+        onSelect={handleViewStyle}
+        isActive={viewStyle !== 'default' && builtinViews.some((v) => v.id === viewStyle)}
+      />
+
+      {/* Extensions (Timeline, Grid Cards, etc.) */}
+      <ToolbarDropdown
+        icon={<ExtensionsIcon />}
+        title={t('treeControls.extensions')}
+        items={extensionViews}
+        activeId={viewStyle}
+        onSelect={handleViewStyle}
+        isActive={extensionViews.some((v) => v.id === viewStyle)}
+      />
 
     </div>
   );

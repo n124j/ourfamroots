@@ -22,7 +22,8 @@
       "@store/*":    ["src/store/*"],
       "@api/*":      ["src/api/*"],
       "@features/*": ["src/features/*"],
-      "@queries/*":  ["src/queries/*"]
+      "@queries/*":  ["src/queries/*"],
+      "@extensions/*": ["src/extensions/*"]
     }
   },
   "include": ["src"],

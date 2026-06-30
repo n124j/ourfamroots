@@ -29,6 +29,7 @@ import {
 import { useCanvasStore } from '@store/canvas.store';
 import { useThemeStore } from '@store/theme.store';
 import { isPreset, presetDataUri } from '../../avatarPresets';
+import { getViewPlugin } from '@extensions/views/registry';
 
 // ── Avatar ─────────────────────────────────────────────────────────────────
 
@@ -350,146 +351,11 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
     );
   }
 
-  // ── Heritage mode: vintage parchment card with centered photo ─────────────
-  if (viewStyle === 'heritage') {
-    const sexSymbol = sex === 'MALE' ? '♂' : sex === 'FEMALE' ? '♀' : '';
-    const sexColor = sex === 'MALE' ? '#4a7a9b' : sex === 'FEMALE' ? '#b05070' : '#7a6652';
-    return (
-      <>
-        <Handle type="target" position={Position.Top} className="!opacity-0 !pointer-events-none" />
-        <div style={{ width: PERSON_NODE_WIDTH, position: 'relative' }}>
-          {hasHiddenParents && (
-            <ExpandButton direction="up" isExpanded={isExpanded} onClick={handleExpandUp} />
-          )}
-          <div
-            onClick={handleClick}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            title={fullName}
-            style={{
-              width: PERSON_NODE_WIDTH,
-              minHeight: 140,
-              position: 'relative',
-              cursor: dragging ? 'grabbing' : 'grab',
-              transform: dragging ? 'scale(1.04)' : 'scale(1)',
-              transition: 'transform 0.3s ease, box-shadow 0.25s ease',
-              zIndex: dragging ? 999 : undefined,
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                minHeight: 140,
-                background: hovered ? theme.nodeHoverBg : theme.nodeBg,
-                border: selected ? `2.5px solid ${borderColor}` : isFocus ? `2.5px solid ${borderColor}` : `1.5px solid ${theme.nodeBorder}`,
-                borderRadius: 10,
-                boxShadow: selected
-                  ? `0 0 0 3px ${borderColor}33, 0 4px 16px rgba(0,0,0,0.15)`
-                  : dragging
-                  ? '0 12px 32px rgba(0,0,0,0.25)'
-                  : '0 2px 8px rgba(0,0,0,0.1)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                padding: '12px 10px 10px',
-                gap: 6,
-              }}
-            >
-              {/* Photo frame */}
-              <div
-                style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 6,
-                  border: `2px solid ${theme.nodeBorder}`,
-                  overflow: 'hidden',
-                  background: theme.canvasBg,
-                  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.12)',
-                  flexShrink: 0,
-                }}
-              >
-                {(() => {
-                  const resolvedUrl = photoUrl && isPreset(photoUrl) ? presetDataUri(photoUrl) : photoUrl;
-                  return resolvedUrl ? (
-                    <img
-                      src={resolvedUrl}
-                      alt=""
-                      crossOrigin="anonymous"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'top',
-                        filter: 'sepia(30%) contrast(1.05)',
-                      }}
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div style={{
-                      width: '100%', height: '100%',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: theme.nodeSubtext, fontSize: 22, fontWeight: 600, fontFamily: 'Georgia, serif',
-                    }}>
-                      {[displayGivenName[0], displaySurname[0]].filter(Boolean).join('').toUpperCase() || '?'}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Name */}
-              <div style={{
-                textAlign: 'center',
-                fontFamily: 'Georgia, "Times New Roman", serif',
-                fontWeight: 600,
-                fontSize: 12,
-                lineHeight: 1.3,
-                color: theme.nodeText,
-                maxWidth: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {fullName}
-              </div>
-
-              {/* Sex symbol + years */}
-              {(sexSymbol || years) && (
-                <div style={{
-                  textAlign: 'center',
-                  fontSize: 11,
-                  color: theme.nodeSubtext,
-                  fontFamily: 'Georgia, serif',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}>
-                  {sexSymbol && <span style={{ color: sexColor, fontSize: 13 }}>{sexSymbol}</span>}
-                  {years && <span>{years}</span>}
-                </div>
-              )}
-
-              {isFocus && (
-                <div style={{
-                  fontSize: 9,
-                  fontWeight: 600,
-                  color: borderColor,
-                  background: `${borderColor}15`,
-                  padding: '1px 6px',
-                  borderRadius: 3,
-                  fontFamily: 'Georgia, serif',
-                }}>
-                  Focus
-                </div>
-              )}
-            </div>
-          </div>
-          {hasHiddenChildren && (
-            <ExpandButton direction="down" isExpanded={isExpanded} onClick={handleExpandDown} />
-          )}
-        </div>
-        <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none" />
-      </>
-    );
+  // ── Plugin custom PersonNode renderer ────────────────────────────────────
+  const activePlugin = getViewPlugin(viewStyle);
+  const PluginPersonNode = activePlugin?.PersonNodeComponent;
+  if (PluginPersonNode) {
+    return <PluginPersonNode {...({ data, selected, dragging, id: data.personId, type: 'person', xPos: 0, yPos: 0, zIndex: 0, isConnectable: true } as any)} theme={theme} />;
   }
 
   // ── Normal interactive mode ────────────────────────────────────────────────

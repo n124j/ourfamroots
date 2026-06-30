@@ -1,18 +1,29 @@
-1. Validate each group
-2. Add feature of adding Profile picture and show that picture instead of initial
-3. Update Date of Birth and Date of Death(if deceased)
-4. Add Administrator who can manually manage tree, member, and more
-5. Add email to the member.
-6. Should be able to export the tree in (.frt)Json
-7. Should be able to import the (.frt)json to form a tree again
-8. All the activities should be logged for audit purpose
-9. If holding ctrl + mouse-down on particular member then its child member also should be able to draggable along
-10. If holding ctrl + mouse-down then the ring union should also be draggable along with its members
-11. color should be changeable from setting for background, member box, lines, and more
-12. should be able to save the layout which also should be loadable
-13. when making any changes it should reflect right away re-rending the tree and placing the order in Report
-14. Make the Relationship search work properly
-15. Remove or update the Uploaded Picture effectively
-16. by clicking on the ring union it should also show an option of removing it
-17. Visible tree should be able to export as pdf
-18. Rearrange the icons where it belongs.
+COMPLETED:
+  ✅ 1. Validate each group
+  ✅ 2. Add feature of adding Profile picture and show that picture instead of initial
+  ✅ 3. Update Date of Birth and Date of Death (if deceased)
+  ✅ 4. Add Administrator who can manually manage tree, member, and more
+  ✅ 5. Add email to the member
+  ✅ 6. Should be able to export the tree in (.frt) JSON
+  ✅ 7. Should be able to import the (.frt) JSON to form a tree again
+  ✅ 8. All the activities should be logged for audit purpose
+  ✅ 9. If holding ctrl + mouse-down on particular member then its child member also should be able to draggable along
+  ✅ 10. If holding ctrl + mouse-down then the ring union should also be draggable along with its members
+  ✅ 11. Color should be changeable from setting for background, member box, lines, and more
+  ✅ 12. Should be able to save the layout which also should be loadable
+  ✅ 13. When making any changes it should reflect right away re-rendering the tree and placing the order in Report
+  ✅ 14. Make the Relationship search work properly
+  ✅ 15. Remove or update the Uploaded Picture effectively
+  ✅ 16. By clicking on the ring union it should also show an option of removing it
+  ✅ 17. Visible tree should be able to export as PDF
+  ✅ 18. Rearrange the icons where it belongs
+  ✅ 19. View Styles — Heritage (vintage parchment) view with sepia photos and serif text
+  ✅ 20. Extensions — Timeline (year-axis horizontal view), Grid Cards (example plugin)
+  ✅ 21. Extension plugin system — drop-in folder architecture with auto-discovery
+
+REMAINING / FUTURE:
+  1. Streaming/paginated API for trees with 50K+ people
+  2. Gallery photos visible on the tree canvas (not just in detail panel)
+  3. Nepali calendar support for dates
+  4. GEDCOM import/export support
+  5. Print-friendly multi-page PDF for large trees

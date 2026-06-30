@@ -14,6 +14,7 @@ import type { FamilyGroupNodeData } from '../../types';
 import { FAMILY_NODE_SIZE } from '../../types';
 import { useThemeStore } from '@store/theme.store';
 import { useCanvasStore } from '@store/canvas.store';
+import { getViewPlugin } from '@extensions/views/registry';
 
 const UNION_ICONS: Record<FamilyGroupNodeData['unionType'], string> = {
   MARRIAGE: '💍',
@@ -42,7 +43,9 @@ function FamilyGroupNodeComponent({ data, selected }: NodeProps<FamilyGroupNodeD
   const icon    = UNION_ICONS[unionType];
   const theme   = useThemeStore((s) => s.theme);
   const nodeBg  = theme.nodeBg;
-  const isHeritage = useCanvasStore((s) => s.viewStyle) === 'heritage';
+  const viewStyle = useCanvasStore((s) => s.viewStyle);
+  const plugin = getViewPlugin(viewStyle);
+  const isHeritage = plugin?.hideFamilyGroupNode ?? false;
 
   if (isHeritage) {
     const dotSize = 10;

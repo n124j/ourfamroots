@@ -24,6 +24,7 @@ import type { UnionEdgeData } from '../../types';
 import { UNION_STROKE } from '../../types';
 import { useThemeStore } from '@store/theme.store';
 import { useCanvasStore } from '@store/canvas.store';
+import { getViewPlugin } from '@extensions/views/registry';
 import { useAuthStore } from '@store/auth.store';
 import { queryKeys } from '@queries/keys';
 
@@ -62,14 +63,16 @@ function UnionEdgeComponent({
 }: EdgeProps<UnionEdgeData>) {
   const theme       = useThemeStore((s) => s.theme);
   const edgeWidth   = theme.edgeWidth;
-  const isHeritage  = useCanvasStore((s) => s.viewStyle) === 'heritage';
+  const viewStyle   = useCanvasStore((s) => s.viewStyle);
+  const plugin      = getViewPlugin(viewStyle);
+  const useOrthogonal = plugin?.orthogonalEdges ?? false;
   const treeId      = useCanvasStore((s) => s.treeId);
   const token       = useAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
 
   const unionType   = data?.unionType ?? 'UNKNOWN';
   const isDivorced  = data?.isDivorced ?? false;
-  const color       = selected ? '#f97316' : isDivorced ? '#94a3b8' : isHeritage ? theme.edgeColor : UNION_COLORS[unionType];
+  const color       = selected ? '#f97316' : isDivorced ? '#94a3b8' : useOrthogonal ? theme.edgeColor : UNION_COLORS[unionType];
   const dashArray   = UNION_STROKE[unionType];
   const isSolid     = dashArray === 'solid';
   const isMarriage  = unionType === 'MARRIAGE';
@@ -213,7 +216,7 @@ function UnionEdgeComponent({
   const tooltip = tooltipParts.join('\n');
 
   // ── Heritage mode: orthogonal step line (vertical → horizontal → vertical) ──
-  if (isHeritage) {
+  if (useOrthogonal) {
     const midY = (sourceY + targetY) / 2;
     const stepPath = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
     return (

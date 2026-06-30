@@ -139,7 +139,7 @@ function computeGenerations(
 
 export function familyTreeLayout(
   graph: ApiTreeGraph,
-  opts: { nodeHGap?: number; nodeVGap?: number; coupleGap?: number; margin?: number; alignByBirthYear?: boolean; personNodeHeight?: number } = {},
+  opts: { nodeHGap?: number; nodeVGap?: number; coupleGap?: number; margin?: number; alignByBirthYear?: boolean; personNodeHeight?: number; compact?: boolean } = {},
 ): PositionedNode[] {
   if (graph.persons.length === 0) return [];
 
@@ -487,6 +487,50 @@ export function familyTreeLayout(
       curX += FS + sibGap;
     }
     result.push({ id: fg.id, x: ringX, y: yFG(fg.id) });
+  }
+
+  // ── Compact post-processing ────────────────────────────────────────────────
+  // When compact mode is enabled, the "center parents over wide subtree" approach
+  // creates large horizontal gaps in upper generation rows between family clusters.
+  // This pass repacks each generation row so nodes are tight (no dead space),
+  // then re-centers union ring nodes between their parents' new positions.
+  if (opts.compact) {
+    const personIdSet = new Set(graph.persons.map((p) => p.id));
+    const personNodes = result.filter((n) => personIdSet.has(n.id));
+    const fgNodesList = result.filter((n) => !personIdSet.has(n.id));
+
+    // Group persons by generation, sort by original x (preserves family ordering),
+    // then repack with minimum spacing.
+    const byGen = new Map<number, PositionedNode[]>();
+    for (const node of personNodes) {
+      const g = genMap.get(node.id) ?? 0;
+      if (!byGen.has(g)) byGen.set(g, []);
+      byGen.get(g)!.push(node);
+    }
+
+    for (const nodes of byGen.values()) {
+      nodes.sort((a, b) => a.x - b.x);
+      let cx = MARGIN;
+      for (const node of nodes) {
+        node.x = cx;
+        cx += PW + sibGap;
+      }
+    }
+
+    // Re-center union rings between their parents' new x positions.
+    const personXById = new Map(personNodes.map((n) => [n.id, n.x]));
+    for (const fgNode of fgNodesList) {
+      const fg = fgById.get(fgNode.id);
+      if (!fg) continue;
+      const parentXs = fg.parentIds
+        .map((pid) => personXById.get(pid))
+        .filter((x): x is number => x !== undefined);
+      if (parentXs.length >= 2) {
+        fgNode.x = (Math.min(...parentXs) + Math.max(...parentXs) + PW) / 2 - FS / 2;
+      } else if (parentXs.length === 1) {
+        fgNode.x = parentXs[0] + PW / 2 - FS / 2;
+      }
+    }
   }
 
   return result;

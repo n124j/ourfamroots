@@ -249,6 +249,8 @@ function applyLayout(
     case 'compact': {
       // familyTreeLayout with tighter spacing: keeps spouses adjacent and
       // children directly below their family group — no crossing union edges.
+      // The compact post-processing pass eliminates large horizontal gaps that
+      // arise when parents are centered over wide subtrees.
       const visiblePersonIds = new Set(
         nodes.filter((n) => n.type === 'person').map((n) => n.id)
       );
@@ -272,6 +274,7 @@ function applyLayout(
         nodeHGap: opts.nodeHGap ?? 20,
         nodeVGap: opts.nodeVGap ?? 60,
         personNodeHeight: opts.personNodeHeight,
+        compact: true,
       });
       break;
     }

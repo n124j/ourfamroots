@@ -280,6 +280,53 @@ ancestors climbing upward). Use the toolbar to switch between:
 Hovering over any wedge in the fan chart shows a tooltip with the person's full name,
 relationship label (e.g. "3× Great-grandparent"), and birth–death years.
 
+#### View Styles & Extensions
+
+Two dropdown menus at the end of the toolbar provide alternate rendering:
+
+**🎨 View Styles** (built-in):
+
+| Style | Description |
+|-------|-------------|
+| Default | Standard modern card view |
+| Heritage | Vintage parchment cards with serif text, sepia photo filter, orthogonal (right-angle) connecting lines |
+
+**🧩 Extensions** (plug-in views):
+
+| Extension | Description |
+|-----------|-------------|
+| Timeline | Horizontal year-axis view — each person is a coloured bar from birth to death |
+| Grid Cards | Sortable card grid (example extension) |
+
+View Styles are independent of the colour theme — you can use Heritage with Dark theme, for example.
+
+#### Extension Plugin System
+
+View extensions live in `frontend/src/extensions/views/`. Each extension is a folder
+with an `index.ts` that exports a `ViewPlugin` object. The registry auto-discovers all
+extensions via `import.meta.glob` at build time.
+
+```
+frontend/src/extensions/views/
+  registry.ts           ← auto-discovery + ViewPlugin interface
+  default/index.ts      ← built-in: standard view
+  heritage/             ← built-in: vintage parchment style
+    index.ts
+    HeritagePersonNode.tsx
+  timeline/index.ts     ← extension: horizontal timeline
+  ext1/                 ← extension: grid cards (example)
+    index.ts
+    ExampleCanvas.tsx
+```
+
+**To add a new view:** create a folder, add `index.ts` exporting a `ViewPlugin`, restart
+the dev server. No core files need to change. See `frontend/src/extensions/views/README.md`.
+
+**To remove a view:** delete the folder and restart.
+
+Backend extension hooks (for views needing server-side support) go in
+`backend/extensions/views/`. Currently unused — all views are frontend-only.
+
 #### Import / Export (.frt)
 
 OurFamRoots uses a native `.frt` backup format (JSON-based) for tree import and export.

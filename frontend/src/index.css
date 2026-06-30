@@ -13,6 +13,15 @@
   }
 }
 
+/* Hide scrollbar while keeping scroll functionality (used by Timeline left column) */
+.scrollbar-none {
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE / legacy Edge */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;                /* Chrome / Safari / Chromium Edge */
+}
+
 /* Portal theme — applied via CSS custom properties set on <html> by AppShell */
 .portal-nav-link {
   display: block;

@@ -54,11 +54,13 @@ export default defineConfig(({mode}) => {
                 '@api': resolve(__dirname, 'src/api'),
                 '@features': resolve(__dirname, 'src/features'),
                 '@queries': resolve(__dirname, 'src/queries'),
+                '@extensions': resolve(__dirname, 'src/extensions'),
             },
         },
         server: {
             host: '0.0.0.0',
             port: 5173,
+            watch: { usePolling: true, interval: 300 },
             ...(allowedHosts && {allowedHosts}),
             proxy: {
                 '/api/v1': {

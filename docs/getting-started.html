@@ -1418,6 +1418,16 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
           <div style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#475569;background:#f8fafc" title="Compact view">
             <svg width="11" height="10" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="0.5" y="0.5" width="4" height="2.5" rx="0.5"/><rect x="9.5" y="0.5" width="4" height="2.5" rx="0.5"/><rect x="5" y="9" width="4" height="2.5" rx="0.5"/><line x1="2.5" y1="3" x2="2.5" y2="5.5"/><line x1="11.5" y1="3" x2="11.5" y2="5.5"/><line x1="2.5" y1="5.5" x2="11.5" y2="5.5"/><line x1="7" y1="5.5" x2="7" y2="9"/></svg>
           </div>
+          <!-- View Styles dropdown -->
+          <div style="width:36px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:1px;color:#475569;background:#f8fafc" title="View Styles">
+            <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="1" y="1" width="12" height="12" rx="1.5"/><rect x="2.5" y="2.5" width="9" height="9" rx="1" stroke-dasharray="2 1"/><circle cx="7" cy="6" r="2"/><path d="M4 11.5c0-1.7 1.3-3 3-3s3 1.3 3 3"/></svg>
+            <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor"><path d="M1 3l3 3 3-3z"/></svg>
+          </div>
+          <!-- Extensions dropdown -->
+          <div style="width:36px;height:22px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:1px;color:#475569;background:#f8fafc" title="Extensions">
+            <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5h3.5v3.5H11a1 1 0 0 0 0 2h1.5V11H9a1 1 0 0 1 0-2h0a1 1 0 0 1 0-2H9V3.5A2 2 0 0 1 9 1.5Z"/><path d="M1.5 9V5.5H5a1 1 0 0 0 0-2H1.5V1.5H5a2 2 0 0 1 0 4h0a1 1 0 0 1 0 2H5V9"/></svg>
+            <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor"><path d="M1 3l3 3 3-3z"/></svg>
+          </div>
         </div>
         <!-- Annotation legend -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-top:7px">
@@ -1426,7 +1436,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
           <div style="font-size:7.5px;color:#475569">↑ Ancestor &nbsp; ↓ Descendant</div>
           <div style="font-size:7.5px;color:#475569">◑ Fan (180°) &nbsp; ◎ Fan (360°) &nbsp; ⊢ Pedigree</div>
           <div style="font-size:7.5px;color:#475569">⊞ Expand all &nbsp; ⊟ Collapse</div>
-          <div style="font-size:7.5px;color:#475569">↺ Reset layout (positions only, no zoom)</div>
+          <div style="font-size:7.5px;color:#475569">↺ Reset layout &nbsp;&nbsp; 🎨▾ View Styles &nbsp;&nbsp; 🧩▾ Extensions</div>
         </div>
       </div>
     </div>
@@ -1434,9 +1444,68 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 </div>
 
 <!-- ══════════════════════════════════════════
-     SLIDE 13 — SEARCH
+     SLIDE 13b — VIEW STYLES & EXTENSIONS
 ═══════════════════════════════════════════════ -->
 <div class="slide layout-split" id="s16">
+  <div class="pane-l">
+    <div class="slide-tag">Step 9b</div>
+    <h2 class="slide-h">View Styles &amp; Extensions</h2>
+    <p class="slide-sub">Two new dropdowns at the end of the toolbar unlock alternate rendering styles and plugin views.</p>
+    <ul class="steps">
+      <li class="step"><div class="sn">1</div><div class="sb"><div class="sl">🎨 View Styles (built-in)</div><div class="sd"><strong>Default</strong> — the standard modern card view<br><strong>Heritage</strong> — vintage parchment cards with serif text, sepia photos, orthogonal (right-angle) connecting lines, and a small junction dot between parents and children</div></div></li>
+      <li class="step"><div class="sn">2</div><div class="sb"><div class="sl">🧩 Extensions (plug-ins)</div><div class="sd"><strong>Timeline</strong> — horizontal year-axis view showing each person as a coloured bar from birth to death. Includes zoom, gridlines, and a "Toggle Lines" button<br><strong>Grid Cards</strong> — sortable card grid (example extension)</div></div></li>
+      <li class="step"><div class="sn">3</div><div class="sb"><div class="sl">Theme-independent</div><div class="sd">View styles work with <em>any</em> colour theme (Classic, Dark, Warm, etc.). The view controls the card <strong>layout</strong>; the theme controls the <strong>colours</strong>.</div></div></li>
+    </ul>
+    <div class="tip"><div class="tip-ico">🔌</div><div class="tip-txt"><strong>Developer note:</strong> Extensions are drop-in folders under <code>src/extensions/views/</code>. Add a folder with an <code>index.ts</code> exporting a <code>ViewPlugin</code> object — no core files need to change. See <code>extensions/views/README.md</code> for the full guide.</div></div>
+  </div>
+  <div class="pane-r">
+    <div style="width:100%;max-width:380px">
+      <!-- View Styles dropdown mockup -->
+      <div style="background:white;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.1);overflow:hidden;margin-bottom:16px">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">🎨 View Styles</div>
+        <div style="padding:4px">
+          <div style="padding:8px 12px;border-radius:8px;background:var(--brand-xlight)">
+            <div style="font-size:12px;font-weight:600;color:var(--brand-dark)">Default</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">Standard modern tree view</div>
+          </div>
+          <div style="padding:8px 12px;border-radius:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--text)">Heritage</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">Vintage parchment style with serif text</div>
+          </div>
+        </div>
+      </div>
+      <!-- Extensions dropdown mockup -->
+      <div style="background:white;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.1);overflow:hidden">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">🧩 Extensions</div>
+        <div style="padding:4px">
+          <div style="padding:8px 12px;border-radius:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--text)">Timeline</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">Horizontal timeline with year axis</div>
+          </div>
+          <div style="padding:8px 12px;border-radius:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--text)">Grid Cards</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">Sortable card grid — example extension</div>
+          </div>
+        </div>
+      </div>
+      <!-- Plugin folder structure -->
+      <div style="margin-top:16px;background:#1e293b;border-radius:10px;padding:12px 14px;font-family:monospace;font-size:9px;color:#94a3b8;line-height:1.7">
+        <div style="color:#818cf8;font-weight:700;margin-bottom:2px">src/extensions/views/</div>
+        <div>&nbsp; registry.ts <span style="color:#475569">← auto-discovery</span></div>
+        <div>&nbsp; default/index.ts</div>
+        <div>&nbsp; heritage/</div>
+        <div>&nbsp;&nbsp;&nbsp; index.ts + HeritagePersonNode.tsx</div>
+        <div>&nbsp; timeline/index.ts</div>
+        <div>&nbsp; <span style="color:#4ade80">your-view/index.ts</span> <span style="color:#475569">← drop in!</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 14 — SEARCH
+═══════════════════════════════════════════════ -->
+<div class="slide layout-split" id="s17">
   <div class="pane-l">
     <div class="slide-tag">Step 10</div>
     <h2 class="slide-h">Search across all your trees</h2>
@@ -1495,7 +1564,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 14 — SHARE & COLLABORATE
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s17">
+<div class="slide layout-split" id="s18">
   <div class="pane-l">
     <div class="slide-tag">Step 11</div>
     <h2 class="slide-h">Share your tree with family</h2>
@@ -1554,7 +1623,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 15 — REPORTS
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s18">
+<div class="slide layout-split" id="s19">
   <div class="pane-l">
     <div class="slide-tag">Step 12</div>
     <h2 class="slide-h">View reports &amp; export data</h2>
@@ -1614,7 +1683,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 16 — SETTINGS (bonus)
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s19">
+<div class="slide layout-split" id="s20">
   <div class="pane-l">
     <div class="slide-tag">Bonus</div>
     <h2 class="slide-h">Personalise your account</h2>
@@ -1675,7 +1744,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 17 — UNDER CONSTRUCTION PAGE
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s20">
+<div class="slide layout-split" id="s21">
   <div class="pane-l">
     <div class="slide-tag">Good to know</div>
     <h2 class="slide-h">Under Construction page</h2>
@@ -1712,7 +1781,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 18 — YOU'RE READY!
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-end" id="s21">
+<div class="slide layout-end" id="s22">
   <div style="font-size:72px;margin-bottom:14px">🎉</div>
   <h2 class="end-h">You're ready to start!</h2>
   <p class="end-sub">Here's your quick-reference cheat sheet to keep handy</p>
@@ -1751,7 +1820,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 19 — TROUBLESHOOTING: MEMBERS NOT VISIBLE
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s22">
+<div class="slide layout-split" id="s23">
   <div class="pane-l">
     <div class="slide-tag" style="color:#f59e0b">🔧 Troubleshooting</div>
     <h2 class="slide-h">Members not showing in tree?</h2>
@@ -1877,7 +1946,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 20 — MORE TROUBLESHOOTING
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s23">
+<div class="slide layout-split" id="s24">
   <div class="pane-l">
     <div class="slide-tag" style="color:#f59e0b">🔧 Troubleshooting</div>
     <h2 class="slide-h">More common issues &amp; fixes</h2>
@@ -1981,7 +2050,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 21 — TIPS & TRICKS: CTRL INTERACTIONS
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s24">
+<div class="slide layout-split" id="s25">
   <div class="pane-l">
     <div class="slide-tag tip-tag">💡 Tips &amp; Tricks</div>
     <h2 class="slide-h">Power moves with <span class="ctrl-key" style="font-size:18px;vertical-align:middle;padding:3px 10px">Ctrl</span></h2>
@@ -2105,7 +2174,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <!-- ══════════════════════════════════════════
      SLIDE 22 — MORE CANVAS TIPS & SHORTCUTS
 ═══════════════════════════════════════════════ -->
-<div class="slide layout-split" id="s25">
+<div class="slide layout-split" id="s26">
   <div class="pane-l">
     <div class="slide-tag tip-tag">💡 Tips &amp; Tricks</div>
     <h2 class="slide-h">More canvas tips to know</h2>
@@ -2240,7 +2309,7 @@ kbd{background:#f1f5f9;border:1px solid var(--border);border-radius:3px;padding:
 <div class="progress"><div class="progress-fill" id="progress"></div></div>
 
 <script>
-const TOTAL = 25;
+const TOTAL = 26;
 let cur = 1;
 
 // Build dots

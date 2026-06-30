@@ -35,7 +35,7 @@ import { FamilyGroupNode } from './nodes/FamilyGroupNode';
 import { ParentChildEdge } from './edges/ParentChildEdge';
 import { UnionEdge } from './edges/UnionEdge';
 import { TreeControls } from './controls/TreeControls';
-import { TimelineView } from './TimelineView';
+import { getViewPlugin } from '@extensions/views/registry';
 import { useTreeLayout } from './useTreeLayout';
 import { useExpandCollapse } from './useExpandCollapse';
 import { ancestorSubgraphIds } from './algorithms/ancestorChart';
@@ -472,20 +472,21 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
   }, [graph, expandedNodeIds, expandAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const viewStyle = useCanvasStore((s) => s.viewStyle);
-  const isHeritage = viewStyle === 'heritage';
+  const activePlugin = getViewPlugin(viewStyle);
+  const pluginLayout = activePlugin?.layoutOverrides;
   const layoutOpts = useMemo(
     () => ({
       ...DEFAULT_LAYOUT_OPTIONS,
       mode: layoutMode,
       direction: layoutMode === 'horizontal' ? ('LR' as const) : ('TB' as const),
       focusPersonId: focusPersonId ?? undefined,
-      ...(isHeritage ? {
-        personNodeHeight: 150,
-        nodeVGap: 70,
-        nodeHGap: 36,
+      ...(pluginLayout ? {
+        ...(pluginLayout.personNodeHeight != null ? { personNodeHeight: pluginLayout.personNodeHeight } : {}),
+        ...(pluginLayout.nodeVGap != null ? { nodeVGap: pluginLayout.nodeVGap } : {}),
+        ...(pluginLayout.nodeHGap != null ? { nodeHGap: pluginLayout.nodeHGap } : {}),
       } : {}),
     }),
-    [layoutMode, focusPersonId, isHeritage]
+    [layoutMode, focusPersonId, pluginLayout]
   );
 
   // ── Draggable node positions ───────────────────────────────────────────────
@@ -921,8 +922,9 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
     );
   }
 
-  // ── Timeline view: completely different rendering ─────────────────────────
-  if (viewStyle === 'timeline' && graph) {
+  // ── Plugin full-canvas replacement (e.g. Timeline) ───────────────────────
+  const PluginCanvas = activePlugin?.CanvasComponent;
+  if (PluginCanvas && graph) {
     return (
       <div ref={containerRef} className="w-full h-full relative" style={{ background: canvasTheme.canvasBg }}>
         {!isPdfMode && (
@@ -932,8 +934,8 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
             onCollapseAll={handleCollapseAll}
           />
         )}
-        <div className="w-full h-full pt-14">
-          <TimelineView graph={graph} />
+        <div className="absolute inset-0 top-14">
+          <PluginCanvas graph={graph} />
         </div>
       </div>
     );

@@ -859,6 +859,8 @@ const en = {
     collapseAll: 'Collapse to focus person',
     resetLayout: 'Reset layout',
     compactView: 'Compact view — traditional family tree layout',
+    viewStyles: 'View styles — switch between Default and Heritage rendering',
+    extensions: 'Extensions — additional views like Timeline and Grid Cards',
   },
 
   // ── Tree page (top bar, members modal, etc.) ──

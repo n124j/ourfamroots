@@ -859,6 +859,8 @@ const ne = {
     collapseAll: 'फोकस व्यक्तिमा संकुचित गर्नुहोस्',
     resetLayout: 'लेआउट रिसेट गर्नुहोस्',
     compactView: 'कम्प्याक्ट दृश्य — परम्परागत वंशावली लेआउट',
+    viewStyles: 'दृश्य शैली — Default र Heritage बीच स्विच गर्नुहोस्',
+    extensions: 'एक्सटेन्सन — Timeline र Grid Cards जस्ता थप दृश्यहरू',
   },
 
   // ── Tree page (top bar, members modal, etc.) ──
