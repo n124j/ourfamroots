@@ -12,7 +12,7 @@ test.describe('Tree creation', () => {
     await page.getByPlaceholder(/optional description/i).fill('My paternal line');
     await page.getByRole('button', { name: /create tree/i }).click();
 
-    await expect(page.getByText('The Smith Family')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('The Smith Family').first()).toBeVisible({ timeout: 5_000 });
   });
 
   test('tree name is required', async ({ authenticatedPage: page }) => {
