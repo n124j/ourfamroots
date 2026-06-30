@@ -99,17 +99,18 @@ function LegendRow({
 import type { LayoutMode } from '../types';
 
 const LEGEND_TITLE_KEYS: Record<LayoutMode, string> = {
-  compact:             'legend.familyTree',
-  generation:          'legend.familyTree',
-  vertical:            'legend.familyTree',
-  horizontal:          'legend.familyTree',
-  fan:                 'legend.fanChart',
-  'ancestry-fan':      'legend.ancestryFan',
-  ancestor:            'legend.ancestorChart',
-  descendant:          'legend.descendantChart',
-  'descendant-family': 'legend.descendantsSpouses',
-  'ancestor-family':   'legend.ancestorsSpouses',
-  pedigree:            'legend.pedigreeChart',
+  compact:                      'legend.familyTree',
+  generation:                   'legend.familyTree',
+  vertical:                     'legend.familyTree',
+  horizontal:                   'legend.familyTree',
+  fan:                          'legend.fanChart',
+  'ancestry-fan':               'legend.ancestryFan',
+  ancestor:                     'legend.ancestorChart',
+  descendant:                   'legend.descendantChart',
+  'descendant-family':          'legend.descendantsSpouses',
+  'compact-descendant-family':  'legend.descendantsSpouses',
+  'ancestor-family':            'legend.ancestorsSpouses',
+  pedigree:                     'legend.pedigreeChart',
 };
 
 function ChartLegend({
@@ -542,7 +543,7 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
       const { toPng }          = await import('html-to-image');
       const { default: jsPDF } = await import('jspdf');
 
-      const { layoutMode, focusPersonId, zoom, pan } = useCanvasStore.getState();
+      const { layoutMode, focusPersonId, zoom, pan, viewStyle } = useCanvasStore.getState();
 
       // ── 1. Build title + filename ────────────────────────────────────────
       const focusPerson = graph?.persons.find((p) => p.id === focusPersonId);
@@ -551,58 +552,40 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
         : '';
       const treeName = (graph as any)?.treeName ?? 'Family Tree';
 
-      const PDF_TITLES: Record<LayoutMode, string> = {
-        compact:             treeName,
-        generation:          treeName,
-        vertical:            treeName,
-        horizontal:          treeName,
-        fan:                 focusName ? `Fan Chart — ${focusName}` : 'Fan Chart',
-        'ancestry-fan':      focusName ? `Ancestry Fan — ${focusName}` : 'Ancestry Fan',
-        ancestor:            focusName ? `Ancestors of ${focusName}` : 'Ancestor Chart',
-        descendant:          focusName ? `Descendants of ${focusName}` : 'Descendant Chart',
-        'descendant-family': focusName ? `Descendants of ${focusName}` : 'Descendants + Spouses',
-        'ancestor-family':   focusName ? `Ancestors of ${focusName}` : 'Ancestors + Spouses',
-        pedigree:            focusName ? `Pedigree — ${focusName}` : 'Pedigree Chart',
-      };
-      const title    = PDF_TITLES[layoutMode] ?? treeName;
+      // Plugin canvas views (e.g. Timeline) always use the tree name as title
+      const exportPlugin = getViewPlugin(viewStyle);
+      let title: string;
+      if (exportPlugin?.CanvasComponent) {
+        title = treeName;
+      } else {
+        const PDF_TITLES: Record<LayoutMode, string> = {
+          compact:                      treeName,
+          generation:                   treeName,
+          vertical:                     treeName,
+          horizontal:                   treeName,
+          fan:                          focusName ? `Fan Chart — ${focusName}` : 'Fan Chart',
+          'ancestry-fan':               focusName ? `Ancestry Fan — ${focusName}` : 'Ancestry Fan',
+          ancestor:                     focusName ? `Ancestors of ${focusName}` : 'Ancestor Chart',
+          descendant:                   focusName ? `Descendants of ${focusName}` : 'Descendant Chart',
+          'descendant-family':          focusName ? `Descendants of ${focusName}` : 'Descendants + Spouses',
+          'compact-descendant-family':  focusName ? `Descendants of ${focusName}` : 'Descendants + Spouses',
+          'ancestor-family':            focusName ? `Ancestors of ${focusName}` : 'Ancestors + Spouses',
+          pedigree:                     focusName ? `Pedigree — ${focusName}` : 'Pedigree Chart',
+        };
+        title = PDF_TITLES[layoutMode] ?? treeName;
+      }
       const filename = title.replace(/[^\w\s\-]/g, '').replace(/\s+/g, '_') + '.pdf';
 
       const container = containerRef.current;
       const canvasW   = container.clientWidth;
       const canvasH   = container.clientHeight;
 
-      // ── 2. Find emptiest quadrant for legend placement ───────────────────
-      const quadCounts = { TL: 0, TR: 0, BL: 0, BR: 0 };
-      for (const node of displayNodes) {
-        if (node.type !== 'person') continue;
-        const vx = node.position.x * zoom + pan.x;
-        const vy = node.position.y * zoom + pan.y;
-        if      (vx <  canvasW / 2 && vy <  canvasH / 2) quadCounts.TL++;
-        else if (vx >= canvasW / 2 && vy <  canvasH / 2) quadCounts.TR++;
-        else if (vx <  canvasW / 2 && vy >= canvasH / 2) quadCounts.BL++;
-        else                                              quadCounts.BR++;
-      }
-      const emptiest = (Object.entries(quadCounts) as [string, number][])
-        .sort((a, b) => a[1] - b[1])[0][0] as 'TL' | 'TR' | 'BL' | 'BR';
-      const LM = 16;
-      const legendPositions = {
-        TL: { left: `${LM}px`, top: `${LM}px`,  right: 'auto', bottom: 'auto' },
-        TR: { right: `${LM}px`, top: `${LM}px`, left: 'auto',  bottom: 'auto' },
-        BL: { left: `${LM}px`, bottom: `${LM}px`, right: 'auto', top: 'auto' },
-        BR: { right: `${LM}px`, bottom: `${LM}px`, left: 'auto', top: 'auto' },
-      };
-      const lPos = legendPositions[emptiest];
-
-      // Reposition legend via DOM — no React re-render needed
-      const legendEl     = container.querySelector('[data-pdf-legend]') as HTMLElement | null;
-      const savedLegend  = legendEl?.style.cssText ?? '';
-      if (legendEl) Object.assign(legendEl.style, lPos);
-
-      // Hide React Flow chrome (attribution link / "↙" arrow)
+      // ── 2. Hide React Flow chrome (attribution link / "↙" arrow) ──────────
       const attributionEl = container.querySelector('.react-flow__attribution') as HTMLElement | null;
       if (attributionEl) attributionEl.style.visibility = 'hidden';
 
       // ── 3. Switch to PDF render mode + capture ───────────────────────────
+      // Legend stays exactly where the user placed it — no repositioning.
       // Zustand setState is synchronous; two rAF ticks let React flush + paint.
       useCanvasStore.getState().setIsPdfMode(true);
       await new Promise(requestAnimationFrame);
@@ -620,7 +603,6 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
         });
       } finally {
         useCanvasStore.getState().setIsPdfMode(false);
-        if (legendEl)     legendEl.style.cssText = savedLegend;
         if (attributionEl) attributionEl.style.visibility = '';
       }
 
@@ -934,7 +916,7 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
             onCollapseAll={handleCollapseAll}
           />
         )}
-        <div className="absolute inset-0 top-14">
+        <div className={`absolute inset-0 ${isPdfMode ? '' : 'top-14'}`}>
           <PluginCanvas graph={graph} />
         </div>
       </div>

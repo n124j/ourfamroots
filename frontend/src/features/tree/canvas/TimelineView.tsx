@@ -205,7 +205,8 @@ function PersonTooltip({ info, theme }: { info: HoveredInfo; theme: any }) {
 function TimelineViewComponent({ graph }: TimelineViewProps) {
   const theme = useThemeStore((s) => s.theme);
   const setSelectedPersonId = useCanvasStore((s) => s.setSelectedPersonId);
-  const selectedPersonId = useCanvasStore((s) => s.selectedPersonId);
+  const selectedPersonId    = useCanvasStore((s) => s.selectedPersonId);
+  const isPdfMode           = useCanvasStore((s) => s.isPdfMode);
 
   const containerRef   = useRef<HTMLDivElement>(null);
   const leftColRef     = useRef<HTMLDivElement>(null);
@@ -439,8 +440,8 @@ function TimelineViewComponent({ graph }: TimelineViewProps) {
 
   return (
     <div className="flex flex-col h-full" style={{ background: theme.canvasBg }}>
-      {/* Controls bar */}
-      <div
+      {/* Controls bar — hidden during PDF export for a clean capture */}
+      {!isPdfMode && <div
         className="flex items-center gap-2 px-4 py-2 border-b"
         style={{ background: theme.nodeBg, borderColor: theme.nodeBorder }}
       >
@@ -475,7 +476,7 @@ function TimelineViewComponent({ graph }: TimelineViewProps) {
         >
           +
         </button>
-      </div>
+      </div>}
 
       {/* Scrollable timeline — two-panel layout: fixed name column + scrollable bar area */}
       <div
@@ -842,8 +843,8 @@ function TimelineViewComponent({ graph }: TimelineViewProps) {
         </div>
       </div>
 
-      {/* Bottom status bar — live visible range */}
-      {sortedPeople.length > 0 && (() => {
+      {/* Bottom status bar — hidden during PDF export */}
+      {!isPdfMode && sortedPeople.length > 0 && (() => {
         // Compute which person rows are actually inside the current viewport
         const vpFirst = Math.max(1, Math.floor((scrollTop - HEADER_HEIGHT) / rowSlotH) + 1);
         const vpLast  = Math.min(sortedPeople.length,

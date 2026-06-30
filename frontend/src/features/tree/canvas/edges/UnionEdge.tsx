@@ -72,7 +72,7 @@ function UnionEdgeComponent({
 
   const unionType   = data?.unionType ?? 'UNKNOWN';
   const isDivorced  = data?.isDivorced ?? false;
-  const color       = selected ? '#f97316' : isDivorced ? '#94a3b8' : useOrthogonal ? theme.edgeColor : UNION_COLORS[unionType];
+  const color       = selected ? '#f97316' : isDivorced ? '#94a3b8' : UNION_COLORS[unionType];
   const dashArray   = UNION_STROKE[unionType];
   const isSolid     = dashArray === 'solid';
   const isMarriage  = unionType === 'MARRIAGE';
@@ -215,17 +215,46 @@ function UnionEdgeComponent({
   if (endStr)   tooltipParts.push(`Until: ${endStr}`);
   const tooltip = tooltipParts.join('\n');
 
-  // ── Heritage mode: orthogonal step line (vertical → horizontal → vertical) ──
+  // ── Orthogonal (Heritage) mode: step path but same visual rules as Default ──
   if (useOrthogonal) {
-    const midY = (sourceY + targetY) / 2;
-    const stepPath = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+    const midY  = (sourceY + targetY) / 2;
+    const midX  = (sourceX + targetX) / 2;
+    const step  = (ox: number) =>
+      `M ${sourceX + ox} ${sourceY} L ${sourceX + ox} ${midY} L ${targetX + ox} ${midY} L ${targetX + ox} ${targetY}`;
+    const hitPath = step(0);
+
+    // Marriage: double parallel orthogonal lines
+    if (isMarriage) {
+      const off = selected ? 2.5 : hl === true ? 2 : 1.5;
+      return (
+        <>
+          <g style={{ opacity, transition: 'opacity 0.25s', filter: glowFilter }}>
+            <title>{tooltip}</title>
+            <path d={step(-off)} stroke={color} strokeWidth={strokeW} strokeDasharray={isDivorced ? divorcedDash : undefined} fill="none" style={{ transition: 'stroke-width 0.25s' }} />
+            <path d={step(+off)} stroke={color} strokeWidth={strokeW} strokeDasharray={isDivorced ? divorcedDash : undefined} fill="none" style={{ transition: 'stroke-width 0.25s' }} />
+            <path d={hitPath} stroke="transparent" strokeWidth={12} fill="none" />
+          </g>
+          {renderLabel(midX, midY)}
+        </>
+      );
+    }
+
+    // Other union types: single orthogonal line with appropriate dash + label
     return (
       <>
-        <g style={{ opacity, transition: 'opacity 0.25s' }}>
+        <g style={{ opacity, transition: 'opacity 0.25s', filter: glowFilter }}>
           <title>{tooltip}</title>
-          <path d={stepPath} stroke={color} strokeWidth={edgeWidth} fill="none" />
-          <path d={stepPath} stroke="transparent" strokeWidth={12} fill="none" />
+          <path
+            d={hitPath}
+            stroke={color}
+            strokeWidth={strokeW}
+            strokeDasharray={isDivorced ? divorcedDash : (isSolid ? undefined : dashArray)}
+            fill="none"
+            style={{ transition: 'stroke-width 0.25s' }}
+          />
+          <path d={hitPath} stroke="transparent" strokeWidth={Math.max(strokeW * 6, 12)} fill="none" />
         </g>
+        {renderLabel(midX, midY)}
       </>
     );
   }

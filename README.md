@@ -265,20 +265,49 @@ docker compose exec db psql -U postgres ourfamroots -f /seed_family.sql
 #### Tree views
 
 The default view when opening any tree is the **Ancestor chart** (focus person at the bottom,
-ancestors climbing upward). Use the toolbar to switch between:
+ancestors climbing upward). Use the toolbar to switch between all available layouts:
 
 | Button | Mode | Description |
 |--------|------|-------------|
-| ↕ | Vertical | Top-to-bottom generation layout |
+| 📊 | Generation sort | Top-to-bottom sorted by generation |
+| ↕ | Vertical | Multi-marriage-aware top-to-bottom layout |
 | ↔ | Horizontal | Left-to-right generation layout |
 | ↑ | Ancestor | Focus at bottom, ancestors above (default) |
 | ↓ | Descendant | Focus at top, descendants below |
+| 👨‍👩‍👧 | Descendants + Spouses | Descendants with spouses kept adjacent going downward |
+| 👴 | Ancestors + Spouses | Ancestors with spouses kept adjacent going upward |
 | ◑ | Fan chart | 180° semicircular fan |
 | ◎ | Ancestry fan chart | Full SVG fan chart — up to 8 rings with hover tooltips |
 | ⊢ | Pedigree | Horizontal binary ancestor tree |
+| 🗜 | Compact view | Tight family-tree layout, minimises spacing gaps |
 
 Hovering over any wedge in the fan chart shows a tooltip with the person's full name,
 relationship label (e.g. "3× Great-grandparent"), and birth–death years.
+
+**Focus filters:** Right-click any person card → **Focus** to set them as the focus person.
+Ancestor, Descendant, and Descendants+Spouses layouts all root the tree from that person.
+
+**Compact Descendants:** While in **Descendants + Spouses** mode, **Shift+click** the Compact
+button to tighten spacing and eliminate gaps between descendant lines. Both toolbar buttons
+glow simultaneously when active. This also works in reverse — Shift+click Descendants+Spouses
+while Compact is active to apply the same combined effect.
+
+#### Timeline View
+
+Open via **Extensions 🧩** dropdown → **Timeline**. Each person appears as a coloured horizontal
+bar spanning their birth to death year (or present day for living members).
+
+- **Scroll / pan:** Scroll the mouse wheel or drag vertically to move through the list of people.
+  Drag horizontally to pan across the time axis.
+- **Sticky year bar:** Decade labels remain pinned to the top as you scroll — you always know
+  which year range is in view.
+- **Status bar:** A fixed bottom bar shows live counts: how many members are visible and which
+  row range is currently in the viewport.
+- **Zoom:** Use the **+** / **−** buttons to adjust pixels-per-year. Zoom in for century-level
+  detail, zoom out to see the whole family at once.
+- **No birth year:** People without a birth year appear in a separate section below the timeline bars.
+- **Virtual rendering:** Only rows near the viewport are rendered, so trees with hundreds of
+  members stay smooth.
 
 #### View Styles & Extensions
 
@@ -299,6 +328,34 @@ Two dropdown menus at the end of the toolbar provide alternate rendering:
 | Grid Cards | Sortable card grid (example extension) |
 
 View Styles are independent of the colour theme — you can use Heritage with Dark theme, for example.
+
+#### Heritage View — Union Line Styles
+
+Heritage view uses orthogonal (right-angle step) paths for connecting lines, but all union
+visual rules from the Default view apply:
+
+| Union type | Line style |
+| --- | --- |
+| Marriage | Double amber line |
+| Marriage (divorced) | Double dashed grey line |
+| Partnership | Single solid green line |
+| Cohabitation | Single dashed indigo line |
+| Unknown | Single dotted grey line |
+
+Ordinal labels ("1st Marriage", "2nd Marriage") appear on multiple same-type unions, the same
+as in Default view. Custom labels set via double-click are preserved across view styles.
+
+#### PDF Export
+
+From any tree view, click **Export → PDF** to capture the current canvas as an image-based PDF.
+
+- **What-you-see-is-what-you-get:** The PDF captures the viewport exactly — zoom, pan, and
+  legend placement are all preserved.
+- **Legend positioning:** Drag the legend to any corner *before* exporting. It appears at
+  exactly that position in the PDF.
+- **Timeline export:** When exporting the Timeline view, the controls bar and bottom status bar
+  are automatically hidden. The PDF title is set to the tree name for a clean output.
+- **View styles:** Heritage and other view styles export exactly as rendered on screen.
 
 #### Extension Plugin System
 

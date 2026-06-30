@@ -138,7 +138,7 @@ const LAYOUT_MODES: LayoutModeEntry[] = [
 // ── Control button ─────────────────────────────────────────────────────────
 
 interface CtrlBtnProps {
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   title: string;
   active?: boolean;
   children: React.ReactNode;
@@ -274,9 +274,14 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
     bumpLayoutReset();
   }, [setLayoutMode, bumpLayoutReset]);
 
-  const handleCompactView = useCallback(() => {
-    handleLayoutMode('compact');
-  }, [handleLayoutMode]);
+  const handleCompactView = useCallback((e: React.MouseEvent) => {
+    // Shift+click while in descendant-family (or already compact-descendant) → compact descendants
+    if (e.shiftKey && (layoutMode === 'descendant-family' || layoutMode === 'compact-descendant-family')) {
+      handleLayoutMode('compact-descendant-family');
+    } else {
+      handleLayoutMode('compact');
+    }
+  }, [handleLayoutMode, layoutMode]);
 
   const handleZoomIn  = useCallback(() => zoomIn({ duration: 200 }),  [zoomIn]);
   const handleZoomOut = useCallback(() => zoomOut({ duration: 200 }), [zoomOut]);
@@ -314,9 +319,26 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
       {LAYOUT_MODES.map(({ mode, titleKey, ...rest }) => (
         <CtrlBtn
           key={mode}
-          onClick={() => handleLayoutMode(mode)}
-          title={t(titleKey)}
-          active={layoutMode === mode}
+          onClick={(e) => {
+            if (
+              mode === 'descendant-family' &&
+              e.shiftKey &&
+              (layoutMode === 'compact' || layoutMode === 'compact-descendant-family')
+            ) {
+              handleLayoutMode('compact-descendant-family');
+            } else {
+              handleLayoutMode(mode);
+            }
+          }}
+          title={
+            mode === 'descendant-family'
+              ? t(titleKey) + ' · Shift+click with Compact for tight layout'
+              : t(titleKey)
+          }
+          active={
+            layoutMode === mode ||
+            (mode === 'descendant-family' && layoutMode === 'compact-descendant-family')
+          }
         >
           {'icon' in rest ? rest.icon : rest.label}
         </CtrlBtn>
@@ -342,8 +364,8 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
       {/* Compact family-tree view */}
       <CtrlBtn
         onClick={handleCompactView}
-        title={t('treeControls.compactView')}
-        active={layoutMode === 'compact'}
+        title={t('treeControls.compactView') + ' · Shift+click with Descendants for tight layout'}
+        active={layoutMode === 'compact' || layoutMode === 'compact-descendant-family'}
       >
         <CompactViewIcon />
       </CtrlBtn>

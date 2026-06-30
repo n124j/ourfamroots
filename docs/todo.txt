@@ -20,6 +20,11 @@ COMPLETED:
   ✅ 19. View Styles — Heritage (vintage parchment) view with sepia photos and serif text
   ✅ 20. Extensions — Timeline (year-axis horizontal view), Grid Cards (example plugin)
   ✅ 21. Extension plugin system — drop-in folder architecture with auto-discovery
+  ✅ 22. Timeline filter — virtual scroll, sticky year bar, status bar, PDF export clean mode
+  ✅ 23. Heritage view union line styles — marriage/divorce/partnership/cohabitation on orthogonal step paths
+  ✅ 24. Compact Descendants — Shift+click Compact while in Descendants+Spouses mode (and vice versa)
+  ✅ 25. PDF export — WYSIWYG capture, legend stays in place, Timeline hides chrome with tree name as title
+  ✅ 26. Docs updated — README.md feature sections and /help slideshow (slides 27–30) added
 
 REMAINING / FUTURE:
   1. Streaming/paginated API for trees with 50K+ people

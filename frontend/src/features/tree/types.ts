@@ -29,8 +29,9 @@ export type LayoutMode =
   | 'horizontal'         // dagre LR — left-to-right
   | 'ancestor'           // ancestors of focus person going up
   | 'descendant'         // descendants of focus person going down
-  | 'descendant-family'  // descendants with spouses — couples shown together going down
-  | 'ancestor-family'    // ancestors with spouses — couples shown together going up
+  | 'descendant-family'          // descendants with spouses — couples shown together going down
+  | 'compact-descendant-family'  // descendants + spouses with compact tighter spacing
+  | 'ancestor-family'            // ancestors with spouses — couples shown together going up
   | 'fan'                // polar fan chart — semicircle (180°)
   | 'ancestry-fan'       // ancestry fan chart — full circle (360°)
   | 'pedigree';          // horizontal binary ancestor tree (focus left, ancestors right)

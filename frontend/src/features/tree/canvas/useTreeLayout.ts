@@ -353,6 +353,38 @@ function applyLayout(
       break;
     }
 
+    case 'compact-descendant-family': {
+      // Descendants + spouses with compact tighter spacing — same subgraph as
+      // descendant-family but runs the compact post-processing pass to eliminate
+      // large horizontal gaps between sibling subtrees.
+      const visiblePersonIds = new Set(
+        nodes.filter((n) => n.type === 'person').map((n) => n.id)
+      );
+      const visibleFGIds = new Set(
+        nodes.filter((n) => n.type === 'family-group').map((n) => n.id)
+      );
+      const filteredGraph: ApiTreeGraph = {
+        treeId: graph.treeId,
+        persons: graph.persons.filter((p) => visiblePersonIds.has(p.id)),
+        familyGroups: graph.familyGroups
+          .filter((fg) => visibleFGIds.has(fg.id))
+          .map((fg) => ({
+            ...fg,
+            parentIds: fg.parentIds.filter((pid) => visiblePersonIds.has(pid)),
+            children: Object.fromEntries(
+              Object.entries(fg.children).filter(([cid]) => visiblePersonIds.has(cid))
+            ),
+          })),
+      };
+      positions = familyTreeLayout(filteredGraph, {
+        nodeHGap: opts.nodeHGap ?? 20,
+        nodeVGap: opts.nodeVGap ?? 60,
+        personNodeHeight: opts.personNodeHeight,
+        compact: true,
+      });
+      break;
+    }
+
     case 'vertical': {
       // Build a filtered ApiTreeGraph from the already-expanded visible nodes
       // so familyTreeLayout only sees what's on screen.
@@ -441,7 +473,10 @@ export function useTreeLayout(
       const deduped  = deduplicateFGNodes(preNodes, preEdges);
       filteredNodes  = deduped.nodes;
       filteredEdges  = recomputeUnionOrdinals(deduped.edges, graph);
-    } else if (layoutOpts.mode === 'descendant-family' && layoutOpts.focusPersonId) {
+    } else if (
+      (layoutOpts.mode === 'descendant-family' || layoutOpts.mode === 'compact-descendant-family') &&
+      layoutOpts.focusPersonId
+    ) {
       const visibleIds = descendantFamilySubgraphIds(graph, layoutOpts.focusPersonId, 100);
       const preNodes = rawNodes.filter((n) => visibleIds.has(n.id));
       const preEdges = rawEdges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
