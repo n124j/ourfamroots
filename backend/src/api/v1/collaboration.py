@@ -598,6 +598,79 @@ async def get_shared_tree_graph(
 
 
 @router.get(
+    "/trees/shared/{share_token}/og-preview",
+    summary="Server-rendered HTML with per-tree Open Graph tags, for social-media link-preview crawlers",
+    response_class=Response,
+)
+async def get_shared_tree_og_preview(
+    share_token: uuid.UUID,
+    uow: UoWDep,
+) -> Response:
+    """
+    Facebook/Twitter/WhatsApp/etc. crawlers do not execute JavaScript, so the
+    client-side <SEO> tags set by SharedTreePage are invisible to them — they
+    only ever see whatever is in the raw HTML response. The reverse proxy
+    routes known crawler user-agents for /shared/{token} to this endpoint
+    instead of the SPA so the preview shows the tree's own title/description.
+    """
+    import html as html_lib
+    from sqlalchemy import text
+
+    from src.config import get_settings
+
+    settings = get_settings()
+    base_url = settings.frontend_base_url.rstrip("/")
+    share_url = f"{base_url}/shared/{share_token}"
+    og_image = f"{base_url}/og-image.svg"
+
+    tree_row = (await uow._session.execute(
+        text("SELECT name, description, link_sharing FROM family_trees WHERE share_token = :token AND is_deleted = false LIMIT 1"),
+        {"token": share_token},
+    )).first()
+
+    if tree_row is None or tree_row.link_sharing != "ANYONE":
+        title = "OurFamRoots"
+        description = (
+            "Free collaborative genealogy platform to build your family tree online."
+        )
+    else:
+        title = f"{tree_row.name} — Shared Family Tree"
+        description = tree_row.description or (
+            f"Explore the {tree_row.name} family tree. "
+            "View ancestors, descendants, and family connections on OurFamRoots."
+        )
+
+    title_esc = html_lib.escape(title)
+    desc_esc = html_lib.escape(description)
+    url_esc = html_lib.escape(share_url)
+    image_esc = html_lib.escape(og_image)
+
+    body = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{title_esc}</title>
+<meta name="description" content="{desc_esc}">
+<meta property="og:site_name" content="OurFamRoots">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{title_esc}">
+<meta property="og:description" content="{desc_esc}">
+<meta property="og:url" content="{url_esc}">
+<meta property="og:image" content="{image_esc}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title_esc}">
+<meta name="twitter:description" content="{desc_esc}">
+<meta name="twitter:image" content="{image_esc}">
+</head>
+<body>{title_esc}</body>
+</html>"""
+
+    return Response(content=body, media_type="text/html; charset=utf-8")
+
+
+@router.get(
     "/trees/{tree_id}/export-zip",
     summary="Export tree as a ZIP archive containing the .frt backup and all member photos",
 )

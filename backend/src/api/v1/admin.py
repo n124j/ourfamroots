@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, text
 
-from src.api.deps import AdminUserDep, SessionDep, TokenStoreDep
+from src.api.deps import AdminUserDep, SessionDep, SuperAdminDep, TokenStoreDep
 from src.api.v1._admin_log import log_admin_action
 from src.domain.collaboration.entities import AppRole
 from src.config import get_settings
@@ -343,6 +343,52 @@ async def deactivate_user(
     # Revoke all active sessions so they can't keep using the app
     await token_store.revoke_all_for_user(user_id)
     await _send_account_deactivated_email(user_email, user_name)
+
+
+@router.delete(
+    "/users/{user_id}/purge",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    response_class=Response,
+    summary="Permanently delete a deactivated user (Super Admin only)",
+)
+async def purge_user(
+    user_id: uuid.UUID,
+    request: Request,
+    current_user: SuperAdminDep,
+    session: SessionDep,
+    token_store: TokenStoreDep,
+) -> None:
+    if user_id == current_user.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete your own account")
+
+    user = (await session.execute(
+        select(UserModel).where(
+            UserModel.id == user_id,
+            UserModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    if user.is_active:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "User must be deactivated before they can be permanently deleted",
+        )
+
+    # Capture identifying details for the audit trail before the row is gone for good.
+    target_display = f"{user.email} (role={user.app_role}, id={user.id})"
+
+    await log_admin_action(
+        session, current_user.tenant_id, current_user.id,
+        current_user.full_name, "ADMIN_DELETE", target_display, _admin_ip(request),
+    )
+    await session.delete(user)
+    await session.commit()
+    # Revoke any lingering sessions/tokens tied to the now-deleted user id
+    await token_store.revoke_all_for_user(user_id)
 
 
 # ── Email helpers ──────────────────────────────────────────────────────────────

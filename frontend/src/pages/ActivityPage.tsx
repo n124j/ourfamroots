@@ -51,6 +51,7 @@ const ACTION_OPTIONS = [
   { value: 'ADMIN_DEACTIVATE', label: 'Admin: deactivate user' },
   { value: 'ADMIN_ACTIVATE', label: 'Admin: activate user' },
   { value: 'ADMIN_UPDATE', label: 'Admin: update user' },
+  { value: 'ADMIN_DELETE', label: 'Admin: delete user permanently' },
   // Admin — permission groups
   { value: 'PG_CREATE', label: 'Permission group: create' },
   { value: 'PG_UPDATE', label: 'Permission group: update' },
@@ -96,6 +97,7 @@ const ADMIN_ACTION_LABELS: Record<string, string> = {
   ADMIN_DEACTIVATE: 'Deactivated user',
   ADMIN_ACTIVATE:   'Activated user',
   ADMIN_UPDATE:     'Updated user',
+  ADMIN_DELETE:     'Permanently deleted user',
   PG_CREATE:        'Created permission group',
   PG_UPDATE:        'Updated permission group',
   PG_DELETE:        'Deleted permission group',

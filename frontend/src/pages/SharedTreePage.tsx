@@ -75,13 +75,14 @@ export default function SharedTreePage() {
   if (!graph) return null;
 
   const treeName = (graph as any).treeName || 'Family Tree';
+  const treeDescription = (graph as any).treeDescription as string | null | undefined;
   const personCount = (graph as any).nodes?.length ?? 0;
 
   return (
     <div className="fixed inset-0 flex flex-col bg-surface-muted">
       <SEO
         title={`${treeName} — Shared Family Tree`}
-        description={`Explore the ${treeName} family tree${personCount ? ` with ${personCount} family members` : ''}. View ancestors, descendants, and family connections on OurFamRoots.`}
+        description={treeDescription || `Explore the ${treeName} family tree${personCount ? ` with ${personCount} family members` : ''}. View ancestors, descendants, and family connections on OurFamRoots.`}
         keywords={`${treeName}, family tree, shared family tree, ancestry, genealogy, family history`}
         ogType="website"
       />

@@ -1494,6 +1494,7 @@ export default function AdminPage() {
   const [createOpen,      setCreateOpen]      = useState(false);
   const [editTarget,      setEditTarget]      = useState<AdminUser | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<AdminUser | null>(null);
+  const [confirmPurge,    setConfirmPurge]    = useState<AdminUser | null>(null);
   const [actionLoading,   setActionLoading]   = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -1557,6 +1558,24 @@ export default function AdminPage() {
     } finally {
       setActionLoading(null);
       setConfirmDeactivate(null);
+    }
+  }
+
+  async function handlePurge(user: AdminUser) {
+    setActionLoading(user.id + '_purge');
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${user.id}/purge`, {
+        method: 'DELETE',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to permanently delete user');
+      setData((d) => d ? { ...d, items: d.items.filter((u) => u.id !== user.id), total: d.total - 1 } : d);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setActionLoading(null);
+      setConfirmPurge(null);
     }
   }
 
@@ -1761,6 +1780,16 @@ export default function AdminPage() {
                             {t('adminPage.deactivate')}
                           </button>
                         )}
+                        {isSuperAdmin && !user.is_active && user.id !== currentUser?.id && (
+                          <button
+                            onClick={() => setConfirmPurge(user)}
+                            disabled={actionLoading === user.id + '_purge'}
+                            title={t('adminPage.deleteForever')}
+                            className="px-2.5 py-1 text-xs font-medium text-white bg-red-600 border border-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {actionLoading === user.id + '_purge' ? t('adminPage.deletingUser') : t('adminPage.deleteForever')}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1828,6 +1857,30 @@ export default function AdminPage() {
                 disabled={actionLoading === confirmDeactivate.id + '_del'}
                 className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50">
                 {actionLoading === confirmDeactivate.id + '_del' ? t('adminPage.saving') : t('adminPage.deactivate')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent delete confirmation */}
+      {confirmPurge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmPurge(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.deleteForever')}?</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              <span className="font-medium text-gray-800">{displayName(confirmPurge)}</span> {t('adminPage.deleteForeverWarning')}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmPurge(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                {t('adminPage.cancel')}
+              </button>
+              <button onClick={() => handlePurge(confirmPurge)}
+                disabled={actionLoading === confirmPurge.id + '_purge'}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {actionLoading === confirmPurge.id + '_purge' ? t('adminPage.deletingUser') : t('adminPage.deleteForever')}
               </button>
             </div>
           </div>
