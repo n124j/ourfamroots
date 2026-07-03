@@ -194,7 +194,7 @@ async def create_tree(
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
     response_class=Response,
-    summary="Soft-delete a tree (owner only)",
+    summary="Soft-delete a tree (owner only, or Super Admin for any tree)",
 )
 async def delete_tree(
     tree_id: uuid.UUID,
@@ -203,21 +203,28 @@ async def delete_tree(
 ) -> None:
     from sqlalchemy import text
 
-    row = (await uow._session.execute(
-        text("SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
-        {"tid": tree_id, "uid": current_user.id},
-    )).first()
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tree not found")
-    if row.role != "OWNER":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the tree owner can delete this tree")
+    # Super Admin can delete any tree in the tenant, matching the "Owner" badge
+    # already shown to them on every tree in the dashboard's elevated list view.
+    if current_user.app_role != AppRole.SUPER_ADMIN:
+        row = (await uow._session.execute(
+            text("SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
+            {"tid": tree_id, "uid": current_user.id},
+        )).first()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Tree not found")
+        if row.role != "OWNER":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the tree owner can delete this tree")
 
-    # Grab name before soft-delete for the audit record
+    # Grab name before soft-delete for the audit record; also serves as the
+    # real existence check for the Super Admin path above, which skips the
+    # tree_members lookup that would otherwise catch a bad/already-deleted id.
     tree_row = (await uow._session.execute(
         text("SELECT name FROM family_trees WHERE id = :tid AND is_deleted = false LIMIT 1"),
         {"tid": tree_id},
     )).first()
-    tree_name = tree_row.name if tree_row else str(tree_id)
+    if tree_row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tree not found")
+    tree_name = tree_row.name
 
     await uow._session.execute(
         text("UPDATE family_trees SET is_deleted = true WHERE id = :tid"),

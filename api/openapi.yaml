@@ -2141,15 +2141,34 @@ paths:
     delete:
       tags: [Trees]
       operationId: deleteTree
-      summary: Delete a tree and all its data
-      description: Owner only. Irreversible after 30-day grace period.
+      summary: Soft-delete a tree (owner only, or Super Admin for any tree)
+      description: |
+        Sets `is_deleted = true` on the tree immediately (synchronous, not a
+        scheduled/background job) and writes a `DELETE_TREE` audit log entry.
+        The tree's people, family groups, and history are not removed from
+        the database, but every read endpoint filters on `is_deleted = false`,
+        so the tree becomes permanently inaccessible through the API.
+
+        **Authorization:**
+        - The tree's `OWNER` collaborator can delete it.
+        - A `SUPER_ADMIN` can delete **any** tree in the tenant, regardless of
+          `tree_members` membership — this matches the "Owner" badge Super
+          Admins are already shown on every tree in the dashboard's
+          tenant-wide list view.
+        - Any other role/non-member → `404` (membership check fails before an
+          ownership check would even apply, to avoid revealing tree existence
+          to non-members).
       responses:
-        "202":
-          description: Tree deletion scheduled
+        "204":
+          description: Tree soft-deleted — no body
         "401":
           $ref: "#/components/responses/401Unauthorized"
         "403":
-          $ref: "#/components/responses/403Forbidden"
+          description: Caller is a member of the tree but not its owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/404NotFound"
 
@@ -4250,6 +4269,61 @@ paths:
           $ref: "#/components/responses/401Unauthorized"
         "403":
           $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/users/{userId}/purge:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Admin]
+      operationId: purgeUser
+      summary: Permanently delete a deactivated user (Super Admin only)
+      description: |
+        Hard-deletes the user row. Unlike `DELETE /admin/users/{userId}`
+        (deactivate), this is irreversible — the account cannot be
+        recovered afterwards.
+
+        **Requires `SUPER_ADMIN` app role** — a regular `ADMIN` gets `403`.
+
+        **Preconditions:**
+        - The target user must already be deactivated (`is_active = false`).
+          Purging an active account → `400`. Deactivate first via
+          `DELETE /admin/users/{userId}` or `PATCH /admin/users/{userId}`.
+        - Cannot purge your own account → `400`.
+
+        **Side effects:**
+        - All of the user's refresh tokens/sessions are revoked.
+        - Activity log entry created: `event_type = ADMIN_DELETE`, recorded
+          against the acting Super Admin and identifying the deleted user's
+          email, role, and id — this entry is retained after the user row
+          is gone (it does not cascade-delete).
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: User permanently deleted — no body
+        "400":
+          description: >
+            Either the target account is still active (must be deactivated
+            first), or the caller tried to purge their own account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          description: Caller is not a Super Admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/404NotFound"
 

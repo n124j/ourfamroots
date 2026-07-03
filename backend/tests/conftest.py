@@ -38,6 +38,7 @@ from src.domain.interfaces.repositories import (
     AbstractUserRepository,
 )
 from src.domain.interfaces.unit_of_work import AbstractUnitOfWork
+from src.infrastructure.database.models.login_event import LoginEventModel
 from src.infrastructure.database.models.tenant import TenantModel
 from src.infrastructure.database.models.user import UserModel
 from src.infrastructure.security.jwt import JWTService
@@ -133,6 +134,10 @@ class FakeUnitOfWork(AbstractUnitOfWork):
         self._users = users or FakeUserRepository()
         self._tenants = FakeTenantRepository()
         self.committed = False
+        # Entities passed to `session.add()` that are neither UserModel nor
+        # TenantModel (e.g. LoginEventModel audit rows) land here so tests
+        # can assert on what was logged.
+        self.logged_entities: list[Any] = []
         # Pre-seed the default tenant so AuthService.register() resolves
         # the same TEST_TENANT_ID regardless of which slug it looks up.
         _default_tenant = TenantModel()
@@ -178,10 +183,18 @@ class FakeUnitOfWork(AbstractUnitOfWork):
 
     # Expose internal session stub for AuthService._find_user_by_email
     class _FakeSession:
-        def __init__(self, users: list[UserModel], tenants: list[Any] | None = None) -> None:
+        def __init__(
+            self,
+            users: list[UserModel],
+            tenants: list[Any] | None = None,
+            logged_entities: list[Any] | None = None,
+        ) -> None:
             self._users = users
             self._tenants = tenants if tenants is not None else []
             self._pending: list[Any] = []
+            # Shared (by reference) with the owning FakeUnitOfWork so entities
+            # logged in one request handler are visible to the test afterwards.
+            self._logged_entities = logged_entities if logged_entities is not None else []
 
         async def execute(self, stmt: Any, params: Any = None) -> Any:
             from src.infrastructure.database.models.user import UserModel as _UM
@@ -241,7 +254,19 @@ class FakeUnitOfWork(AbstractUnitOfWork):
             return next((u for u in self._users if str(u.id) == str(pk)), None)
 
         def add(self, entity: Any) -> None:
-            self._pending.append(entity)
+            if isinstance(entity, LoginEventModel):
+                # Audit/activity-log rows aren't modelled as a fake table —
+                # just record them so tests can assert what was logged.
+                self._logged_entities.append(entity)
+            else:
+                self._pending.append(entity)
+
+        async def delete(self, entity: Any) -> None:
+            if isinstance(entity, UserModel):
+                self._users[:] = [u for u in self._users if u.id != entity.id]
+
+        async def commit(self) -> None:
+            pass  # mutations are applied directly to the shared lists
 
         async def flush(self) -> None:
             from src.infrastructure.database.models.tenant import TenantModel as _TM
@@ -254,7 +279,7 @@ class FakeUnitOfWork(AbstractUnitOfWork):
 
     @property
     def _session(self) -> Any:
-        return self._FakeSession(self._users._users, self._tenants._tenants)
+        return self._FakeSession(self._users._users, self._tenants._tenants, self.logged_entities)
 
 
 class FakeTokenStore(AbstractRefreshTokenRepository):
