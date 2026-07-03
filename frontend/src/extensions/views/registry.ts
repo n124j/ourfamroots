@@ -43,7 +43,7 @@ export interface ViewPlugin {
    * Receives the standard NodeProps + the active theme.
    */
   PersonNodeComponent?: ComponentType<
-    NodeProps<PersonNodeData> & { theme: CanvasTheme }
+    NodeProps<PersonNodeData> & { theme: CanvasTheme; isPdfMode?: boolean }
   >;
 
   /**

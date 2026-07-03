@@ -286,6 +286,13 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
   const years = formatYears(birthYear, deathYear, isLiving && !isDeceased);
   const borderCss = selected ? borderColor : isFocus ? borderColor : theme.nodeBorder;
 
+  // ── Plugin custom PersonNode renderer (takes priority, incl. during export) ─
+  const activePlugin = getViewPlugin(viewStyle);
+  const PluginPersonNode = activePlugin?.PersonNodeComponent;
+  if (PluginPersonNode) {
+    return <PluginPersonNode {...({ data, selected, dragging, id: data.personId, type: 'person', xPos: 0, yPos: 0, zIndex: 0, isConnectable: true } as any)} theme={theme} isPdfMode={isPdfMode} />;
+  }
+
   // ── PDF mode: full names on two lines, no interactive chrome ─────────────
   if (isPdfMode) {
     return (
@@ -349,13 +356,6 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
         <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none" />
       </>
     );
-  }
-
-  // ── Plugin custom PersonNode renderer ────────────────────────────────────
-  const activePlugin = getViewPlugin(viewStyle);
-  const PluginPersonNode = activePlugin?.PersonNodeComponent;
-  if (PluginPersonNode) {
-    return <PluginPersonNode {...({ data, selected, dragging, id: data.personId, type: 'person', xPos: 0, yPos: 0, zIndex: 0, isConnectable: true } as any)} theme={theme} />;
   }
 
   // ── Normal interactive mode ────────────────────────────────────────────────

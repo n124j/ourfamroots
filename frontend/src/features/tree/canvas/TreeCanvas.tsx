@@ -588,8 +588,13 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
 
       // ── 3. Switch to PDF render mode + capture ───────────────────────────
       // Legend stays exactly where the user placed it — no repositioning.
+      // Clear any active selection so the exported PDF never shows selection
+      // highlighting; restore it afterwards.
       // Zustand setState is synchronous; two rAF ticks let React flush + paint.
+      const { selectedPersonId: prevSelectedPersonId, selectedEdge: prevSelectedEdge } = useCanvasStore.getState();
       useCanvasStore.getState().setIsPdfMode(true);
+      if (prevSelectedPersonId) useCanvasStore.getState().setSelectedPersonId(null);
+      if (prevSelectedEdge) useCanvasStore.getState().setSelectedEdge(null);
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
 
@@ -605,6 +610,8 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
         });
       } finally {
         useCanvasStore.getState().setIsPdfMode(false);
+        if (prevSelectedPersonId) useCanvasStore.getState().setSelectedPersonId(prevSelectedPersonId);
+        if (prevSelectedEdge) useCanvasStore.getState().setSelectedEdge(prevSelectedEdge);
         if (attributionEl) attributionEl.style.visibility = '';
       }
 
