@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#312e81"/>
+      <stop offset="50%" stop-color="#4338ca"/>
+      <stop offset="100%" stop-color="#3730a3"/>
+    </linearGradient>
+    <linearGradient id="trunk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#92400e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Tree logo -->
+  <g>
+    <!-- Canopy -->
+    <circle cx="600" cy="168" r="92" fill="#16a34a"/>
+    <circle cx="512" cy="196" r="66" fill="#22c55e"/>
+    <circle cx="688" cy="196" r="66" fill="#15803d"/>
+    <circle cx="540" cy="122" r="64" fill="#4ade80"/>
+    <circle cx="660" cy="122" r="64" fill="#22c55e"/>
+    <circle cx="600" cy="98"  r="56" fill="#86efac"/>
+
+    <!-- Blend canopy into trunk -->
+    <rect x="555" y="220" width="90" height="36" fill="#16a34a"/>
+
+    <!-- Trunk -->
+    <rect x="573" y="248" width="54" height="96" rx="14" fill="url(#trunk)"/>
+
+    <!-- Roots -->
+    <g fill="none" stroke="#92400e" stroke-width="8" stroke-linecap="round">
+      <path d="M600 340 L600 366"/>
+      <path d="M600 366 L548 404"/>
+      <path d="M600 366 L652 404"/>
+      <path d="M548 404 L512 434"/>
+      <path d="M548 404 L562 438"/>
+      <path d="M652 404 L688 434"/>
+      <path d="M652 404 L638 438"/>
+    </g>
+  </g>
+
+  <!-- Brand watermark -->
+  <text x="600" y="500" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="700" fill="#e0e7ff" opacity="0.85">OurFamRoots</text>
+  <text x="600" y="536" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#c7d2fe" opacity="0.8">Shared Family Tree</text>
+</svg>

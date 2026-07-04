@@ -14,6 +14,8 @@ import type { ApiTreeGraph } from '@features/tree/types';
 import { SEO } from '@shared/components/SEO';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+const BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL ?? 'https://ourfamroots.com';
+const TREE_OG_IMAGE = `${BASE_URL}/og-image-tree.svg`;
 
 async function fetchSharedGraph(shareToken: string): Promise<ApiTreeGraph> {
   const res = await fetch(`${API_BASE}/trees/shared/${shareToken}/graph`);
@@ -85,6 +87,8 @@ export default function SharedTreePage() {
         description={treeDescription || `Explore the ${treeName} family tree${personCount ? ` with ${personCount} family members` : ''}. View ancestors, descendants, and family connections on OurFamRoots.`}
         keywords={`${treeName}, family tree, shared family tree, ancestry, genealogy, family history`}
         ogType="website"
+        ogImage={TREE_OG_IMAGE}
+        ogImageAlt={`${treeName} — family tree logo`}
       />
       {/* Minimal top bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 shrink-0">

@@ -55,6 +55,8 @@ A genealogy platform for building, exploring, and collaborating on family trees.
     - [Estimated trial costs](#estimated-trial-costs)
     - [Tearing down](#tearing-down)
   - [Port Reference](#port-reference)
+  - [Troubleshooting](#troubleshooting)
+    - [Photos / avatars return 500 through `/s3/` on the docker-compose VM deployment](#photos--avatars-return-500-through-s3-on-the-docker-compose-vm-deployment)
 
 ---
 
@@ -1196,3 +1198,52 @@ done
 | 7010 | Loki | Monitoring stack only |
 | 7011 | Postgres Exporter | Monitoring stack only |
 | 7012 | Redis Exporter | Monitoring stack only |
+
+---
+
+## Troubleshooting
+
+### Photos / avatars return 500 through `/s3/` on the docker-compose VM deployment
+
+**Symptom:** person avatars and gallery photos show as broken images (name, badges, and
+relationships still load fine, since those come straight from the API/DB). In the browser
+DevTools Network tab, the failing requests are `GET https://<domain>/s3/...jpg?X-Amz-...`
+returning `500 Internal Server Error` with an HTML body (not MinIO's XML error format).
+
+This has shown up from two independent causes — check both:
+
+1. **`docker compose` was run without `--env-file .env.prod`.**
+   `docker-compose.prod.yml` only works with production secrets when every invocation
+   includes `--env-file .env.prod` (Compose does not auto-load a file named anything other
+   than `.env`). Without it, `S3_PUBLIC_URL`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
+   `JWT_SECRET_KEY`, etc. all silently fall back to blank, which breaks presigned URL
+   generation. Symptom in logs: a wall of
+   `WARN[0000] The "X" variable is not set. Defaulting to a blank string.` on every
+   `docker compose` command. Fix: always pass `--env-file .env.prod`, and confirm with
+   `docker compose -f docker-compose.prod.yml --env-file .env.prod exec api env | grep S3_PUBLIC_URL`.
+
+2. **nginx logs `using uninitialized "minio_upstream" variable` / `invalid URL prefix in ""`.**
+   In `infra/nginx/proxy.conf`, the `location /s3/` block sets `$minio_upstream` via `set` and
+   proxies to it with `proxy_pass $minio_upstream`. `set`, `rewrite`, and `if` all belong to
+   nginx's rewrite module and run in the order they're written — a `rewrite ... break;` placed
+   **before** a `set` statement stops that `set` from ever running, leaving the variable
+   uninitialized and `proxy_pass` pointing at an empty string. The `set` (and `resolver`) lines
+   must come before the `rewrite` line in that block. Verify with:
+   `docker compose -f docker-compose.prod.yml --env-file .env.prod exec proxy nginx -T | grep -A5 "location /s3/ {"`.
+
+   After editing `infra/nginx/proxy.conf`, `nginx -s reload` is **not always enough** to pick up
+   the change — Docker's single-file bind mount can keep pointing at the pre-edit file/inode
+   (e.g. after `git pull` atomically replaces the file on disk), so the running nginx config
+   silently stays stale even though `nginx -t`/`-s reload` report success. Force the container to
+   re-establish the mount instead:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-recreate proxy
+   ```
+
+   Confirm the fix actually took effect before retesting in the browser:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.prod exec proxy stat -c '%y %n' /etc/nginx/conf.d/default.conf
+   docker compose -f docker-compose.prod.yml --env-file .env.prod exec proxy nginx -T | grep -A5 "location /s3/ {"
+   ```
