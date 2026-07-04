@@ -628,10 +628,13 @@ async def get_shared_tree_og_preview(
     settings = get_settings()
     base_url = settings.frontend_base_url.rstrip("/")
     share_url = f"{base_url}/shared/{share_token}"
-    og_image = f"{base_url}/og-image.svg"
+    default_image = f"{base_url}/og-image-tree.svg"
 
     tree_row = (await uow._session.execute(
-        text("SELECT name, description, link_sharing FROM family_trees WHERE share_token = :token AND is_deleted = false LIMIT 1"),
+        text("""
+            SELECT id, name, description, cover_image_url, link_sharing
+            FROM family_trees WHERE share_token = :token AND is_deleted = false LIMIT 1
+        """),
         {"token": share_token},
     )).first()
 
@@ -640,17 +643,34 @@ async def get_shared_tree_og_preview(
         description = (
             "Free collaborative genealogy platform to build your family tree online."
         )
+        og_image = default_image
     else:
-        title = f"{tree_row.name} — Shared Family Tree"
-        description = tree_row.description or (
-            f"Explore the {tree_row.name} family tree. "
-            "View ancestors, descendants, and family connections on OurFamRoots."
+        title = tree_row.name
+        counts = (await uow._session.execute(
+            text("""
+                SELECT
+                  (SELECT COUNT(*) FROM persons WHERE tree_id = :tid AND is_deleted = false) AS person_count,
+                  (SELECT COUNT(*) FROM tree_members WHERE tree_id = :tid) AS member_count
+            """),
+            {"tid": tree_row.id},
+        )).first()
+        stats = f"{counts.person_count} people · {counts.member_count} members" if counts else None
+        base_description = tree_row.description or (
+            f"Explore the {tree_row.name} family tree on OurFamRoots. "
+            "View ancestors, descendants, and family connections."
         )
+        description = f"{base_description} · {stats}" if stats else base_description
+        og_image = tree_row.cover_image_url or default_image
 
     title_esc = html_lib.escape(title)
     desc_esc = html_lib.escape(description)
     url_esc = html_lib.escape(share_url)
     image_esc = html_lib.escape(og_image)
+    image_dims = (
+        '<meta property="og:image:width" content="1200">\n'
+        '<meta property="og:image:height" content="630">'
+        if og_image == default_image else ""
+    )
 
     body = f"""<!doctype html>
 <html lang="en">
@@ -664,8 +684,7 @@ async def get_shared_tree_og_preview(
 <meta property="og:description" content="{desc_esc}">
 <meta property="og:url" content="{url_esc}">
 <meta property="og:image" content="{image_esc}">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+{image_dims}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{title_esc}">
 <meta name="twitter:description" content="{desc_esc}">
