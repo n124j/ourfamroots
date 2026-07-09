@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from src.api.deps import JWTServiceDep, TokenStoreDep, UoWDep
 from src.config import Settings, get_settings
+from src.infrastructure.database.global_access import grant_global_tree_access
 from src.infrastructure.database.models.collaboration import OAuthConnectionModel
 from src.infrastructure.database.models.login_event import LoginEventModel
 from src.infrastructure.database.models.tenant import TenantModel
@@ -106,7 +107,7 @@ async def oauth_callback(
     try:
         async with uow:
             # 1. Find or provision user
-            user = await _find_or_create_user(uow, user_info, settings)
+            user, is_new_user = await _find_or_create_user(uow, user_info, settings)
             if user is None:
                 return _redirect_error(settings, provider, next_path, "oauth_provisioning_disabled")
 
@@ -115,6 +116,12 @@ async def oauth_callback(
             # no ORM relationship() linking them, so autoflush ordering can't be
             # relied on to insert the user first.
             await uow._session.flush()
+
+            # Mirrors AuthService.register / POST /admin/users: a brand-new user
+            # must immediately see every tree attached to an is_global permission
+            # group, same as email/password and admin-created signups.
+            if is_new_user:
+                await grant_global_tree_access(uow._session, user.tenant_id, user.id)
 
             # 2. Upsert OAuth connection record
             result = await uow._session.execute(
@@ -192,7 +199,7 @@ async def _find_or_create_user(
     uow: UoWDep,
     info: OAuthUserInfo,
     settings: Settings,
-) -> UserModel | None:
+) -> tuple[UserModel | None, bool]:
     # Check every tenant for an existing account with this email
     from sqlalchemy import select as sa_select
     result = await uow._session.execute(
@@ -206,12 +213,12 @@ async def _find_or_create_user(
             user.family_name = info.family_name
         if info.avatar_url:
             user.avatar_url = info.avatar_url
-        return user
+        return user, False
 
     # Auto-provision: resolve the shared tenant by slug (same as registration)
     tenant_slug = settings.default_tenant_slug
     if not tenant_slug:
-        return None
+        return None, False
 
     result = await uow._session.execute(
         sa_select(TenantModel).where(TenantModel.slug == tenant_slug)
@@ -240,7 +247,7 @@ async def _find_or_create_user(
     new_user.failed_login_attempts = 0
 
     uow._session.add(new_user)
-    return new_user
+    return new_user, True
 
 
 def _redirect_error(settings: Settings, provider: str, next_path: str, reason: str) -> RedirectResponse:

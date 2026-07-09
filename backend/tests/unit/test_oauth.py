@@ -135,9 +135,10 @@ class TestFindOrCreateUser:
         uow = FakeOAuthUoW(session)
         settings = _make_settings(TEST_TENANT_SLUG)
 
-        result = await _find_or_create_user(uow, _make_user_info(), settings)
+        result, is_new = await _find_or_create_user(uow, _make_user_info(), settings)
 
         assert result is existing
+        assert is_new is False
         assert len(session._added) == 0
 
     async def test_backfills_names_on_existing_user(self):
@@ -154,7 +155,7 @@ class TestFindOrCreateUser:
         uow = FakeOAuthUoW(session)
         settings = _make_settings(TEST_TENANT_SLUG)
 
-        result = await _find_or_create_user(uow, _make_user_info(), settings)
+        result, _ = await _find_or_create_user(uow, _make_user_info(), settings)
 
         assert result.given_name == "Alice"
         assert result.family_name == "Smith"
@@ -174,7 +175,7 @@ class TestFindOrCreateUser:
         uow = FakeOAuthUoW(session)
         settings = _make_settings(TEST_TENANT_SLUG)
 
-        result = await _find_or_create_user(uow, _make_user_info(), settings)
+        result, _ = await _find_or_create_user(uow, _make_user_info(), settings)
 
         assert result.avatar_url == "https://example.com/avatar.png"
 
@@ -184,7 +185,7 @@ class TestFindOrCreateUser:
         uow = FakeOAuthUoW(session)
         settings = _make_settings("")
 
-        result = await _find_or_create_user(uow, _make_user_info(), settings)
+        result, _ = await _find_or_create_user(uow, _make_user_info(), settings)
 
         assert result is None
 
@@ -194,7 +195,7 @@ class TestFindOrCreateUser:
         uow = FakeOAuthUoW(session)
         settings = _make_settings(TEST_TENANT_SLUG)
 
-        result = await _find_or_create_user(uow, _make_user_info(), settings)
+        result, _ = await _find_or_create_user(uow, _make_user_info(), settings)
 
         assert result is not None
         # Tenant was auto-created with slug from settings
@@ -214,7 +215,7 @@ class TestFindOrCreateUser:
         uow = FakeOAuthUoW(session)
         settings = _make_settings(TEST_TENANT_SLUG)
 
-        result = await _find_or_create_user(uow, _make_user_info(), settings)
+        result, _ = await _find_or_create_user(uow, _make_user_info(), settings)
 
         assert result is not None
         assert result.tenant_id == TEST_TENANT_ID
@@ -228,9 +229,10 @@ class TestFindOrCreateUser:
         settings = _make_settings(TEST_TENANT_SLUG)
         info = _make_user_info(email="Bob.Jones@Example.COM", name="Bob Jones", given_name="Bob", family_name="Jones")
 
-        result = await _find_or_create_user(uow, info, settings)
+        result, is_new = await _find_or_create_user(uow, info, settings)
 
         assert result is not None
+        assert is_new is True
         assert result.email == "bob.jones@example.com"
         assert result.given_name == "Bob"
         assert result.family_name == "Jones"
@@ -256,7 +258,7 @@ class TestFindOrCreateUser:
             email_verified=False,
         )
 
-        result = await _find_or_create_user(uow, info, settings)
+        result, _ = await _find_or_create_user(uow, info, settings)
 
         assert result is not None
         assert result.email_verified is False
@@ -269,7 +271,7 @@ class TestFindOrCreateUser:
         settings = _make_settings(TEST_TENANT_SLUG)
         info = _make_user_info(name="Madonna", given_name="Madonna", family_name="")
 
-        result = await _find_or_create_user(uow, info, settings)
+        result, _ = await _find_or_create_user(uow, info, settings)
 
         assert result.given_name == "Madonna"
         assert result.family_name == ""
@@ -290,7 +292,7 @@ class TestFindOrCreateUser:
             email_verified=True,
         )
 
-        result = await _find_or_create_user(uow, info, settings)
+        result, _ = await _find_or_create_user(uow, info, settings)
 
         assert result.given_name == ""
         assert result.family_name == ""
