@@ -139,6 +139,51 @@ async def require_not_auditor(user: VerifiedUserDep) -> UserModel:
 NotAuditorDep = Annotated[UserModel, Depends(require_not_auditor)]
 
 
+async def require_direct_edit_allowed(
+    tree_id: uuid.UUID,
+    user: NotAuditorDep,
+    session: SessionDep,
+) -> UserModel:
+    """Blocks direct writes to a tree that must instead go through the
+    change-request ("Post") flow: a globally-shared tree for anyone but its
+    OWNER, or a draft tree that's already been posted and is awaiting review."""
+    from sqlalchemy import text
+
+    row = (await session.execute(
+        text("""
+            SELECT
+                tm.role,
+                EXISTS (
+                    SELECT 1 FROM permission_group_trees pgt
+                    JOIN permission_groups pg ON pg.id = pgt.group_id
+                    WHERE pgt.tree_id = :tid AND pg.is_global = true
+                ) AS is_globally_shared,
+                EXISTS (
+                    SELECT 1 FROM tree_change_requests tcr
+                    WHERE tcr.draft_tree_id = :tid AND tcr.status = 'PENDING'
+                ) AS is_pending_draft
+            FROM tree_members tm
+            WHERE tm.tree_id = :tid AND tm.user_id = :uid
+        """),
+        {"tid": tree_id, "uid": user.id},
+    )).first()
+
+    if row is not None:
+        if row.is_pending_draft:
+            raise HTTPException(
+                status_code=403,
+                detail="This proposal has already been submitted and is awaiting the owner's review.",
+            )
+        if row.is_globally_shared and row.role != "OWNER":
+            raise HTTPException(
+                status_code=403,
+                detail="This tree is globally shared — submit your changes as a proposal instead.",
+            )
+    return user
+
+EditableTreeDep = Annotated[UserModel, Depends(require_direct_edit_allowed)]
+
+
 async def require_admin(user: VerifiedUserDep) -> UserModel:
     """Restrict endpoint to system administrators (ADMIN or SUPER_ADMIN)."""
     if user.app_role not in (AppRole.ADMIN, AppRole.SUPER_ADMIN):

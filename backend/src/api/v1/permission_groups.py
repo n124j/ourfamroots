@@ -11,6 +11,11 @@ Adding a member grants them the group's permission level on every tree in
 the group. Adding a tree grants all current members access to that tree.
 Removing either side revokes the corresponding tree_members rows (unless
 the user has OWNER or ADMIN role, which is never granted via groups).
+
+A group can also be flagged is_global (Super Admin only, via PATCH
+.../global). A global group's trees are granted to every tenant user —
+present and future — instead of just its explicit members; see
+_get_group_recipient_ids and grant_global_tree_access.
 """
 from __future__ import annotations
 
@@ -28,7 +33,7 @@ from sqlalchemy import func, select, text
 
 from fastapi import Request as _Request
 
-from src.api.deps import AdminUserDep, SessionDep
+from src.api.deps import AdminUserDep, SessionDep, SuperAdminDep
 from src.api.v1._admin_log import log_admin_action
 from src.domain.collaboration.entities import AppRole
 from src.infrastructure.database.models.permission_group import (
@@ -71,6 +76,7 @@ class PermissionGroupResponse(BaseModel):
     name: str
     description: Optional[str]
     permission_level: str
+    is_global: bool
     tree_count: int
     member_count: int
     created_by: Optional[uuid.UUID]
@@ -78,6 +84,10 @@ class PermissionGroupResponse(BaseModel):
     updated_at: str
 
     model_config = {"from_attributes": True}
+
+
+class SetGlobalBody(BaseModel):
+    is_global: bool
 
 
 class GroupTreeResponse(BaseModel):
@@ -183,6 +193,25 @@ async def _get_tenant_id(session, group_id: uuid.UUID) -> uuid.UUID:
     return row
 
 
+async def _get_tenant_user_ids(session, tenant_id: uuid.UUID) -> list[uuid.UUID]:
+    rows = (await session.execute(
+        select(UserModel.id).where(UserModel.tenant_id == tenant_id)
+    )).scalars().all()
+    return list(rows)
+
+
+async def _get_group_recipient_ids(
+    session, group_id: uuid.UUID, tenant_id: uuid.UUID, is_global: bool
+) -> list[uuid.UUID]:
+    """Who should be granted/revoked access when a tree is added/removed from this group.
+
+    Global groups apply to every tenant user; regular groups only to explicit members.
+    """
+    if is_global:
+        return await _get_tenant_user_ids(session, tenant_id)
+    return await _get_group_user_ids(session, group_id)
+
+
 # ── Endpoints — Groups ──────────────────────────────────────────────────────────
 
 @router.get("/permission-groups", response_model=list[PermissionGroupResponse],
@@ -198,6 +227,7 @@ async def list_permission_groups(
                 pg.name,
                 pg.description,
                 pg.permission_level,
+                pg.is_global,
                 pg.created_by,
                 pg.created_at,
                 pg.updated_at,
@@ -219,6 +249,7 @@ async def list_permission_groups(
             name=r.name,
             description=r.description,
             permission_level=r.permission_level,
+            is_global=r.is_global,
             tree_count=r.tree_count,
             member_count=r.member_count,
             created_by=r.created_by,
@@ -266,6 +297,7 @@ async def create_permission_group(
         name=group.name,
         description=group.description,
         permission_level=group.permission_level,
+        is_global=group.is_global,
         tree_count=0,
         member_count=0,
         created_by=group.created_by,
@@ -299,7 +331,22 @@ async def update_permission_group(
 
     if body.permission_level is not None and body.permission_level != group.permission_level:
         new_role = _LEVEL_TO_TREE_ROLE.get(body.permission_level)
-        if new_role:
+        if new_role and group.is_global:
+            # Propagate role change to every tenant user for this group's trees
+            await session.execute(
+                text("""
+                    UPDATE tree_members tm
+                    SET role = :role
+                    FROM users u
+                    JOIN permission_group_trees pgt ON pgt.group_id = :gid
+                    WHERE u.tenant_id = :tenant_id
+                      AND tm.tree_id = pgt.tree_id
+                      AND tm.user_id = u.id
+                      AND tm.role NOT IN ('OWNER', 'ADMIN')
+                """),
+                {"role": new_role, "gid": group_id, "tenant_id": current_user.tenant_id},
+            )
+        elif new_role:
             # Propagate role change to all existing (member, tree) pairs in this group
             await session.execute(
                 text("""
@@ -334,6 +381,7 @@ async def update_permission_group(
         name=group.name,
         description=group.description,
         permission_level=group.permission_level,
+        is_global=group.is_global,
         tree_count=tree_count,
         member_count=member_count,
         created_by=group.created_by,
@@ -365,7 +413,20 @@ async def delete_permission_group(
 
     # Revoke all tree access for all (member, tree) pairs before deleting
     tree_role = _LEVEL_TO_TREE_ROLE.get(group.permission_level)
-    if tree_role:
+    if tree_role and group.is_global:
+        await session.execute(
+            text("""
+                DELETE FROM tree_members tm
+                USING users u, permission_group_trees pgt
+                WHERE pgt.group_id = :gid
+                  AND u.tenant_id = :tenant_id
+                  AND tm.tree_id = pgt.tree_id
+                  AND tm.user_id = u.id
+                  AND tm.role IN ('VIEWER', 'EDITOR')
+            """),
+            {"gid": group_id, "tenant_id": current_user.tenant_id},
+        )
+    elif tree_role:
         await session.execute(
             text("""
                 DELETE FROM tree_members tm
@@ -383,6 +444,104 @@ async def delete_permission_group(
     await log_admin_action(session, current_user.tenant_id, current_user.id,
                            current_user.full_name, "PG_DELETE", group_name, _ip(request))
     await session.commit()
+
+
+@router.patch("/permission-groups/{group_id}/global", response_model=PermissionGroupResponse,
+              summary="Make a permission group's trees globally accessible to every tenant user (Super Admin only)")
+async def set_permission_group_global(
+    group_id: uuid.UUID,
+    body: SetGlobalBody,
+    current_user: SuperAdminDep,
+    session: SessionDep,
+    request: Request,
+) -> PermissionGroupResponse:
+    group = (await session.execute(
+        select(PermissionGroupModel).where(
+            PermissionGroupModel.id == group_id,
+            PermissionGroupModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
+
+    if body.is_global != group.is_global:
+        tree_role = _LEVEL_TO_TREE_ROLE.get(group.permission_level)
+        if tree_role and body.is_global:
+            # Turning on: insert missing tree_members rows for every (tree, tenant user) pair,
+            # then upgrade existing VIEWER rows to EDITOR if this group grants EDITOR (never downgrade).
+            await session.execute(
+                text("""
+                    INSERT INTO tree_members (tree_id, user_id, tenant_id, role, invited_by_id, joined_at)
+                    SELECT pgt.tree_id, u.id, u.tenant_id, :role, NULL, now()
+                    FROM permission_group_trees pgt
+                    JOIN users u ON u.tenant_id = :tenant_id
+                    WHERE pgt.group_id = :gid
+                    ON CONFLICT (tree_id, user_id) DO NOTHING
+                """),
+                {"gid": group_id, "tenant_id": current_user.tenant_id, "role": tree_role},
+            )
+            if tree_role == "EDITOR":
+                await session.execute(
+                    text("""
+                        UPDATE tree_members tm
+                        SET role = 'EDITOR'
+                        FROM permission_group_trees pgt, users u
+                        WHERE pgt.group_id = :gid
+                          AND u.tenant_id = :tenant_id
+                          AND tm.tree_id = pgt.tree_id
+                          AND tm.user_id = u.id
+                          AND tm.role = 'VIEWER'
+                    """),
+                    {"gid": group_id, "tenant_id": current_user.tenant_id},
+                )
+        elif tree_role:
+            # Turning off: revoke for tenant users who aren't explicit members of this group
+            # (explicit members keep their access, same as any other permission group).
+            await session.execute(
+                text("""
+                    DELETE FROM tree_members tm
+                    USING permission_group_trees pgt, users u
+                    WHERE pgt.group_id = :gid
+                      AND u.tenant_id = :tenant_id
+                      AND tm.tree_id = pgt.tree_id
+                      AND tm.user_id = u.id
+                      AND tm.role IN ('VIEWER', 'EDITOR')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM permission_group_members pgm
+                          WHERE pgm.group_id = :gid AND pgm.user_id = u.id
+                      )
+                """),
+                {"gid": group_id, "tenant_id": current_user.tenant_id},
+            )
+        group.is_global = body.is_global
+
+    await session.commit()
+    await session.refresh(group)
+    await log_admin_action(session, current_user.tenant_id, current_user.id,
+                           current_user.full_name,
+                           "PG_SET_GLOBAL" if body.is_global else "PG_UNSET_GLOBAL",
+                           group.name, _ip(request))
+    await session.commit()
+
+    tree_count = (await session.execute(
+        select(func.count()).where(PermissionGroupTreeModel.group_id == group_id)
+    )).scalar_one()
+    member_count = (await session.execute(
+        select(func.count()).where(PermissionGroupMemberModel.group_id == group_id)
+    )).scalar_one()
+
+    return PermissionGroupResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        permission_level=group.permission_level,
+        is_global=group.is_global,
+        tree_count=tree_count,
+        member_count=member_count,
+        created_by=group.created_by,
+        created_at=group.created_at.isoformat(),
+        updated_at=group.updated_at.isoformat(),
+    )
 
 
 # ── Endpoints — Group Trees ─────────────────────────────────────────────────────
@@ -479,10 +638,10 @@ async def add_group_tree(
     )
     session.add(entry)
 
-    # Grant access to all existing group members
+    # Grant access to all existing recipients (tenant-wide if the group is global)
     tree_role = _LEVEL_TO_TREE_ROLE.get(group.permission_level)
     if tree_role:
-        user_ids = await _get_group_user_ids(session, group_id)
+        user_ids = await _get_group_recipient_ids(session, group_id, current_user.tenant_id, group.is_global)
         for uid in user_ids:
             await _grant_tree_access(
                 session,
@@ -545,8 +704,8 @@ async def remove_group_tree(
 
     await session.delete(entry)
 
-    # Revoke access for all group members on this tree
-    user_ids = await _get_group_user_ids(session, group_id)
+    # Revoke access for all recipients on this tree (tenant-wide if the group is global)
+    user_ids = await _get_group_recipient_ids(session, group_id, current_user.tenant_id, group.is_global)
     for uid in user_ids:
         await _revoke_tree_access(session, tree_id=tree_id, user_id=uid)
 
@@ -622,6 +781,9 @@ async def add_group_member(
     )).scalars().first()
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
+    if group.is_global:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Global groups apply to all members automatically — no need to add individuals")
 
     user = (await session.execute(
         select(UserModel).where(

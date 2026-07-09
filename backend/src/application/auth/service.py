@@ -108,6 +108,7 @@ class AuthService:
                 failed_login_attempts=0,
             )
             user = await self._uow.users.add(user)
+            await self._uow.users.grant_global_tree_access(user)
 
         log.info("user.registered", user_id=str(user.id), tenant_id=str(tenant.id))
 

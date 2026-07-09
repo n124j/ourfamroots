@@ -43,6 +43,17 @@ class FamilyTreeModel(Base, TimestampMixin):
         UUID(as_uuid=True), nullable=False, unique=True, index=True, server_default=text("gen_random_uuid()")
     )
     is_searchable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Set when this tree is a private draft-in-progress copy of another (globally-shared) tree.
+    draft_of_tree_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("family_trees.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    draft_owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
 
     def __repr__(self) -> str:
         return f"<FamilyTreeModel id={self.id!s} name={self.name!r}>"
@@ -388,3 +399,47 @@ class MergeRequestModel(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<MergeRequestModel target={self.target_tree_id} source={self.source_tree_id} status={self.status}>"
+
+
+class TreeChangeRequestModel(Base, TimestampMixin):
+    """A proposed set of edits (made in a private draft tree) awaiting the owner's approval."""
+
+    __tablename__ = "tree_change_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tree_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("family_trees.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    draft_tree_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("family_trees.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    requester_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'PENDING'"))
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    resolved_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<TreeChangeRequestModel tree={self.tree_id} requester={self.requester_id} status={self.status}>"

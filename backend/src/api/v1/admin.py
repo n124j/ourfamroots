@@ -14,6 +14,7 @@ from src.api.deps import AdminUserDep, SessionDep, SuperAdminDep, TokenStoreDep
 from src.api.v1._admin_log import log_admin_action
 from src.domain.collaboration.entities import AppRole
 from src.config import get_settings
+from src.infrastructure.database.global_access import grant_global_tree_access
 from src.infrastructure.database.models.login_event import LoginEventModel
 from src.infrastructure.database.models.user import UserModel
 
@@ -128,6 +129,9 @@ async def create_user(
     session.add(user)
     await session.commit()  # commit before returning so fetchUsers sees the row immediately
     await session.refresh(user)
+
+    await grant_global_tree_access(session, current_user.tenant_id, user.id)
+    await session.commit()
 
     # Send activation email
     try:

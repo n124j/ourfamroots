@@ -223,6 +223,26 @@ function DetailsPanel({ data, borderColor, bg, textColor, subtextColor, borderCs
   );
 }
 
+// ── Change-request diff presentation ────────────────────────────────────────
+// Pure so it can be unit-tested without mounting the node inside ReactFlow.
+
+export const DIFF_STATUS_COLOR: Record<'added' | 'modified', string> = {
+  added: '#22c55e',
+  modified: '#f59e0b',
+};
+
+export function diffStatusColor(diffStatus: PersonNodeData['diffStatus']): string | null {
+  return diffStatus ? DIFF_STATUS_COLOR[diffStatus] : null;
+}
+
+export function diffBadgeGlyph(diffStatus: 'added' | 'modified'): string {
+  return diffStatus === 'added' ? '+' : '✎';
+}
+
+export function diffBadgeTitle(diffStatus: 'added' | 'modified'): string {
+  return diffStatus === 'added' ? 'Newly added' : 'Modified';
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeData>) {
@@ -248,6 +268,7 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
     notes,
     birthDate,
     deathDate,
+    diffStatus,
   } = data;
 
   const toggleExpand  = useCanvasStore((s) => s.toggleExpand);
@@ -279,12 +300,15 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
   }, []);
 
   const borderColor = SEX_BORDER_COLOR[sex];
-  const cardBg = theme.preset === 'classic'
+  const diffColor = diffStatusColor(diffStatus);
+  const cardBg = diffColor
+    ? (hovered ? theme.nodeHoverBg : `${diffColor}20`)
+    : theme.preset === 'classic'
     ? (hovered ? theme.nodeHoverBg : SEX_BG_COLOR[sex])
     : (hovered ? theme.nodeHoverBg : theme.nodeBg);
   const fullName = [displayGivenName, displaySurname].filter(Boolean).join(' ') || 'Unknown';
   const years = formatYears(birthYear, deathYear, isLiving && !isDeceased);
-  const borderCss = selected ? borderColor : isFocus ? borderColor : theme.nodeBorder;
+  const borderCss = diffColor ?? (selected ? borderColor : isFocus ? borderColor : theme.nodeBorder);
 
   // ── Plugin custom PersonNode renderer (takes priority, incl. during export) ─
   const activePlugin = getViewPlugin(viewStyle);
@@ -393,9 +417,11 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
             className="w-full h-full rounded-xl flex items-center gap-3 px-3 transition-all"
             style={{
               background: cardBg,
-              border: `2px solid ${selected ? borderColor : isFocus ? borderColor : theme.nodeBorder}`,
+              border: `2px solid ${borderCss}`,
               boxShadow: dragging
                 ? `0 16px 40px rgba(0,0,0,0.22), 0 0 0 2px ${borderColor}66`
+                : diffColor
+                ? `0 0 0 3px ${diffColor}33, 0 4px 12px ${diffColor}22`
                 : selected
                 ? `0 0 0 3px ${borderColor}33, 0 4px 12px ${borderColor}22`
                 : isFocus
@@ -404,7 +430,18 @@ function PersonNodeComponent({ data, selected, dragging }: NodeProps<PersonNodeD
             }}
           >
             {/* Left accent bar */}
-            <div className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r" style={{ background: borderColor }} />
+            <div className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r" style={{ background: diffColor ?? borderColor }} />
+
+            {/* Diff badge — shown only in change-request review mode */}
+            {diffColor && diffStatus && (
+              <div
+                className="absolute flex items-center justify-center rounded-full text-white font-bold shadow-sm select-none"
+                style={{ top: -7, right: -7, width: 18, height: 18, fontSize: 11, background: diffColor, zIndex: 5 }}
+                title={diffBadgeTitle(diffStatus)}
+              >
+                {diffBadgeGlyph(diffStatus)}
+              </div>
+            )}
 
             <Avatar photoUrl={photoUrl} givenName={displayGivenName} surname={displaySurname} sex={sex} />
 

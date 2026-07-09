@@ -7,7 +7,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, EmailStr, Field
 
-from src.api.deps import AdminUserDep, CurrentUserDep, NotAuditorDep, UoWDep
+from src.api.deps import AdminUserDep, CurrentUserDep, EditableTreeDep, NotAuditorDep, UoWDep
 from src.application.collaboration.service import CollaborationService
 from src.domain.collaboration.entities import (
     Action, AppRole, AuditEntityType, AuditEntry, Invitation,
@@ -149,6 +149,7 @@ class TreeSummaryResponse(BaseModel):
     share_token: Optional[uuid.UUID] = None
     is_pinned: bool = False
     is_searchable: bool = False
+    is_globally_shared: bool = False
 
 
 class CreateTreeRequest(BaseModel):
@@ -711,8 +712,8 @@ async def export_tree_zip(
     from fastapi.responses import StreamingResponse
     from sqlalchemy import text
 
-    # Auditor bypass; all others (including app-level ADMIN) must be members
-    if current_user.app_role != AppRole.AUDITOR:
+    # Auditor + Super Admin bypass; all others (including app-level ADMIN) must be members
+    if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
         row = (await uow._session.execute(
             text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
             {"tid": tree_id, "uid": current_user.id},
@@ -722,7 +723,7 @@ async def export_tree_zip(
 
     # Fetch tree metadata
     tree_row = (await uow._session.execute(
-        text("SELECT name, description FROM family_trees WHERE id = :tid AND is_deleted = false LIMIT 1"),
+        text("SELECT name, description, cover_image_url FROM family_trees WHERE id = :tid AND is_deleted = false LIMIT 1"),
         {"tid": tree_id},
     )).first()
     if tree_row is None:
@@ -782,9 +783,25 @@ async def export_tree_zip(
     public_base = (settings.s3_public_url or settings.s3_endpoint_url or "").rstrip("/")
     url_prefix = f"{public_base}/{bucket}/" if public_base else f"/{bucket}/"
 
+    def _resolve_s3_key(url: str) -> str:
+        if url.startswith(url_prefix):
+            return url[len(url_prefix):]
+        if url.startswith("/"):
+            return url.lstrip("/")
+        return url  # bare S3 key (e.g. from import-zip)
+
     # Build persons list; track which need photos downloaded
     persons_payload = []
     photo_downloads: list[tuple[str, str, str]] = []  # (person_id, s3_key, filename_in_zip)
+
+    # Tree profile (cover) picture
+    tree_cover_filename = None
+    if tree_row.cover_image_url:
+        s3_key = _resolve_s3_key(tree_row.cover_image_url)
+        if s3_key:
+            ext = s3_key.rsplit(".", 1)[-1] if "." in s3_key else "jpg"
+            tree_cover_filename = f"tree_cover.{ext}"
+            photo_downloads.append(("tree", s3_key, tree_cover_filename))
 
     def _safe_slug(val):
         import re
@@ -793,14 +810,7 @@ async def export_tree_zip(
     for r in person_rows:
         photo_filename = None
         if r.photo_url:
-            url = r.photo_url
-            if url.startswith(url_prefix):
-                s3_key = url[len(url_prefix):]
-            elif url.startswith("/"):
-                s3_key = url.lstrip("/")
-            else:
-                # Bare S3 key (e.g. from import-zip)
-                s3_key = url
+            s3_key = _resolve_s3_key(r.photo_url)
             if s3_key:
                 ext = s3_key.rsplit(".", 1)[-1] if "." in s3_key else "jpg"
                 name_slug = f"{_safe_slug(r.display_given_name)}_{_safe_slug(r.display_surname)}"
@@ -860,6 +870,7 @@ async def export_tree_zip(
         "exported_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "tree_name": tree_row.name,
         "tree_description": tree_row.description,
+        **({"tree_cover_photo_filename": tree_cover_filename} if tree_cover_filename else {}),
         "persons": persons_payload,
         "family_groups": list(fgs.values()),
     }
@@ -911,7 +922,7 @@ async def export_tree_zip(
 async def delete_family_group(
     tree_id: uuid.UUID,
     family_group_id: uuid.UUID,
-    current_user: NotAuditorDep,
+    current_user: EditableTreeDep,
     uow: UoWDep,
 ) -> None:
     from sqlalchemy import text
@@ -970,7 +981,7 @@ async def update_family_group(
     tree_id: uuid.UUID,
     family_group_id: uuid.UUID,
     body: UpdateFamilyGroupRequest,
-    current_user: NotAuditorDep,
+    current_user: EditableTreeDep,
     uow: UoWDep,
 ) -> dict:
     from sqlalchemy import text
@@ -1075,7 +1086,7 @@ async def remove_family_group_member(
     tree_id: uuid.UUID,
     family_group_id: uuid.UUID,
     person_id: uuid.UUID,
-    current_user: NotAuditorDep,
+    current_user: EditableTreeDep,
     uow: UoWDep,
 ) -> None:
     from sqlalchemy import text
@@ -1140,7 +1151,7 @@ async def update_family_group_member(
     family_group_id: uuid.UUID,
     person_id: uuid.UUID,
     body: UpdateMemberParentageRequest,
-    current_user: NotAuditorDep,
+    current_user: EditableTreeDep,
     uow: UoWDep,
 ) -> dict:
     from sqlalchemy import text
@@ -1217,7 +1228,12 @@ async def list_my_trees(
                 ft.is_searchable,
                 (SELECT COUNT(*) FROM persons p WHERE p.tree_id = ft.id AND p.is_deleted = false) AS person_count,
                 (SELECT COUNT(*) FROM tree_members m WHERE m.tree_id = ft.id) AS member_count,
-                (tp.id IS NOT NULL) AS is_pinned
+                (tp.id IS NOT NULL) AS is_pinned,
+                EXISTS (
+                    SELECT 1 FROM permission_group_trees pgt
+                    JOIN permission_groups pg ON pg.id = pgt.group_id
+                    WHERE pgt.tree_id = ft.id AND pg.is_global = true
+                ) AS is_globally_shared
             FROM family_trees ft
             LEFT JOIN tree_pins tp ON tp.tree_id = ft.id AND tp.user_id = :user_id
             WHERE ft.is_deleted = false
@@ -1239,6 +1255,7 @@ async def list_my_trees(
                 share_token=row.share_token,
                 is_pinned=row.is_pinned,
                 is_searchable=row.is_searchable,
+                is_globally_shared=row.is_globally_shared,
             )
             for row in rows
         ]
@@ -1257,7 +1274,12 @@ async def list_my_trees(
             tm.role,
             (SELECT COUNT(*) FROM persons p WHERE p.tree_id = ft.id AND p.is_deleted = false) AS person_count,
             (SELECT COUNT(*) FROM tree_members m WHERE m.tree_id = ft.id) AS member_count,
-            (tp.id IS NOT NULL) AS is_pinned
+            (tp.id IS NOT NULL) AS is_pinned,
+            EXISTS (
+                SELECT 1 FROM permission_group_trees pgt
+                JOIN permission_groups pg ON pg.id = pgt.group_id
+                WHERE pgt.tree_id = ft.id AND pg.is_global = true
+            ) AS is_globally_shared
         FROM family_trees ft
         JOIN tree_members tm ON tm.tree_id = ft.id
         LEFT JOIN tree_pins tp ON tp.tree_id = ft.id AND tp.user_id = :user_id
@@ -1281,6 +1303,7 @@ async def list_my_trees(
             share_token=row.share_token,
             is_pinned=row.is_pinned,
             is_searchable=row.is_searchable,
+            is_globally_shared=row.is_globally_shared,
         )
         for row in rows
     ]
@@ -1340,20 +1363,48 @@ async def get_tree_graph(
 ) -> dict:
     from sqlalchemy import text
 
-    # Auditor bypass; all others (including app-level ADMIN) must be members
+    # Auditor + Super Admin bypass; all others (including app-level ADMIN) must be members
+    review_change_request_id: uuid.UUID | None = None
     if current_user.app_role == AppRole.AUDITOR:
         effective_tree_role = "VIEWER"
+    elif current_user.app_role == AppRole.SUPER_ADMIN:
+        effective_tree_role = "OWNER"
     else:
         membership_q = text(
             "SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"
         )
         row = (await uow._session.execute(membership_q, {"tid": tree_id, "uid": current_user.id})).first()
-        if row is None:
-            raise HTTPException(403, "Not a member of this tree")
-        effective_tree_role = row.role
+        if row is not None:
+            effective_tree_role = row.role
+        else:
+            # Not a member of this (draft) tree — but if it's a draft built from a
+            # tree the caller owns, and a proposal from it is awaiting their
+            # review, grant a read-only peek so they can review it in tree form.
+            review_row = (await uow._session.execute(
+                text("""
+                    SELECT tcr.id FROM tree_change_requests tcr
+                    JOIN tree_members tm ON tm.tree_id = tcr.tree_id AND tm.user_id = :uid AND tm.role = 'OWNER'
+                    WHERE tcr.draft_tree_id = :tid AND tcr.status = 'PENDING'
+                    LIMIT 1
+                """),
+                {"tid": tree_id, "uid": current_user.id},
+            )).first()
+            if review_row is None:
+                raise HTTPException(403, "Not a member of this tree")
+            effective_tree_role = "VIEWER"
+            review_change_request_id = review_row.id
 
     # Tree metadata
-    tree_q = text("SELECT name, description FROM family_trees WHERE id = :tid")
+    tree_q = text("""
+        SELECT ft.name, ft.description, ft.draft_of_tree_id,
+            EXISTS (
+                SELECT 1 FROM permission_group_trees pgt
+                JOIN permission_groups pg ON pg.id = pgt.group_id
+                WHERE pgt.tree_id = ft.id AND pg.is_global = true
+            ) AS is_globally_shared
+        FROM family_trees ft
+        WHERE ft.id = :tid
+    """)
     tree_row = (await uow._session.execute(tree_q, {"tid": tree_id})).first()
 
     # Persons
@@ -1434,12 +1485,15 @@ async def get_tree_graph(
             groups[gid]["children"][pid] = r.parentage_type or "BIOLOGICAL"
 
     return {
-        "treeId":          str(tree_id),
-        "treeName":        tree_row.name if tree_row else "",
-        "treeDescription": tree_row.description if tree_row else None,
-        "userRole":        effective_tree_role,
-        "persons":         persons,
-        "familyGroups":    list(groups.values()),
+        "treeId":            str(tree_id),
+        "treeName":          tree_row.name if tree_row else "",
+        "treeDescription":   tree_row.description if tree_row else None,
+        "userRole":          effective_tree_role,
+        "isGloballyShared":  tree_row.is_globally_shared if tree_row else False,
+        **({"draftOfTreeId": str(tree_row.draft_of_tree_id)} if tree_row and tree_row.draft_of_tree_id else {}),
+        **({"reviewChangeRequestId": str(review_change_request_id)} if review_change_request_id else {}),
+        "persons":           persons,
+        "familyGroups":      list(groups.values()),
     }
 
 
@@ -2401,8 +2455,8 @@ async def list_members(
 ) -> list[MemberResponse]:
     from sqlalchemy import text
 
-    # Auditor bypass; all others (including app-level ADMIN) must be members
-    if current_user.app_role != AppRole.AUDITOR:
+    # Auditor + Super Admin bypass; all others (including app-level ADMIN) must be members
+    if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
         check = (await uow._session.execute(
             text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
             {"tid": tree_id, "uid": current_user.id},

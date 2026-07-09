@@ -198,8 +198,22 @@ function NotificationItem({
             </div>
           )}
 
+          {/* Change request — owner reviews a side-by-side diff before approving/denying */}
+          {n.type === 'CHANGE_REQUEST' && n.data.tree_id && n.data.request_id && (
+            <button
+              onClick={() => {
+                onUpdate(n.id, { is_read: true });
+                fetch(`${apiBase}/notifications/${n.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'include' }).catch(() => {});
+                navigate(`/trees/${n.data.tree_id}?changeRequest=${n.data.request_id}`);
+              }}
+              className="mt-2 text-xs font-medium text-brand-600 hover:underline"
+            >
+              {t('notif.reviewProposal')}
+            </button>
+          )}
+
           {/* Result notifications — info-only with link */}
-          {(n.type === 'ACCESS_APPROVED' || n.type === 'MERGE_APPROVED') && n.data.tree_id && (
+          {(n.type === 'ACCESS_APPROVED' || n.type === 'MERGE_APPROVED' || n.type === 'CHANGE_REQUEST_APPROVED' || n.type === 'CHANGE_REQUEST_DENIED' || n.type === 'CHANGE_REQUEST_REVERTED') && n.data.tree_id && (
             <button
               onClick={() => navigate(`/trees/${n.data.tree_id}`)}
               className="mt-2 text-xs font-medium text-brand-600 hover:underline"

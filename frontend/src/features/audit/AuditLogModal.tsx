@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
-import { get } from '@api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
+import { get, post } from '@api/client';
+import { useAuthStore } from '@store/auth.store';
 
 interface AuditEntry {
   id: string;
@@ -36,6 +38,10 @@ function useActionLabels(): Record<string, string> {
     RESTORE_VERSION:     t('auditLog.restoredVersion'),
     GENERATE_REPORT:     t('auditLog.generatedReport'),
     EXPORT_GEDCOM:       t('auditLog.exportedGedcom'),
+    REQUEST_CHANGE:      t('auditLog.requestedChange'),
+    APPROVE_CHANGE:      t('auditLog.approvedChange'),
+    DENY_CHANGE:         t('auditLog.deniedChange'),
+    REVERT_CHANGE:       t('auditLog.revertedChange'),
   };
 }
 
@@ -49,6 +55,10 @@ const ACTION_COLOR: Record<string, string> = {
   REMOVE_RELATIONSHIP: 'bg-orange-100 text-orange-700',
   EXPORT_TREE:      'bg-slate-100 text-slate-700',
   IMPORT_TREE:      'bg-indigo-100 text-indigo-700',
+  REQUEST_CHANGE:   'bg-amber-100 text-amber-700',
+  APPROVE_CHANGE:   'bg-green-100 text-green-700',
+  DENY_CHANGE:      'bg-red-100 text-red-700',
+  REVERT_CHANGE:    'bg-purple-100 text-purple-700',
 };
 
 const DEFAULT_COLOR = 'bg-gray-100 text-gray-600';
@@ -77,8 +87,13 @@ export function AuditLogModal({ treeId, onClose }: Props) {
   const { t } = useTranslation();
   const ACTION_LABELS = useActionLabels();
   const relativeTime = useRelativeTime();
+  const queryClient = useQueryClient();
+  const isSuperAdmin = useAuthStore((s) => s.user)?.appRole === 'SUPER_ADMIN';
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
+  const [reverting, setReverting] = useState<string | null>(null);
+  const [revertError, setRevertError] = useState('');
   const limit = 20;
 
   const { data, isLoading, isFetching } = useQuery<AuditEntry[]>({
@@ -89,6 +104,29 @@ export function AuditLogModal({ treeId, onClose }: Props) {
   });
 
   const entries = data ?? [];
+
+  // Best-effort: hide "Revert" on approvals that already have a later
+  // REVERT_CHANGE entry visible on this page. The backend is the real guard
+  // against double-reverting (returns 409) if an older page is stale.
+  const revertedRequestIds = new Set(
+    entries.filter((e) => e.action === 'REVERT_CHANGE' && e.entity_id).map((e) => e.entity_id as string),
+  );
+
+  async function handleRevert(requestId: string) {
+    setReverting(requestId);
+    setRevertError('');
+    try {
+      await post(`/trees/${treeId}/change-requests/${requestId}/revert`);
+      setConfirmRevertId(null);
+      queryClient.invalidateQueries({ queryKey: ['audit-log', treeId] });
+    } catch (err) {
+      setRevertError(
+        axios.isAxiosError(err) ? ((err.response?.data as any)?.detail ?? 'Failed to revert') : 'Failed to revert',
+      );
+    } finally {
+      setReverting(null);
+    }
+  }
 
   return (
     <div
@@ -126,6 +164,9 @@ export function AuditLogModal({ treeId, onClose }: Props) {
               const color = ACTION_COLOR[e.action] ?? DEFAULT_COLOR;
               const hasDiff = e.before || e.after;
               const isExpanded = expanded === e.id;
+              const canRevert = isSuperAdmin && e.action === 'APPROVE_CHANGE' && e.entity_type === 'CHANGE_REQUEST'
+                && !!e.entity_id && !revertedRequestIds.has(e.entity_id);
+              const isConfirming = confirmRevertId === e.id;
 
               return (
                 <li key={e.id} className="px-5 py-3">
@@ -152,7 +193,38 @@ export function AuditLogModal({ treeId, onClose }: Props) {
                             {isExpanded ? 'Hide details' : 'Show details'}
                           </button>
                         )}
+                        {canRevert && !isConfirming && (
+                          <button
+                            onClick={() => { setConfirmRevertId(e.id); setRevertError(''); }}
+                            className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+                          >
+                            {t('auditLog.revert')}
+                          </button>
+                        )}
                       </div>
+
+                      {canRevert && isConfirming && (
+                        <div className="mt-2 rounded-lg bg-purple-50 border border-purple-200 px-3 py-2.5">
+                          <p className="text-xs text-purple-800">{t('auditLog.revertWarning')}</p>
+                          {revertError && <p className="text-xs text-red-600 mt-1.5">{revertError}</p>}
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              onClick={() => setConfirmRevertId(null)}
+                              disabled={reverting === e.entity_id}
+                              className="px-3 py-1 text-xs font-medium bg-white border border-purple-300 text-purple-700 rounded-md hover:bg-purple-100 disabled:opacity-50 transition-colors"
+                            >
+                              {t('common.cancel')}
+                            </button>
+                            <button
+                              onClick={() => handleRevert(e.entity_id as string)}
+                              disabled={reverting === e.entity_id}
+                              className="px-3 py-1 text-xs font-medium bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                            >
+                              {reverting === e.entity_id ? t('auditLog.reverting') : t('auditLog.confirmRevert')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {isExpanded && hasDiff && (
                         <div className="mt-2 space-y-1.5">

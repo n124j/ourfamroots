@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 
-from src.api.deps import NotAuditorDep, SessionDep, VerifiedUserDep
+from src.api.deps import EditableTreeDep, SessionDep, VerifiedUserDep
 from src.application.genealogy.schemas import (
     AddBothParentsRequest,
     AddChildRequest,
@@ -76,7 +76,7 @@ async def _audit(
 async def create_person(
     tree_id: uuid.UUID,
     req: CreatePersonRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> PersonResponse:
     from sqlalchemy import text as sa_text
@@ -172,7 +172,7 @@ async def update_person(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     req: UpdatePersonRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> PersonResponse:
     from sqlalchemy import text as sa_text
@@ -278,7 +278,7 @@ async def upload_person_photo(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     file: UploadFile = File(...),
-    user: NotAuditorDep = None,
+    user: EditableTreeDep = None,
     session: SessionDep = None,
 ):
     import boto3
@@ -341,7 +341,7 @@ async def upload_person_photo(
 async def remove_person_photo(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ):
     from sqlalchemy import text as sa_text
@@ -412,7 +412,7 @@ async def upload_gallery_photo(
     person_id: uuid.UUID,
     file: UploadFile = File(...),
     caption: str = Query(default="", max_length=200),
-    user: NotAuditorDep = None,
+    user: EditableTreeDep = None,
     session: SessionDep = None,
 ):
     import boto3
@@ -480,7 +480,7 @@ async def update_gallery_photo(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     photo_id: uuid.UUID,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
     caption: str = Query(default="", max_length=200),
 ):
@@ -511,7 +511,7 @@ async def delete_gallery_photo(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     photo_id: uuid.UUID,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ):
     from sqlalchemy import text as sa_text
@@ -542,7 +542,7 @@ async def delete_gallery_photo(
 async def delete_person(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
     from sqlalchemy import text as sa_text
@@ -588,7 +588,7 @@ async def add_parent(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     req: AddParentRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
     from src.domain.collaboration.entities import Action, AuditEntityType
@@ -613,7 +613,7 @@ async def add_both_parents(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     req: AddBothParentsRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
     from sqlalchemy import text as sa_text
@@ -654,7 +654,7 @@ async def add_child(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     req: AddChildRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
     force: bool = Query(default=False, description="Remove existing parent group before linking"),
 ) -> None:
@@ -697,7 +697,7 @@ async def add_spouse(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     req: AddSpouseRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
     from src.domain.collaboration.entities import Action, AuditEntityType
@@ -722,7 +722,7 @@ async def add_sibling(
     tree_id: uuid.UUID,
     person_id: uuid.UUID,
     req: AddSiblingRequest,
-    user: NotAuditorDep,
+    user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
     from src.domain.collaboration.entities import Action, AuditEntityType

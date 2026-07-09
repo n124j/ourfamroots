@@ -80,6 +80,9 @@ export interface PersonNodeData {
   diedCity?: string;
   diedCountry?: string;
   notes?: string;
+
+  /** Set only when viewing a change-request draft in review mode. */
+  diffStatus?: 'added' | 'modified';
 }
 
 export interface FamilyGroupNodeData {
@@ -185,6 +188,10 @@ export interface ApiFamilyGroup {
 
 export interface ApiTreeGraph {
   treeId: string;
+  isGloballyShared?: boolean;
+  draftOfTreeId?: string;
+  /** Set when viewing someone else's draft as the original tree's owner, mid-review. */
+  reviewChangeRequestId?: string;
   persons: ApiPerson[];
   familyGroups: ApiFamilyGroup[];
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,9 @@ class PermissionGroupModel(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # VISIBLE | READ | READ_WRITE
     permission_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    # When true, the group's trees are granted to every tenant user (present and future),
+    # not just explicit permission_group_members rows.
+    is_global: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),

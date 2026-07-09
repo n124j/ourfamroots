@@ -579,3 +579,105 @@ def broadcast_email(
         f"{unsub_text}"
     )
     return html, text
+
+
+def change_request_submitted_email(
+    owner_name: str,
+    requester_name: str,
+    tree_name: str,
+    review_url: str,
+    message: str | None = None,
+) -> tuple[str, str]:
+    """Email sent to a tree owner when someone Posts a proposed change for review."""
+    message_block = (
+        f'<p style="color:#64748b;margin:0 0 16px;padding:12px 16px;'
+        f'background:#f8fafc;border-left:3px solid #6366f1;border-radius:4px;">'
+        f'"{message}"</p>'
+    ) if message else ""
+    message_text = f'\n"{message}"\n' if message else ""
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 8px;">New proposed changes to review</h1>
+    <p style="color:#64748b;margin:0 0 16px;">
+      Hi {owner_name}, <strong>{requester_name}</strong> has proposed changes to
+      <strong>{tree_name}</strong> and is waiting for your review.
+    </p>
+    {message_block}
+    <a href="{review_url}"
+       style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;
+              padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">
+      Review changes
+    </a>
+    <p style="color:#94a3b8;font-size:11px;margin:24px 0 0;word-break:break-all;">
+      Or copy this URL: {review_url}
+    </p>
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"New proposed changes to review\n\n"
+        f"Hi {owner_name}, {requester_name} has proposed changes to {tree_name} "
+        f"and is waiting for your review.\n"
+        f"{message_text}\n"
+        f"Review the changes here:\n\n{review_url}"
+    )
+    return html, text
+
+
+def change_request_resolved_email(
+    requester_name: str,
+    tree_name: str,
+    approved: bool,
+    decision_note: str | None = None,
+    tree_url: str | None = None,
+) -> tuple[str, str]:
+    """Email sent to the requester once the tree owner approves or denies their proposal."""
+    label, color = ("Approved", "#059669") if approved else ("Denied", "#dc2626")
+    headline = (
+        f"Your proposed changes to {tree_name} were approved"
+        if approved
+        else f"Your proposed changes to {tree_name} were denied"
+    )
+    note_block = (
+        f'<p style="color:#64748b;margin:0 0 16px;padding:12px 16px;'
+        f'background:#f8fafc;border-left:3px solid {color};border-radius:4px;">'
+        f'"{decision_note}"</p>'
+    ) if decision_note else ""
+    note_text = f'\n"{decision_note}"\n' if decision_note else ""
+    cta_html = (
+        f'<a href="{tree_url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;'
+        f'padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">View tree</a>'
+        if approved and tree_url else ""
+    )
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <div style="margin-bottom:20px;">
+      <span style="display:inline-block;background:{color};color:#fff;font-size:11px;font-weight:700;
+                   padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        {label}
+      </span>
+    </div>
+    <h1 style="font-size:20px;font-weight:700;color:#1e293b;margin:0 0 8px;">{headline}</h1>
+    <p style="color:#64748b;margin:0 0 16px;">Hi {requester_name},</p>
+    {note_block}
+    {cta_html}
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"[{label}] {headline}\n\n"
+        f"Hi {requester_name},"
+        f"{note_text}"
+        f"{'' if not (approved and tree_url) else chr(10) + 'View the tree: ' + tree_url}"
+    )
+    return html, text

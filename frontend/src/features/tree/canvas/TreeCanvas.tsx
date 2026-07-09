@@ -78,6 +78,22 @@ function getDescendantNodeIds(
 }
 
 
+// ── Change-request diff overlay ─────────────────────────────────────────────
+// Pure so the review-mode highlighting can be unit-tested without mounting
+// the full ReactFlow canvas.
+
+export function applyDiffStatusMap(
+  nodes: TreeNode[],
+  diffStatusMap: Record<string, 'added' | 'modified'> | undefined,
+): TreeNode[] {
+  if (!diffStatusMap) return nodes;
+  return nodes.map((n) =>
+    n.type === 'person' && diffStatusMap[n.id]
+      ? ({ ...n, data: { ...n.data, diffStatus: diffStatusMap[n.id] } } as TreeNode)
+      : n,
+  );
+}
+
 // ── Static maps ────────────────────────────────────────────────────────────
 
 // ── Chart legend ──────────────────────────────────────────────────────────
@@ -421,6 +437,8 @@ interface TreeCanvasInnerProps {
   isLoading: boolean;
   onPersonSelect?: (personId: string) => void;
   onFamilyGroupSelect?: (familyGroupId: string) => void;
+  /** personId → diff status, applied as a color highlight (change-request review mode). */
+  diffStatusMap?: Record<string, 'added' | 'modified'>;
 }
 
 export interface TreeCanvasHandle {
@@ -432,7 +450,7 @@ export interface TreeCanvasHandle {
 }
 
 const TreeCanvasInner = forwardRef<TreeCanvasHandle, TreeCanvasInnerProps>(
-function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect }, ref) {
+function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect, diffStatusMap }, ref) {
   const { t } = useTranslation();
   const { fitView } = useReactFlow();
   const canvasTheme = useThemeStore((s) => s.theme);
@@ -883,9 +901,10 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
 
   const reactFlowNodes = useMemo(() => {
     const base = layoutMode === 'ancestry-fan' && fanNode ? [fanNode] : displayNodes;
-    if (!ctrlHeld) return base;
-    return base.map((n) => n.type === 'family-group' ? { ...n, draggable: true } : n);
-  }, [layoutMode, fanNode, displayNodes, ctrlHeld]);
+    const withDiff = applyDiffStatusMap(base, diffStatusMap);
+    if (!ctrlHeld) return withDiff;
+    return withDiff.map((n) => n.type === 'family-group' ? { ...n, draggable: true } : n);
+  }, [layoutMode, fanNode, displayNodes, ctrlHeld, diffStatusMap]);
   const reactFlowEdges = layoutMode === 'ancestry-fan' ? [] : edges;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1025,10 +1044,11 @@ export interface TreeCanvasProps {
   isLoading?: boolean;
   onPersonSelect?: (personId: string) => void;
   onFamilyGroupSelect?: (familyGroupId: string) => void;
+  diffStatusMap?: Record<string, 'added' | 'modified'>;
 }
 
 export const TreeCanvas = forwardRef<TreeCanvasHandle, TreeCanvasProps>(
-  function TreeCanvas({ graph, isLoading = false, onPersonSelect, onFamilyGroupSelect }, ref) {
+  function TreeCanvas({ graph, isLoading = false, onPersonSelect, onFamilyGroupSelect, diffStatusMap }, ref) {
   return (
     <ReactFlowProvider>
       <TreeCanvasInner
@@ -1037,6 +1057,7 @@ export const TreeCanvas = forwardRef<TreeCanvasHandle, TreeCanvasProps>(
         isLoading={isLoading}
         onPersonSelect={onPersonSelect}
         onFamilyGroupSelect={onFamilyGroupSelect}
+        diffStatusMap={diffStatusMap}
       />
     </ReactFlowProvider>
   );

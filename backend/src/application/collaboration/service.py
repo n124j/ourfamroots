@@ -49,16 +49,18 @@ class CollaborationService:
     ) -> TreeMembership:
         """Load the actor's membership and assert they can perform *action*.
 
-        Pass app_role="AUDITOR" to bypass the DB membership lookup and grant
-        a synthetic viewer-level membership for compliance reads.
+        Pass app_role="AUDITOR" to bypass the DB membership lookup and grant a
+        synthetic viewer-level membership for compliance reads, or "SUPER_ADMIN"
+        for a synthetic owner-level membership — matching the "Owner" badge
+        Super Admin already gets on every tree in the dashboard's elevated view.
         """
-        if app_role == "AUDITOR":
+        if app_role in ("AUDITOR", "SUPER_ADMIN"):
             return TreeMembership(
                 id=uuid.uuid4(),
                 tree_id=tree_id,
                 user_id=actor_id,
                 tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000000"),
-                role=TreeRole.VIEWER,
+                role=TreeRole.VIEWER if app_role == "AUDITOR" else TreeRole.OWNER,
             )
         membership = await self._members.get(tree_id, actor_id)
         if not membership:

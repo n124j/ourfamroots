@@ -119,6 +119,31 @@ class TestAppAdminActions:
         assert is_permitted(TreeRole.VIEWER, Action.EXPORT_TREE) is False
 
 
+class TestRevertChangeAction:
+    """REVERT_CHANGE (undo an approved change-request) is a Super-Admin-only
+    operation, same pattern as MERGE_TREES: mapped to TreeRole.OWNER so no
+    tree role (including the tree's own OWNER) is granted it via the matrix —
+    enforcement is done at the API layer via SuperAdminDep."""
+
+    def test_revert_change_requires_owner_mapping(self):
+        assert ACTION_MIN_ROLE[Action.REVERT_CHANGE] == TreeRole.OWNER
+
+    def test_revert_change_permitted_by_matrix_for_owner_role(self):
+        """The matrix alone would let a tree OWNER through (same quirk as
+        MERGE_TREES) — real restriction to Super Admin happens via
+        SuperAdminDep at the API layer, not this matrix."""
+        assert is_permitted(TreeRole.OWNER, Action.REVERT_CHANGE) is True
+
+    def test_revert_change_not_permitted_for_admin_role(self):
+        assert is_permitted(TreeRole.ADMIN, Action.REVERT_CHANGE) is False
+
+    def test_revert_change_not_permitted_for_editor_role(self):
+        assert is_permitted(TreeRole.EDITOR, Action.REVERT_CHANGE) is False
+
+    def test_revert_change_not_permitted_for_viewer_role(self):
+        assert is_permitted(TreeRole.VIEWER, Action.REVERT_CHANGE) is False
+
+
 # ── Monotonicity: higher role always has >= permissions ───────────────────────
 
 class TestPermissionMonotonicity:

@@ -73,6 +73,11 @@ class Action(str, Enum):
     REQUEST_MERGE       = "REQUEST_MERGE"
     APPROVE_MERGE       = "APPROVE_MERGE"
     DENY_MERGE          = "DENY_MERGE"
+    # Change requests (globally-shared tree "Post" / approve / deny)
+    REQUEST_CHANGE      = "REQUEST_CHANGE"
+    APPROVE_CHANGE      = "APPROVE_CHANGE"
+    DENY_CHANGE         = "DENY_CHANGE"
+    REVERT_CHANGE       = "REVERT_CHANGE"
 
 
 class InvitationStatus(str, Enum):
@@ -94,6 +99,7 @@ class AuditEntityType(str, Enum):
     REPORT          = "REPORT"
     ACCESS_REQUEST  = "ACCESS_REQUEST"
     MERGE_REQUEST   = "MERGE_REQUEST"
+    CHANGE_REQUEST  = "CHANGE_REQUEST"
 
 
 # ── Permission matrix ─────────────────────────────────────────────────────────
@@ -149,6 +155,12 @@ ACTION_MIN_ROLE: dict[Action, TreeRole] = {
     Action.REQUEST_MERGE:       TreeRole.VIEWER,
     Action.APPROVE_MERGE:       TreeRole.OWNER,
     Action.DENY_MERGE:          TreeRole.OWNER,
+    # Change requests
+    Action.REQUEST_CHANGE:      TreeRole.EDITOR,
+    Action.APPROVE_CHANGE:      TreeRole.OWNER,
+    Action.DENY_CHANGE:         TreeRole.OWNER,
+    # App-admin only (Super Admin) — mapped to OWNER so is_permitted() returns False for all tree roles
+    Action.REVERT_CHANGE:       TreeRole.OWNER,
 }
 
 

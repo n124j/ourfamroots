@@ -23,6 +23,7 @@ A genealogy platform for building, exploring, and collaborating on family trees.
     - [5. Access the app](#5-access-the-app)
       - [Registration notes](#registration-notes)
       - [Tree views](#tree-views)
+      - [Propose Changes to a Shared Tree](#propose-changes-to-a-shared-tree)
       - [Admin Dashboard](#admin-dashboard)
     - [6. Optional: monitoring stack](#6-optional-monitoring-stack)
     - [Stopping the stack](#stopping-the-stack)
@@ -420,6 +421,33 @@ Family groups also preserve `custom_label` (user-defined union labels) and `unio
 **Import:** From the dashboard, click **Import tree** and upload a `.frt` file. All persons
 are re-created with new UUIDs and the importing user becomes the tree owner.
 
+#### Propose Changes to a Shared Tree
+
+On a **globally-shared** tree, Editor-level members can't edit the live tree directly — they
+propose changes for the owner to review instead:
+
+1. **Propose changes** — clones the tree into a private draft only you can see. Edit it with
+   the normal person/relationship tools; nothing touches the live tree yet.
+2. **Post** — submits the draft to the tree owner for review. The owner gets an email + in-app
+   notification.
+3. **Review** — the owner reviews the proposal two ways:
+   - A diff modal listing added/removed/modified persons, connecting-member relationships
+     (e.g. "child of Jane Doe"), and a raw JSON view — reachable from the notification or the
+     tree's **Pending proposals** button.
+   - **View in tree** — opens the draft itself on the real tree canvas (same pan/zoom/expand
+     as any tree), with added persons highlighted green and modified persons amber, plus an
+     Approve/Deny bar in place of the normal toolbar.
+4. **Approve / Deny** — approving merges the draft's persons and relationships onto the live
+   tree (matched persons keep their id; new persons are adopted; removed persons are
+   soft-deleted). Denying discards the draft. Either way the requester is notified.
+
+**Reverting an approval (Super Admin only):** every approval captures a full snapshot of the
+tree immediately beforehand. If a Super Admin needs to undo one — e.g. a bad merge — they can
+click **Revert** on that approval's entry in the tree's **History** log. This restores persons
+and family groups to exactly their pre-approval state; note that it necessarily undoes *any*
+edits made after the approval too, not just that one change, since it's a full snapshot
+restore rather than a surgical undo.
+
 #### Admin Dashboard
 
 Accessible to ADMIN-role accounts:
@@ -481,6 +509,24 @@ Integration tests (requires PostgreSQL and Redis — use `docker compose up -d d
 ```bash
 pytest tests/integration -n 2 --tb=short -q
 ```
+
+Most of `tests/integration` runs against an in-memory fake session (no real DB needed). One
+module — `test_change_request_revert.py`, covering the propose/approve/revert flow's raw SQL —
+needs a real, migrated Postgres database via `TEST_DATABASE_URL`, and skips itself if that
+isn't set:
+
+```bash
+docker compose exec db psql -U postgres -c "CREATE DATABASE ourfamroots_test;"
+docker compose run --rm \
+  -e DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ourfamroots_test \
+  migrate
+
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:7000/ourfamroots_test \
+  pytest tests/integration/test_change_request_revert.py -v
+```
+
+CI provisions and migrates this database automatically for every run (see `ci.yml`'s
+`backend-integration` job).
 
 Security tests:
 

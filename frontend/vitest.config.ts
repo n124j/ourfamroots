@@ -12,6 +12,7 @@ export default defineConfig({
       '@api':      resolve(__dirname, 'src/api'),
       '@features': resolve(__dirname, 'src/features'),
       '@queries':  resolve(__dirname, 'src/queries'),
+      '@extensions': resolve(__dirname, 'src/extensions'),
     },
   },
   test: {

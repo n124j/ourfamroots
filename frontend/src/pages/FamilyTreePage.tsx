@@ -5,7 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SEO } from '@shared/components/SEO';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,6 +19,7 @@ import { apiClient, get, post, patch, del } from '@api/client';
 import axios from 'axios';
 import type { ApiTreeGraph } from '@features/tree/types';
 import { AuditLogModal } from '@features/audit/AuditLogModal';
+import { ChangeRequestReviewModal, type ChangeRequestDiff } from '@features/changeRequests/ChangeRequestReviewModal';
 
 /** Extracts the backend's `detail` message from an axios error, falling back otherwise. */
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -417,6 +418,32 @@ const SEX_INITIAL_COLOR: Record<string, string> = {
   UNKNOWN: 'bg-gray-100 text-gray-500',
 };
 
+/** Small circular avatar used in person pickers — shows the photo when available, else initials. */
+export function PersonAvatar({ photoUrl, name, sex, size = 28 }: { photoUrl?: string; name: string; sex: string; size?: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const resolvedUrl = photoUrl && isPreset(photoUrl) ? presetDataUri(photoUrl) : photoUrl;
+  if (resolvedUrl && !imgFailed) {
+    return (
+      <img
+        src={resolvedUrl}
+        alt=""
+        crossOrigin="anonymous"
+        onError={() => setImgFailed(true)}
+        className="rounded-full object-cover object-top flex-shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <div
+      className={`rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${SEX_INITIAL_COLOR[sex] ?? SEX_INITIAL_COLOR.UNKNOWN}`}
+      style={{ width: size, height: size }}
+    >
+      {name[0]?.toUpperCase() ?? '?'}
+    </div>
+  );
+}
+
 function AddRelationModal({
   mode, anchorPersonId, anchorName, treeId, token, candidates, onClose, onAdded,
 }: AddRelationModalProps) {
@@ -564,9 +591,7 @@ function AddRelationModal({
                       isSelected ? 'bg-brand-50' : 'hover:bg-slate-50'
                     }`}
                   >
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${SEX_INITIAL_COLOR[p.sex] ?? SEX_INITIAL_COLOR.UNKNOWN}`}>
-                      {name[0]?.toUpperCase() ?? '?'}
-                    </div>
+                    <PersonAvatar photoUrl={p.photoUrl} name={name} sex={p.sex} size={28} />
                     <span className={`text-sm flex-1 truncate ${isSelected ? 'text-brand-700 font-medium' : 'text-slate-700'}`}>
                       {name}
                     </span>
@@ -662,9 +687,7 @@ function PersonPicker({
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
       {selected && selectedPerson ? (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-50 border border-brand-200">
-          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${SEX_INITIAL_COLOR[selectedPerson.sex ?? 'UNKNOWN'] ?? SEX_INITIAL_COLOR.UNKNOWN}`}>
-            {selectedName?.[0]?.toUpperCase() ?? '?'}
-          </div>
+          <PersonAvatar photoUrl={selectedPerson.photoUrl} name={selectedName ?? ''} sex={selectedPerson.sex ?? 'UNKNOWN'} size={24} />
           <span className="text-sm text-brand-700 font-medium flex-1 truncate">{selectedName}</span>
           <button type="button" onClick={() => { onSelect(null); onSearch(''); }} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
         </div>
@@ -691,9 +714,7 @@ function PersonPicker({
                   onClick={() => { onSelect(p.id); onSearch(''); }}
                   className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-slate-50"
                 >
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${SEX_INITIAL_COLOR[p.sex] ?? SEX_INITIAL_COLOR.UNKNOWN}`}>
-                    {name[0]?.toUpperCase() ?? '?'}
-                  </div>
+                  <PersonAvatar photoUrl={p.photoUrl} name={name} sex={p.sex} size={24} />
                   <span className="text-sm text-slate-700 truncate">{name}</span>
                 </button>
               );
@@ -874,6 +895,7 @@ interface CandidatePerson {
   displayGivenName: string;
   displaySurname: string;
   sex: string;
+  photoUrl?: string;
   hasParents: boolean; // already a child in another family group
 }
 
@@ -1092,8 +1114,6 @@ function AddChildToUnionModal({
               )}
               {filtered.map((p) => {
                 const name = `${p.displayGivenName} ${p.displaySurname}`.trim() || 'Unknown';
-                const initial = name[0]?.toUpperCase() ?? '?';
-                const colorCls = SEX_INITIAL_COLOR[p.sex] ?? SEX_INITIAL_COLOR.UNKNOWN;
                 const isSelected = selectedId === p.id;
                 return (
                   <button
@@ -1104,9 +1124,7 @@ function AddChildToUnionModal({
                       isSelected ? 'bg-brand-50' : 'hover:bg-slate-50'
                     }`}
                   >
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${colorCls}`}>
-                      {initial}
-                    </div>
+                    <PersonAvatar photoUrl={p.photoUrl} name={name} sex={p.sex} size={28} />
                     <span className={`text-sm flex-1 truncate ${isSelected ? 'text-brand-700 font-medium' : 'text-slate-700'}`}>
                       {name}
                     </span>
@@ -2701,6 +2719,8 @@ function TreeTopBar({
   graph,
   token,
   canWrite,
+  userRole,
+  pendingChangeCount = 0,
   onAddPerson,
   onMembers,
   onLayouts,
@@ -2708,6 +2728,9 @@ function TreeTopBar({
   onExportPdf,
   onTheme,
   onShowActivity,
+  onProposeChanges,
+  onOpenPost,
+  onViewPendingProposals,
 }: {
   treeName: string;
   treeDescription?: string | null;
@@ -2715,6 +2738,8 @@ function TreeTopBar({
   graph: import('@features/tree/types').ApiTreeGraph | null;
   token: string | null;
   canWrite: boolean;
+  userRole?: string;
+  pendingChangeCount?: number;
   onAddPerson: () => void;
   onMembers: () => void;
   onLayouts: () => void;
@@ -2722,8 +2747,15 @@ function TreeTopBar({
   onExportPdf: () => Promise<void>;
   onTheme: () => void;
   onShowActivity: () => void;
+  onProposeChanges: () => void;
+  onOpenPost: () => void;
+  onViewPendingProposals: () => void;
 }) {
   const { t } = useTranslation();
+  const isDraft = !!graph?.draftOfTreeId;
+  const isGloballyShared = !!graph?.isGloballyShared;
+  const isReviewMode = !!graph?.reviewChangeRequestId;
+
   const [exportOpen,    setExportOpen]    = React.useState(false);
   const [moreOpen,      setMoreOpen]      = React.useState(false);
   const [exportingPdf,  setExportingPdf]  = React.useState(false);
@@ -2857,8 +2889,18 @@ function TreeTopBar({
       <div className="w-px h-5 bg-slate-200 shrink-0" />
       <span className="font-semibold text-slate-800 text-sm truncate min-w-0">{treeName}</span>
       <span className="text-xs text-slate-400 shrink-0 hidden sm:inline">{personCount} {t('treePage.people')}</span>
+      {isDraft && (
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0">
+          {t('treePage.draftProposalBadge')}
+        </span>
+      )}
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+
+        {/* Reviewing a proposal: hide normal editing/export chrome — the
+            review banner below owns the actions here. */}
+        {!isReviewMode && (
+        <>
 
         {/* ── Export dropdown (hidden on mobile, shown md+) ── */}
         <div className="relative hidden md:block" ref={exportMenuRef}>
@@ -2972,12 +3014,59 @@ function TreeTopBar({
         >
           {`🎨 ${t('treePage.theme')}`}
         </button>
+        {!graph?.isGloballyShared && (
+          <button
+            onClick={onMembers}
+            className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            {t('treePage.members')}
+          </button>
+        )}
+
         <button
-          onClick={onMembers}
-          className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+          onClick={onShowActivity}
+          title={t('treePage.showActivity')}
+          className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
         >
-          {t('treePage.members')}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="6" cy="6" r="5" />
+            <path d="M6 3.2v3l2 1.3" />
+          </svg>
+          {t('treePage.activity')}
         </button>
+
+        {isDraft && userRole === 'OWNER' && (
+          <button
+            type="button"
+            onClick={onOpenPost}
+            className="hidden md:inline-flex px-3 py-1.5 text-xs font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors"
+          >
+            {t('treePage.post')}
+          </button>
+        )}
+
+        {!isDraft && isGloballyShared && userRole === 'EDITOR' && (
+          <button
+            type="button"
+            onClick={onProposeChanges}
+            className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-brand-600 border border-brand-300 rounded-lg hover:bg-brand-50 transition-colors"
+          >
+            {t('treePage.proposeChanges')}
+          </button>
+        )}
+
+        {!isDraft && isGloballyShared && userRole === 'OWNER' && pendingChangeCount > 0 && (
+          <button
+            type="button"
+            onClick={onViewPendingProposals}
+            className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+          >
+            {t('treePage.pendingProposals')}
+            <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-amber-500 rounded-full">
+              {pendingChangeCount}
+            </span>
+          </button>
+        )}
 
         {/* ── Mobile "⋮" overflow menu ── */}
         <div className="relative md:hidden" ref={moreMenuRef}>
@@ -3001,10 +3090,34 @@ function TreeTopBar({
                   className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
                   {`🎨 ${t('treePage.theme')}`}
                 </button>
-                <button onClick={() => { setMoreOpen(false); onMembers(); }}
+                {!graph?.isGloballyShared && (
+                  <button onClick={() => { setMoreOpen(false); onMembers(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
+                    {t('treePage.members')}
+                  </button>
+                )}
+                <button onClick={() => { setMoreOpen(false); onShowActivity(); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
-                  {t('treePage.members')}
+                  {t('treePage.activity')}
                 </button>
+                {isDraft && userRole === 'OWNER' && (
+                  <button onClick={() => { setMoreOpen(false); onOpenPost(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-brand-600 hover:bg-slate-50">
+                    {t('treePage.post')}
+                  </button>
+                )}
+                {!isDraft && isGloballyShared && userRole === 'EDITOR' && (
+                  <button onClick={() => { setMoreOpen(false); onProposeChanges(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-brand-600 hover:bg-slate-50">
+                    {t('treePage.proposeChanges')}
+                  </button>
+                )}
+                {!isDraft && isGloballyShared && userRole === 'OWNER' && pendingChangeCount > 0 && (
+                  <button onClick={() => { setMoreOpen(false); onViewPendingProposals(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-amber-700 hover:bg-slate-50">
+                    {t('treePage.pendingProposals')} ({pendingChangeCount})
+                  </button>
+                )}
                 <div className="border-t border-slate-100 my-1" />
                 <button onClick={() => { setMoreOpen(false); onExportCsv(); }}
                   disabled={!graph}
@@ -3020,6 +3133,9 @@ function TreeTopBar({
             </div>
           )}
         </div>
+
+        </>
+        )}
 
         {canWrite && (
           <button
@@ -3106,10 +3222,79 @@ function exportTreeCsv(graph: import('@features/tree/types').ApiTreeGraph, treeN
   URL.revokeObjectURL(url);
 }
 
+// ── Review-mode banner ────────────────────────────────────────────────────
+// Shown instead of normal tree-editing chrome when the tree owner is
+// reviewing a pending change-request proposal directly on the draft's canvas.
+
+function ReviewModeBanner({
+  requesterName,
+  message,
+  submitting,
+  error,
+  onApprove,
+  onDeny,
+  onViewDetails,
+}: {
+  requesterName?: string;
+  message?: string | null;
+  submitting: 'approve' | 'deny' | null;
+  error: string;
+  onApprove: () => void;
+  onDeny: () => void;
+  onViewDetails: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="absolute top-12 left-0 right-0 h-12 bg-amber-50 border-b border-amber-200 flex items-center px-3 md:px-4 gap-3 z-30">
+      <span className="text-xs font-semibold text-amber-800 shrink-0 truncate">
+        {t('changeRequest.reviewingProposalFrom', { name: requesterName ?? '…' })}
+      </span>
+      {message && (
+        <span className="text-xs text-amber-700 truncate hidden md:inline italic">"{message}"</span>
+      )}
+      <button onClick={onViewDetails} className="text-xs font-medium text-amber-700 hover:underline shrink-0 hidden sm:inline">
+        {t('changeRequest.viewDetails')}
+      </button>
+
+      <span className="ml-auto flex items-center gap-3 text-[11px] text-amber-800 shrink-0">
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: '#22c55e' }} />
+          {t('changeRequest.added')}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: '#f59e0b' }} />
+          {t('changeRequest.modified')}
+        </span>
+      </span>
+
+      {error && <span className="text-xs text-red-600 shrink-0">{error}</span>}
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={onDeny}
+          disabled={submitting !== null}
+          className="px-3 py-1.5 text-xs font-medium border border-red-300 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+        >
+          {submitting === 'deny' ? t('changeRequest.denying') : t('changeRequest.deny')}
+        </button>
+        <button
+          onClick={onApprove}
+          disabled={submitting !== null}
+          className="px-3 py-1.5 text-xs font-medium bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50 transition-colors"
+        >
+          {submitting === 'approve' ? t('changeRequest.approving') : t('changeRequest.approve')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function FamilyTreePage() {
   const { treeId } = useParams<{ treeId: string }>();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const canvasRef = React.useRef<TreeCanvasHandle>(null);
   const [showLayouts,     setShowLayouts]     = useState(false);
@@ -3123,10 +3308,15 @@ export default function FamilyTreePage() {
   const [showEdit,          setShowEdit]          = useState(false);
   const [showProfile,       setShowProfile]       = useState(false);
   const [showActivity,      setShowActivity]      = useState(false);
+  const [showPost,          setShowPost]          = useState(false);
+  const [postMessage,       setPostMessage]       = useState('');
+  const [posting,           setPosting]           = useState(false);
   const [searchOpen,        setSearchOpen]        = useState(false);
   const [searchQuery,       setSearchQuery]       = useState('');
+  const [reviewRequestId,   setReviewRequestId]   = useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
+  const { t } = useTranslation();
   const setTreeId        = useCanvasStore((s) => s.setTreeId);
   const resetCanvas      = useCanvasStore((s) => s.reset);
   const setFocusPerson   = useCanvasStore((s) => s.setFocusPersonId);
@@ -3169,6 +3359,88 @@ export default function FamilyTreePage() {
     enabled:  !!treeId && !!accessToken,
     staleTime: 5 * 60_000,
   });
+
+  const userRole = (graph as any)?.userRole as string | undefined;
+  const isGloballyShared = !!graph?.isGloballyShared;
+  const isOwner = userRole === 'OWNER';
+
+  // Open the review modal directly from an email/notification deep link
+  useEffect(() => {
+    const cr = searchParams.get('changeRequest');
+    if (cr) setReviewRequestId(cr);
+  }, [searchParams]);
+
+  const { data: pendingChangeRequests, refetch: refetchPending } = useQuery({
+    queryKey: ['change-requests', treeId, 'PENDING'],
+    queryFn: () => get<{ id: string }[]>(`/trees/${treeId}/change-requests?status=PENDING`),
+    enabled: !!treeId && !!accessToken && isGloballyShared && isOwner,
+    staleTime: 60_000,
+  });
+  const pendingChangeCount = pendingChangeRequests?.length ?? 0;
+
+  // ── Diff coloring for draft trees ────────────────────────────────────────
+  // Shown to the draft's own owner while they're still editing, AND to the
+  // original tree's owner when peeking at a pending draft to review it —
+  // `reviewChangeRequestId` (set by the backend only for the latter) also
+  // drives the Approve/Deny banner below.
+  const isDraftTree = !!graph?.draftOfTreeId;
+  const reviewChangeRequestId = graph?.reviewChangeRequestId;
+  const reviewOriginalTreeId = graph?.draftOfTreeId;
+
+  const { data: draftDiff } = useQuery<ChangeRequestDiff>({
+    queryKey: ['draft-diff', treeId],
+    queryFn: () => get<ChangeRequestDiff>(`/trees/${treeId}/draft-diff`),
+    enabled: !!treeId && isDraftTree,
+    staleTime: 15_000,
+  });
+
+  const diffStatusMap = useMemo(() => {
+    if (!draftDiff) return undefined;
+    const map: Record<string, 'added' | 'modified'> = {};
+    for (const p of draftDiff.added_persons) map[p.id] = 'added';
+    for (const p of draftDiff.modified_persons) map[p.draft_id] = 'modified';
+    return map;
+  }, [draftDiff]);
+
+  const [reviewSubmitting, setReviewSubmitting] = useState<'approve' | 'deny' | null>(null);
+  const [reviewError, setReviewError] = useState('');
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
+
+  async function handleReviewResolve(action: 'approve' | 'deny') {
+    if (!reviewOriginalTreeId || !reviewChangeRequestId) return;
+    setReviewSubmitting(action);
+    setReviewError('');
+    try {
+      await patch(`/trees/${reviewOriginalTreeId}/change-requests/${reviewChangeRequestId}`, { action });
+      navigate(`/trees/${reviewOriginalTreeId}`);
+    } catch (err) {
+      setReviewError(apiErrorMessage(err, 'Failed to resolve this proposal'));
+    } finally {
+      setReviewSubmitting(null);
+    }
+  }
+
+  async function handleProposeChanges() {
+    if (!treeId) return;
+    try {
+      const res = await post<{ draft_tree_id: string }>(`/trees/${treeId}/change-requests/draft`);
+      navigate(`/trees/${res.draft_tree_id}`);
+    } catch {
+      // silently ignore — button is only shown when eligible
+    }
+  }
+
+  async function handlePost(message: string) {
+    if (!treeId || !graph?.draftOfTreeId) return;
+    await post(`/trees/${treeId}/change-requests/submit`, message ? { message } : {});
+    navigate(`/trees/${graph.draftOfTreeId}`);
+  }
+
+  function handleViewPendingProposals() {
+    if (pendingChangeRequests && pendingChangeRequests.length > 0) {
+      setReviewRequestId(pendingChangeRequests[0].id);
+    }
+  }
 
   const handlePersonSelect = useCallback((personId: string) => {
     setPanelPersonId(personId);
@@ -3214,7 +3486,7 @@ export default function FamilyTreePage() {
   const treeDescription = (graph as any)?.treeDescription ?? null;
   const personCount     = graph?.persons.length ?? 0;
 
-  const canWrite        = (graph as any)?.userRole !== 'VIEWER';
+  const canWrite        = userRole !== 'VIEWER' && (!isGloballyShared || isOwner);
 
   return (
     <div className="fixed inset-0 flex flex-col">
@@ -3230,6 +3502,8 @@ export default function FamilyTreePage() {
         graph={graph ?? null}
         token={accessToken}
         canWrite={canWrite}
+        userRole={userRole}
+        pendingChangeCount={pendingChangeCount}
         onAddPerson={() => setShowAddPerson(true)}
         onMembers={() => setShowMembers(true)}
         onLayouts={() => setShowLayouts(true)}
@@ -3237,9 +3511,24 @@ export default function FamilyTreePage() {
         onExportPdf={() => canvasRef.current?.exportPdf() ?? Promise.resolve()}
         onTheme={() => setShowCanvasTheme(true)}
         onShowActivity={() => setShowActivity(true)}
+        onProposeChanges={handleProposeChanges}
+        onOpenPost={() => setShowPost(true)}
+        onViewPendingProposals={handleViewPendingProposals}
       />
 
-      <div className="flex-1 relative mt-12">
+      {reviewChangeRequestId && (
+        <ReviewModeBanner
+          requesterName={draftDiff?.requester_name ?? undefined}
+          message={draftDiff?.message}
+          submitting={reviewSubmitting}
+          error={reviewError}
+          onApprove={() => handleReviewResolve('approve')}
+          onDeny={() => handleReviewResolve('deny')}
+          onViewDetails={() => setReviewDetailsOpen(true)}
+        />
+      )}
+
+      <div className={`flex-1 relative ${reviewChangeRequestId ? 'mt-24' : 'mt-12'}`}>
         <TreeCanvas
           key={treeId}
           ref={canvasRef}
@@ -3251,6 +3540,7 @@ export default function FamilyTreePage() {
             setPanelPersonId(null);
             setUnionChildFgId(fgId);
           }}
+          diffStatusMap={diffStatusMap}
         />
 
         {searchOpen && (() => {
@@ -3473,6 +3763,91 @@ export default function FamilyTreePage() {
           token={accessToken}
           currentUserId={useAuthStore.getState().user?.id ?? ''}
           onClose={() => setShowMembers(false)}
+        />
+      )}
+
+      {showActivity && treeId && (
+        <AuditLogModal treeId={treeId} onClose={() => setShowActivity(false)} />
+      )}
+
+      {showPost && (
+        <div
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && !posting) setShowPost(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="font-bold text-slate-900 mb-1">{t('treePage.post')}</h2>
+            <p className="text-xs text-slate-400 mb-4">{t('treePage.postDesc')}</p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPosting(true);
+                try {
+                  await handlePost(postMessage.trim());
+                  setShowPost(false);
+                  setPostMessage('');
+                } finally {
+                  setPosting(false);
+                }
+              }}
+              className="space-y-3"
+            >
+              <textarea
+                value={postMessage}
+                onChange={(e) => setPostMessage(e.target.value)}
+                rows={3}
+                maxLength={1000}
+                placeholder={t('treePage.postMessagePlaceholder')}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowPost(false)} disabled={posting}
+                  className="flex-1 h-9 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                  {t('treeForm.cancel')}
+                </button>
+                <button type="submit" disabled={posting}
+                  className="flex-1 h-9 text-sm bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                  {posting ? t('treePage.posting') : t('treePage.post')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {reviewRequestId && treeId && (
+        <ChangeRequestReviewModal
+          treeId={treeId}
+          requestId={reviewRequestId}
+          onClose={() => {
+            setReviewRequestId(null);
+            if (searchParams.has('changeRequest')) {
+              const next = new URLSearchParams(searchParams);
+              next.delete('changeRequest');
+              setSearchParams(next, { replace: true });
+            }
+          }}
+          onResolved={() => {
+            setReviewRequestId(null);
+            if (searchParams.has('changeRequest')) {
+              const next = new URLSearchParams(searchParams);
+              next.delete('changeRequest');
+              setSearchParams(next, { replace: true });
+            }
+            refetchPending();
+          }}
+        />
+      )}
+
+      {reviewDetailsOpen && reviewOriginalTreeId && reviewChangeRequestId && (
+        <ChangeRequestReviewModal
+          treeId={reviewOriginalTreeId}
+          requestId={reviewChangeRequestId}
+          onClose={() => setReviewDetailsOpen(false)}
+          onResolved={() => {
+            setReviewDetailsOpen(false);
+            navigate(`/trees/${reviewOriginalTreeId}`);
+          }}
         />
       )}
 

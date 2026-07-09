@@ -60,6 +60,8 @@ const ACTION_OPTIONS = [
   { value: 'PG_REMOVE_TREE', label: 'Permission group: remove tree' },
   { value: 'PG_ADD_MEMBER', label: 'Permission group: add member' },
   { value: 'PG_REMOVE_MEMBER', label: 'Permission group: remove member' },
+  { value: 'PG_SET_GLOBAL', label: 'Permission group: make global' },
+  { value: 'PG_UNSET_GLOBAL', label: 'Permission group: remove global' },
   // Broadcast
   { value: 'BROADCAST_SEND', label: 'Broadcast: send email' },
   { value: 'BROADCAST_DEL', label: 'Broadcast: delete log' },
@@ -105,6 +107,8 @@ const ADMIN_ACTION_LABELS: Record<string, string> = {
   PG_REMOVE_TREE:   'Removed tree from group',
   PG_ADD_MEMBER:    'Added member to group',
   PG_REMOVE_MEMBER: 'Removed member from group',
+  PG_SET_GLOBAL:    'Made group global',
+  PG_UNSET_GLOBAL:  'Removed group global status',
   BROADCAST_SEND:   'Sent broadcast email',
   BROADCAST_DEL:    'Deleted broadcast log',
 };

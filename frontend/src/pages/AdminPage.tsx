@@ -50,6 +50,7 @@ interface PermissionGroup {
   name: string;
   description: string | null;
   permission_level: 'VISIBLE' | 'READ' | 'READ_WRITE';
+  is_global: boolean;
   tree_count: number;
   member_count: number;
   created_by: string | null;
@@ -1471,6 +1472,251 @@ function MaintenancePanel({ token }: { token: string | null }) {
   );
 }
 
+// ── Global Trees panel (Super Admin only) ────────────────────────────────────
+
+function GlobalTreesPanel({ token }: { token: string | null }) {
+  const { t } = useTranslation();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const [allTrees, setAllTrees] = useState<TenantTree[]>([]);
+  const [groups, setGroups] = useState<PermissionGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const [selectedTreeIds, setSelectedTreeIds] = useState<string[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const [groupTrees, setGroupTrees] = useState<Record<string, GroupTree[]>>({});
+  const [loadingGroupTrees, setLoadingGroupTrees] = useState<Record<string, boolean>>({});
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const fetchAll = React.useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError('');
+    try {
+      const [treesRes, groupsRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/trees`, { headers: authHeader, credentials: 'include' }),
+        fetch(`${API_BASE}/admin/permission-groups`, { headers: authHeader, credentials: 'include' }),
+      ]);
+      if (treesRes.ok) setAllTrees(await treesRes.json());
+      if (groupsRes.ok) setGroups(await groupsRes.json());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const globalGroups = groups.filter((g) => g.is_global);
+
+  const fetchGroupTrees = useCallback(async (groupId: string) => {
+    setLoadingGroupTrees((prev) => ({ ...prev, [groupId]: true }));
+    try {
+      const res = await fetch(`${API_BASE}/admin/permission-groups/${groupId}/trees`, { headers: authHeader, credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setGroupTrees((prev) => ({ ...prev, [groupId]: data }));
+      }
+    } finally {
+      setLoadingGroupTrees((prev) => ({ ...prev, [groupId]: false }));
+    }
+  }, [token]);
+
+  useEffect(() => {
+    globalGroups.forEach((g) => {
+      if (groupTrees[g.id] === undefined && !loadingGroupTrees[g.id]) fetchGroupTrees(g.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups]);
+
+  function toggleTree(id: string) {
+    setSelectedTreeIds((prev) => (prev.includes(id) ? prev.filter((tid) => tid !== id) : [...prev, id]));
+  }
+
+  async function handleMakeGlobal() {
+    if (!selectedGroupId || selectedTreeIds.length === 0) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const existingTreeIds = new Set((groupTrees[selectedGroupId] ?? []).map((gt) => gt.tree_id));
+      const toAdd = selectedTreeIds.filter((id) => !existingTreeIds.has(id));
+      for (const treeId of toAdd) {
+        const res = await fetch(`${API_BASE}/admin/permission-groups/${selectedGroupId}/trees`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader },
+          credentials: 'include',
+          body: JSON.stringify({ tree_id: treeId }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as any).detail ?? 'Failed to attach tree to group');
+        }
+      }
+      const res = await fetch(`${API_BASE}/admin/permission-groups/${selectedGroupId}/global`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ is_global: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to make group global');
+      }
+      setSelectedTreeIds([]);
+      setSelectedGroupId('');
+      setGroupTrees((prev) => { const n = { ...prev }; delete n[selectedGroupId]; return n; });
+      await fetchAll();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleUnGlobalize(groupId: string) {
+    setTogglingId(groupId);
+    try {
+      await fetch(`${API_BASE}/admin/permission-groups/${groupId}/global`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ is_global: false }),
+      });
+      await fetchAll();
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  async function handleRemoveTreeFromGroup(groupId: string, treeId: string) {
+    await fetch(`${API_BASE}/admin/permission-groups/${groupId}/trees/${treeId}`, {
+      method: 'DELETE', headers: authHeader, credentials: 'include',
+    });
+    fetchGroupTrees(groupId);
+  }
+
+  if (loading) return (
+    <div className="flex justify-center py-16">
+      <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  return (
+    <div className="max-w-2xl">
+      <p className="text-sm text-gray-500 mb-4">{t('adminPage.globalTreesDesc')}</p>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+      )}
+
+      {/* Make trees global */}
+      <div className="rounded-xl border p-5 mb-6" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
+        <p className="text-xs font-medium text-gray-600 mb-2">
+          {t('adminPage.selectTreesGlobal')} <span className="text-red-500">*</span>
+        </p>
+        {allTrees.length === 0 ? (
+          <p className="text-sm text-gray-400">{t('adminPage.noTreesFound')}</p>
+        ) : (
+          <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto mb-4">
+            {allTrees.map((tree) => (
+              <label key={tree.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedTreeIds.includes(tree.id)}
+                  onChange={() => toggleTree(tree.id)}
+                  className="rounded border-gray-300 text-brand-500"
+                />
+                <span className="text-sm text-gray-800">{tree.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <p className="text-xs font-medium text-gray-600 mb-1">
+          {t('adminPage.selectPermissionGroup')} <span className="text-red-500">*</span>
+        </p>
+        <select
+          value={selectedGroupId}
+          onChange={(e) => setSelectedGroupId(e.target.value)}
+          className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 mb-4"
+        >
+          <option value="">{t('adminPage.selectGroup')}</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name} — {t(LEVEL_LABEL_KEY[g.permission_level])}{g.is_global ? ` (${t('adminPage.alreadyGlobal')})` : ''}
+            </option>
+          ))}
+        </select>
+
+        <button
+          onClick={handleMakeGlobal}
+          disabled={submitting || !selectedGroupId || selectedTreeIds.length === 0}
+          className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+        >
+          {submitting && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />}
+          {submitting ? t('adminPage.saving') : t('adminPage.makeGlobal')}
+        </button>
+      </div>
+
+      {/* Currently-global groups */}
+      <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('adminPage.globalGroupsHeading')}</h3>
+      {globalGroups.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-6 border border-dashed border-gray-200 rounded-lg">
+          {t('adminPage.noGlobalGroups')}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {globalGroups.map((g) => (
+            <div key={g.id} className="rounded-xl border p-4" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900">{g.name}</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${LEVEL_BADGE[g.permission_level]}`}>
+                    {t(LEVEL_LABEL_KEY[g.permission_level])}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleUnGlobalize(g.id)}
+                  disabled={togglingId === g.id}
+                  className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+                >
+                  {togglingId === g.id ? '…' : t('adminPage.unGlobalize')}
+                </button>
+              </div>
+              {loadingGroupTrees[g.id] ? (
+                <div className="flex justify-center py-2">
+                  <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (groupTrees[g.id]?.length ?? 0) === 0 ? (
+                <p className="text-xs text-gray-400">{t('adminPage.noTreesFound')}</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {(groupTrees[g.id] ?? []).map((gt) => (
+                    <span key={gt.id} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-gray-100 text-xs text-gray-700">
+                      {gt.tree_name}
+                      <button
+                        onClick={() => handleRemoveTreeFromGroup(g.id, gt.tree_id)}
+                        className="text-gray-400 hover:text-red-600 leading-none"
+                        title={t('common.remove')}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
@@ -1478,7 +1724,7 @@ export default function AdminPage() {
   const accessToken  = useAuthStore((s) => s.accessToken);
   const currentUser  = useAuthStore((s) => s.user);
   const isSuperAdmin = currentUser?.appRole === 'SUPER_ADMIN';
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'merge' | 'broadcast' | 'site'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'merge' | 'global' | 'broadcast' | 'site'>('users');
 
   const [data,     setData]     = useState<UsersResponse | null>(null);
   const [loading,  setLoading]  = useState(false);
@@ -1604,6 +1850,7 @@ export default function AdminPage() {
           ['permissions', t('adminPage.tabs.permissions')],
           ['merge', t('adminPage.tabs.merge')],
           ...(isSuperAdmin ? [
+            ['global', t('adminPage.tabs.global')] as const,
             ['broadcast', t('adminPage.tabs.broadcast')] as const,
             ['site', t('adminPage.tabs.site')] as const,
           ] : []),
@@ -1624,6 +1871,7 @@ export default function AdminPage() {
 
       {activeTab === 'permissions' && <PermissionGroupsPanel token={accessToken} />}
       {activeTab === 'merge' && <MergeTreesPanel token={accessToken} />}
+      {activeTab === 'global' && isSuperAdmin && <GlobalTreesPanel token={accessToken} />}
       {activeTab === 'broadcast' && isSuperAdmin && <BroadcastPanel token={accessToken} />}
       {activeTab === 'site' && isSuperAdmin && <MaintenancePanel token={accessToken} />}
       {activeTab === 'users' && (<>

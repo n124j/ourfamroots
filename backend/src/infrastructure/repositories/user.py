@@ -7,6 +7,7 @@ import uuid
 from sqlalchemy import exists, select
 
 from src.domain.interfaces.repositories import AbstractUserRepository
+from src.infrastructure.database.global_access import grant_global_tree_access
 from src.infrastructure.database.models.user import UserModel
 from src.infrastructure.repositories.base import SqlAlchemyRepository
 
@@ -69,3 +70,7 @@ class SqlAlchemyUserRepository(
     ) -> UserModel | None:
         stmt = select(UserModel).where(UserModel.login_verification_token == token)
         return await self._first(stmt)
+
+    async def grant_global_tree_access(self, user: UserModel) -> None:
+        """Grant tree_members access for every tree under the tenant's global permission groups."""
+        await grant_global_tree_access(self._session, user.tenant_id, user.id)

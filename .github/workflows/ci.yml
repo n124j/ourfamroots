@@ -95,6 +95,11 @@ jobs:
             - name: Install dependencies
               run: pip install -r requirements/test.txt
 
+            - name: Run DB migrations
+              run: alembic upgrade head
+              env:
+                  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ourfamroots_test
+
             - name: Run integration tests
               run: |
                   pytest tests/integration \

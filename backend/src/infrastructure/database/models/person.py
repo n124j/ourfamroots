@@ -49,6 +49,9 @@ class PersonModel(Base, TenantMixin, TimestampMixin):
     # Profile photo URL (thumbnail from media system, set after upload)
     photo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # On a draft tree only: the original tree's person this was cloned from (NULL = newly added in the draft).
+    origin_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
     # Life dates — full date takes priority; year-only is the fallback
     birth_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
     death_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
