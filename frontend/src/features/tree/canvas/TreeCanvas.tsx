@@ -597,8 +597,6 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
       const filename = title.replace(/[^\w\s\-]/g, '').replace(/\s+/g, '_') + '.pdf';
 
       const container = containerRef.current;
-      const canvasW   = container.clientWidth;
-      const canvasH   = container.clientHeight;
 
       // ── 2. Hide React Flow chrome (attribution link / "↙" arrow) ──────────
       const attributionEl = container.querySelector('.react-flow__attribution') as HTMLElement | null;
@@ -608,7 +606,11 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
       // Legend stays exactly where the user placed it — no repositioning.
       // Clear any active selection so the exported PDF never shows selection
       // highlighting; restore it afterwards.
-      // Zustand setState is synchronous; two rAF ticks let React flush + paint.
+      // Zustand setState is synchronous; two rAF ticks let React flush + paint —
+      // plugin canvases (e.g. Text Pedigree, Family Tree Poster) switch their
+      // scroll container to unclipped `overflow: visible` in PDF mode so their
+      // full natural content size becomes measurable below, instead of being
+      // capped at whatever fit in the on-screen scrollable viewport.
       const { selectedPersonId: prevSelectedPersonId, selectedEdge: prevSelectedEdge } = useCanvasStore.getState();
       useCanvasStore.getState().setIsPdfMode(true);
       if (prevSelectedPersonId) useCanvasStore.getState().setSelectedPersonId(null);
@@ -616,9 +618,23 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
 
+      // Measure AFTER switching to PDF mode so unclipped plugin content is
+      // included. Only plugin canvases (Text Pedigree, Family Tree Poster, …)
+      // can legitimately overflow their viewport — ReactFlow layouts are kept
+      // on the original clientWidth/clientHeight measurement untouched, since
+      // scrollWidth/scrollHeight there could pick up a dragged MiniMap/legend
+      // sitting outside the normal bounds and blow up the capture size.
+      const isPluginCanvas = !!exportPlugin?.CanvasComponent;
+      const canvasW = isPluginCanvas ? Math.max(container.clientWidth, container.scrollWidth) : container.clientWidth;
+      const canvasH = isPluginCanvas ? Math.max(container.clientHeight, container.scrollHeight) : container.clientHeight;
+
       let treeDataUrl: string;
       try {
         treeDataUrl = await toPng(container, {
+          // Only override the capture size for plugin canvases — omitting these
+          // options entirely for ReactFlow layouts keeps that path byte-for-byte
+          // identical to its previous (known-working) behaviour.
+          ...(isPluginCanvas ? { width: canvasW, height: canvasH } : {}),
           pixelRatio: 2,
           imagePlaceholder: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88P/BfwAJhAPkE0NghgAAAABJRU5ErkJggg==',
           filter: (node: HTMLElement) => {

@@ -89,6 +89,66 @@ const LEVEL_BADGE: Record<string, string> = {
   READ_WRITE: 'bg-green-100 text-green-700',
 };
 
+// ── Subscription types ────────────────────────────────────────────────────────
+
+interface Subscription {
+  id: string;
+  name: string;
+  tier: 'FREE' | 'PREMIUM_INDIVIDUAL' | 'PREMIUM_TEAM';
+  expires_at: string | null;
+  is_expired: boolean;
+  filter_count: number;
+  member_count: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const EXPIRING_SOON_MS = 24 * 60 * 60 * 1000;
+
+function formatExpiry(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/** Converts an ISO datetime to the "YYYY-MM-DDTHH:mm" value a <input type="datetime-local"> expects, in local time. */
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+interface SubscriptionFilter {
+  id: string;
+  filter_key: string;
+  added_by: string | null;
+  added_at: string;
+}
+
+interface SubscriptionMember {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_display_name: string;
+  added_by: string | null;
+  added_at: string;
+}
+
+interface AvailableFilter { key: string; label: string; }
+
+const TIER_LABEL: Record<string, string> = {
+  FREE: 'Free',
+  PREMIUM_INDIVIDUAL: 'Premium — Individual',
+  PREMIUM_TEAM: 'Premium — Team',
+};
+
+const TIER_BADGE: Record<string, string> = {
+  FREE: 'bg-gray-100 text-gray-700',
+  PREMIUM_INDIVIDUAL: 'bg-blue-100 text-blue-700',
+  PREMIUM_TEAM: 'bg-purple-100 text-purple-700',
+};
+
 const LEVEL_DESC_KEY: Record<string, string> = {
   VISIBLE:    'adminPage.visibleDesc',
   READ:       'adminPage.readDesc',
@@ -1724,7 +1784,7 @@ export default function AdminPage() {
   const accessToken  = useAuthStore((s) => s.accessToken);
   const currentUser  = useAuthStore((s) => s.user);
   const isSuperAdmin = currentUser?.appRole === 'SUPER_ADMIN';
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'merge' | 'global' | 'broadcast' | 'site'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'merge' | 'global' | 'subscriptions' | 'broadcast' | 'site'>('users');
 
   const [data,     setData]     = useState<UsersResponse | null>(null);
   const [loading,  setLoading]  = useState(false);
@@ -1851,6 +1911,7 @@ export default function AdminPage() {
           ['merge', t('adminPage.tabs.merge')],
           ...(isSuperAdmin ? [
             ['global', t('adminPage.tabs.global')] as const,
+            ['subscriptions', 'Subscriptions'] as const,
             ['broadcast', t('adminPage.tabs.broadcast')] as const,
             ['site', t('adminPage.tabs.site')] as const,
           ] : []),
@@ -1872,6 +1933,7 @@ export default function AdminPage() {
       {activeTab === 'permissions' && <PermissionGroupsPanel token={accessToken} />}
       {activeTab === 'merge' && <MergeTreesPanel token={accessToken} />}
       {activeTab === 'global' && isSuperAdmin && <GlobalTreesPanel token={accessToken} />}
+      {activeTab === 'subscriptions' && isSuperAdmin && <SubscriptionsPanel token={accessToken} />}
       {activeTab === 'broadcast' && isSuperAdmin && <BroadcastPanel token={accessToken} />}
       {activeTab === 'site' && isSuperAdmin && <MaintenancePanel token={accessToken} />}
       {activeTab === 'users' && (<>
@@ -2620,6 +2682,566 @@ function GroupDetailModal({
                       </div>
                       <button onClick={() => handleRemoveMember(m.id)}
                         className="text-xs text-red-500 hover:text-red-700">{t('common.remove')}</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Subscriptions Panel (Super Admin only) ──────────────────────────────────────
+
+function SubscriptionsPanel({ token }: { token: string | null }) {
+  const [subs, setSubs]               = useState<Subscription[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [createOpen, setCreateOpen]   = useState(false);
+  const [editTarget, setEditTarget]   = useState<Subscription | null>(null);
+  const [manageTarget, setManageTarget] = useState<Subscription | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null);
+  const [error, setError]             = useState('');
+
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const fetchSubs = React.useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/subscriptions`, { headers: authHeader, credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load subscriptions');
+      setSubs(await res.json());
+    } catch (e) { setError((e as Error).message); }
+    finally { setLoading(false); }
+  }, [token]);
+
+  useEffect(() => { fetchSubs(); }, [fetchSubs]);
+
+  async function handleDelete(s: Subscription) {
+    await fetch(`${API_BASE}/admin/subscriptions/${s.id}`, {
+      method: 'DELETE', headers: authHeader, credentials: 'include',
+    });
+    setDeleteTarget(null);
+    fetchSubs();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">
+          Manage Free and Premium subscriptions — each grants its members access to a set of tree filters.
+        </p>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 transition-colors"
+        >
+          + Create subscription
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+      )}
+
+      <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : subs.length === 0 ? (
+          <div className="text-center py-16 text-sm" style={{ color: 'var(--portal-text-muted)' }}>
+            No subscriptions yet.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b" style={{ background: 'var(--portal-main-bg)', borderColor: 'var(--portal-border)' }}>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Name</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Tier</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Entitlements</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Expires</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {subs.map((s) => (
+                <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">{s.name}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TIER_BADGE[s.tier]}`}>
+                      {TIER_LABEL[s.tier]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    <span>{s.filter_count} {s.filter_count === 1 ? 'filter' : 'filters'}</span>
+                    <span className="mx-1 text-gray-300">·</span>
+                    <span>{s.member_count} {s.member_count === 1 ? 'member' : 'members'}</span>
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {!s.expires_at ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      <div>
+                        <div className="text-gray-600">{formatExpiry(s.expires_at)}</div>
+                        {s.is_expired ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 mt-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700">
+                            Expired
+                          </span>
+                        ) : new Date(s.expires_at).getTime() - Date.now() < EXPIRING_SOON_MS ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 mt-0.5 rounded text-[11px] font-medium bg-amber-100 text-amber-700">
+                            Expiring soon
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setManageTarget(s)}
+                        className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
+                      >
+                        Manage
+                      </button>
+                      <button
+                        onClick={() => setEditTarget(s)}
+                        className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(s)}
+                        className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {(createOpen || editTarget) && (
+        <SubscriptionFormModal
+          token={token}
+          initial={editTarget}
+          onClose={() => { setCreateOpen(false); setEditTarget(null); }}
+          onSaved={() => { setCreateOpen(false); setEditTarget(null); fetchSubs(); }}
+        />
+      )}
+
+      {manageTarget && (
+        <SubscriptionDetailModal
+          subscription={manageTarget}
+          token={token}
+          onClose={() => { setManageTarget(null); fetchSubs(); }}
+        />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Delete subscription?</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              <span className="font-medium text-gray-800">{deleteTarget.name}</span> will be permanently removed.
+              All {deleteTarget.member_count} member{deleteTarget.member_count !== 1 ? 's' : ''} will lose access to its{' '}
+              {deleteTarget.filter_count} filter{deleteTarget.filter_count !== 1 ? 's' : ''}.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancel</button>
+              <button onClick={() => handleDelete(deleteTarget)}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Subscription Form Modal (Create / Edit) ─────────────────────────────────────
+
+function SubscriptionFormModal({
+  token, initial, onClose, onSaved,
+}: {
+  token: string | null;
+  initial: Subscription | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName]   = useState(initial?.name ?? '');
+  const [tier, setTier]   = useState<'FREE' | 'PREMIUM_INDIVIDUAL' | 'PREMIUM_TEAM'>(initial?.tier ?? 'FREE');
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  const [hasExpiry, setHasExpiry] = useState(!!initial?.expires_at);
+  const [expiryMode, setExpiryMode] = useState<'date' | 'duration'>('date');
+  const [expiryDateTime, setExpiryDateTime] = useState(
+    initial?.expires_at ? toDatetimeLocalValue(initial.expires_at) : '',
+  );
+  const [durationValue, setDurationValue] = useState(24);
+  const [durationUnit, setDurationUnit] = useState<'Hours' | 'Days'>('Hours');
+
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  function computeExpiresAt(): string | null {
+    if (!hasExpiry) return null;
+    if (expiryMode === 'date') {
+      return expiryDateTime ? new Date(expiryDateTime).toISOString() : null;
+    }
+    const ms = durationValue * (durationUnit === 'Hours' ? 3_600_000 : 86_400_000);
+    return new Date(Date.now() + ms).toISOString();
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      const url = initial
+        ? `${API_BASE}/admin/subscriptions/${initial.id}`
+        : `${API_BASE}/admin/subscriptions`;
+      const res = await fetch(url, {
+        method: initial ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim(), tier, expires_at: computeExpiresAt() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to save');
+      }
+      onSaved();
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          {initial ? 'Edit subscription' : 'Create subscription'}
+        </h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text" value={name} onChange={(e) => setName(e.target.value)}
+              required maxLength={100} autoFocus
+              placeholder="e.g. Premium Family Plan…"
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-2">Tier</label>
+            <div className="space-y-2">
+              {(['FREE', 'PREMIUM_INDIVIDUAL', 'PREMIUM_TEAM'] as const).map((tr) => (
+                <label key={tr} className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                  tier === tr ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
+                }`}>
+                  <input type="radio" name="tier" value={tr} checked={tier === tr}
+                    onChange={() => setTier(tr)} className="mt-0.5 accent-brand-500" />
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TIER_BADGE[tr]}`}>
+                    {TIER_LABEL[tr]}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-2">
+              <input type="checkbox" checked={hasExpiry} onChange={(e) => setHasExpiry(e.target.checked)}
+                className="accent-brand-500" />
+              This subscription expires (promotional / time-limited)
+            </label>
+            {hasExpiry && (
+              <div className="pl-6 space-y-2">
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <input type="radio" name="expiryMode" checked={expiryMode === 'date'}
+                      onChange={() => setExpiryMode('date')} className="accent-brand-500" />
+                    On a specific date
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <input type="radio" name="expiryMode" checked={expiryMode === 'duration'}
+                      onChange={() => setExpiryMode('duration')} className="accent-brand-500" />
+                    In…
+                  </label>
+                </div>
+                {expiryMode === 'date' ? (
+                  <input
+                    type="datetime-local" value={expiryDateTime}
+                    onChange={(e) => setExpiryDateTime(e.target.value)}
+                    required={hasExpiry}
+                    className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="number" min={1} value={durationValue}
+                      onChange={(e) => setDurationValue(Math.max(1, Number(e.target.value)))}
+                      className="w-24 h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as 'Hours' | 'Days')}
+                      className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                      <option value="Hours">Hours</option>
+                      <option value="Days">Days</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose} disabled={saving}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !name.trim() || (hasExpiry && expiryMode === 'date' && !expiryDateTime)}
+              className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+              {saving ? 'Saving…' : initial ? 'Save' : 'Create subscription'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Subscription Detail Modal (Filters + Members) ───────────────────────────────
+
+function SubscriptionDetailModal({
+  subscription, token, onClose,
+}: { subscription: Subscription; token: string | null; onClose: () => void; }) {
+  const [subFilters, setSubFilters]     = useState<SubscriptionFilter[]>([]);
+  const [subMembers, setSubMembers]     = useState<SubscriptionMember[]>([]);
+  const [availFilters, setAvailFilters] = useState<AvailableFilter[]>([]);
+  const [availUsers, setAvailUsers]     = useState<{ id: string; email: string; display: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addFilterOpen, setAddFilterOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [selFilter, setSelFilter] = useState('');
+  const [selUser, setSelUser]     = useState('');
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  async function fetchAll() {
+    setLoading(true);
+    const [fRes, mRes, afRes, auRes] = await Promise.all([
+      fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/filters`, { headers: authHeader, credentials: 'include' }),
+      fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/members`, { headers: authHeader, credentials: 'include' }),
+      fetch(`${API_BASE}/admin/subscriptions/available-filters`, { headers: authHeader, credentials: 'include' }),
+      fetch(`${API_BASE}/admin/users?page_size=200`, { headers: authHeader, credentials: 'include' }),
+    ]);
+    if (fRes.ok) setSubFilters(await fRes.json());
+    if (mRes.ok) setSubMembers(await mRes.json());
+    if (afRes.ok) setAvailFilters(await afRes.json());
+    if (auRes.ok) {
+      const d = await auRes.json();
+      setAvailUsers((d.items ?? []).map((u: any) => ({
+        id: u.id, email: u.email,
+        display: [u.given_name, u.family_name].filter(Boolean).join(' ') || u.email,
+      })));
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchAll(); }, []);
+
+  async function handleAddFilter(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/filters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ filter_key: selFilter }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to add filter');
+      }
+      setAddFilterOpen(false); setSelFilter('');
+      fetchAll();
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function handleRemoveFilter(entry: SubscriptionFilter) {
+    await fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/filters/${entry.filter_key}`, {
+      method: 'DELETE', headers: authHeader, credentials: 'include',
+    });
+    fetchAll();
+  }
+
+  async function handleAddMember(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ user_id: selUser }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to add member');
+      }
+      setAddMemberOpen(false); setSelUser('');
+      fetchAll();
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function handleRemoveMember(memberId: string) {
+    await fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/members/${memberId}`, {
+      method: 'DELETE', headers: authHeader, credentials: 'include',
+    });
+    fetchAll();
+  }
+
+  const subFilterKeys = new Set(subFilters.map((f) => f.filter_key));
+  const subMemberIds  = new Set(subMembers.map((m) => m.user_id));
+  const filtersToAdd  = availFilters.filter((f) => !subFilterKeys.has(f.key));
+  const usersToAdd     = availUsers.filter((u) => !subMemberIds.has(u.id));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">{subscription.name}</h2>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TIER_BADGE[subscription.tier]}`}>
+                {TIER_LABEL[subscription.tier]}
+              </span>
+              {subscription.expires_at && (
+                <span className={`text-xs ${subscription.is_expired ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                  {subscription.is_expired ? 'Expired ' : 'Expires '}
+                  {formatExpiry(subscription.expires_at)}
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none mt-1">×</button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-6">
+            {error && (
+              <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+            )}
+
+            {/* ── Filters section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">Filters ({subFilters.length})</h3>
+                {filtersToAdd.length > 0 && !addFilterOpen && (
+                  <button onClick={() => { setAddFilterOpen(true); setAddMemberOpen(false); setError(''); }}
+                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ Add filter</button>
+                )}
+              </div>
+
+              {addFilterOpen && (
+                <form onSubmit={handleAddFilter} className="flex gap-2 mb-3">
+                  <select value={selFilter} onChange={(e) => setSelFilter(e.target.value)} required
+                    className="flex-1 h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select filter…</option>
+                    {filtersToAdd.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                  </select>
+                  <button type="button" onClick={() => { setAddFilterOpen(false); setSelFilter(''); setError(''); }}
+                    className="px-3 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                  <button type="submit" disabled={saving || !selFilter}
+                    className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                    {saving ? '…' : 'Add'}
+                  </button>
+                </form>
+              )}
+
+              {subFilters.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
+                  No filters yet. Add filters for members to unlock.
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                  {subFilters.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                      <span className="text-sm font-medium text-gray-800">
+                        {availFilters.find((af) => af.key === f.filter_key)?.label ?? f.filter_key}
+                      </span>
+                      <button onClick={() => handleRemoveFilter(f)}
+                        className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* ── Members section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">Members ({subMembers.length})</h3>
+                {usersToAdd.length > 0 && !addMemberOpen && (
+                  <button onClick={() => { setAddMemberOpen(true); setAddFilterOpen(false); setError(''); }}
+                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ Add member</button>
+                )}
+              </div>
+
+              {addMemberOpen && (
+                <form onSubmit={handleAddMember} className="flex gap-2 mb-3">
+                  <select value={selUser} onChange={(e) => setSelUser(e.target.value)} required
+                    className="flex-1 h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select user…</option>
+                    {usersToAdd.map((u) => <option key={u.id} value={u.id}>{u.display} ({u.email})</option>)}
+                  </select>
+                  <button type="button" onClick={() => { setAddMemberOpen(false); setSelUser(''); setError(''); }}
+                    className="px-3 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                  <button type="submit" disabled={saving || !selUser}
+                    className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                    {saving ? '…' : 'Add'}
+                  </button>
+                </form>
+              )}
+
+              {subMembers.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
+                  No members yet. Add users to grant them these filters.
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                  {subMembers.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                      <div>
+                        <div className="text-sm font-medium text-gray-800">{m.user_display_name}</div>
+                        <div className="text-xs text-gray-500">{m.user_email}</div>
+                      </div>
+                      <button onClick={() => handleRemoveMember(m.id)}
+                        className="text-xs text-red-500 hover:text-red-700">Remove</button>
                     </div>
                   ))}
                 </div>

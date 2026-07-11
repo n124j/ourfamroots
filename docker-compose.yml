@@ -160,6 +160,22 @@ services:
             redis:
                 condition: service_healthy
 
+    # ── Celery Beat (periodic tasks, e.g. subscription expiry reminders) ──────
+    beat:
+        build:
+            context: ./backend
+            target: runtime
+        restart: unless-stopped
+        environment: *backend-env
+        volumes:
+            - ./backend:/app:cached
+        command: celery -A src.infrastructure.media.celery_app beat --loglevel=info
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+
     # ── Celery Flower (task monitor) ──────────────────────────────────────────
     flower:
         image: mher/flower:2.0

@@ -15,6 +15,7 @@ import type { LayoutMode } from '../../types';
 import { useCanvasStore } from '@store/canvas.store';
 import type { ViewStyle } from '@store/canvas.store';
 import { builtinViews, extensionViews, getViewPlugin } from '@extensions/views/registry';
+import { useEntitledFilterKeys } from '@features/subscriptions/useEntitledFilterKeys';
 
 // ── Compact view icon (two parent cards → child card) ─────────────────────
 const CompactViewIcon = () => (
@@ -265,6 +266,22 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
   const viewStyle       = useCanvasStore((s) => s.viewStyle);
   const setViewStyle    = useCanvasStore((s) => s.setViewStyle);
 
+  // Subscription-gated views: "default" is always free for everyone and is
+  // never gated. Every other view — including the "heritage" builtin, which
+  // is only unlocked via a Premium subscription — requires an explicit
+  // filter entitlement. While entitlements are loading or the request
+  // fails, fail OPEN (show everything) rather than closed — a network
+  // hiccup shouldn't flicker-hide filters a legitimate subscriber already
+  // has access to.
+  const { entitledKeys, isLoading: entitlementsLoading, isError: entitlementsError } = useEntitledFilterKeys();
+  const entitlementsUnresolved = entitlementsLoading || entitlementsError;
+  const visibleBuiltinViews = entitlementsUnresolved
+    ? builtinViews
+    : builtinViews.filter((v) => v.id === 'default' || entitledKeys.has(v.id));
+  const visibleExtensionViews = entitlementsUnresolved
+    ? extensionViews
+    : extensionViews.filter((v) => entitledKeys.has(v.id));
+
   const handleFitView = useCallback(() => {
     fitView({ duration: 400, padding: 0.1 });
   }, [fitView]);
@@ -378,24 +395,24 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
         <CompactViewIcon />
       </CtrlBtn>
 
-      {/* View styles (Default, Heritage) */}
+      {/* View styles (Default, Heritage) — Default is always free; Heritage is subscription-gated */}
       <ToolbarDropdown
         icon={<HeritageViewIcon />}
         title={t('treeControls.viewStyles')}
-        items={builtinViews}
+        items={visibleBuiltinViews}
         activeId={viewStyle}
         onSelect={handleViewStyle}
-        isActive={viewStyle !== 'default' && builtinViews.some((v) => v.id === viewStyle)}
+        isActive={viewStyle !== 'default' && visibleBuiltinViews.some((v) => v.id === viewStyle)}
       />
 
-      {/* Extensions (Timeline, Grid Cards, etc.) */}
+      {/* Extensions (Timeline, Grid Cards, etc.) — gated by subscription entitlement */}
       <ToolbarDropdown
         icon={<ExtensionsIcon />}
         title={t('treeControls.extensions')}
-        items={extensionViews}
+        items={visibleExtensionViews}
         activeId={viewStyle}
         onSelect={handleViewStyle}
-        isActive={extensionViews.some((v) => v.id === viewStyle)}
+        isActive={visibleExtensionViews.some((v) => v.id === viewStyle)}
       />
 
     </div>

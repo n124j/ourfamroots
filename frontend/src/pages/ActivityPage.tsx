@@ -62,6 +62,14 @@ const ACTION_OPTIONS = [
   { value: 'PG_REMOVE_MEMBER', label: 'Permission group: remove member' },
   { value: 'PG_SET_GLOBAL', label: 'Permission group: make global' },
   { value: 'PG_UNSET_GLOBAL', label: 'Permission group: remove global' },
+  // Admin — subscriptions
+  { value: 'SUB_CREATE', label: 'Subscription: create' },
+  { value: 'SUB_UPDATE', label: 'Subscription: update' },
+  { value: 'SUB_DELETE', label: 'Subscription: delete' },
+  { value: 'SUB_ADD_FILTER', label: 'Subscription: add filter' },
+  { value: 'SUB_REMOVE_FILTER', label: 'Subscription: remove filter' },
+  { value: 'SUB_ADD_MEMBER', label: 'Subscription: add member' },
+  { value: 'SUB_REMOVE_MEMBER', label: 'Subscription: remove member' },
   // Broadcast
   { value: 'BROADCAST_SEND', label: 'Broadcast: send email' },
   { value: 'BROADCAST_DEL', label: 'Broadcast: delete log' },
@@ -109,6 +117,13 @@ const ADMIN_ACTION_LABELS: Record<string, string> = {
   PG_REMOVE_MEMBER: 'Removed member from group',
   PG_SET_GLOBAL:    'Made group global',
   PG_UNSET_GLOBAL:  'Removed group global status',
+  SUB_CREATE:        'Created subscription',
+  SUB_UPDATE:        'Updated subscription',
+  SUB_DELETE:        'Deleted subscription',
+  SUB_ADD_FILTER:    'Added filter to subscription',
+  SUB_REMOVE_FILTER: 'Removed filter from subscription',
+  SUB_ADD_MEMBER:    'Added member to subscription',
+  SUB_REMOVE_MEMBER: 'Removed member from subscription',
   BROADCAST_SEND:   'Sent broadcast email',
   BROADCAST_DEL:    'Deleted broadcast log',
 };
@@ -117,7 +132,7 @@ function actionBadge(action: string): string {
   if (action === 'LOGIN') return 'bg-green-100 text-green-800';
   if (action === 'LOGOUT') return 'bg-gray-100 text-gray-700';
   if (action === 'FAILED_LOGIN') return 'bg-red-100 text-red-800';
-  if (action.startsWith('ADMIN_') || action.startsWith('PG_') || action.startsWith('BROADCAST_')) return 'bg-purple-100 text-purple-800';
+  if (action.startsWith('ADMIN_') || action.startsWith('PG_') || action.startsWith('SUB_') || action.startsWith('BROADCAST_')) return 'bg-purple-100 text-purple-800';
   if (action.startsWith('CREATE') || action.startsWith('ADD') || action.startsWith('UPLOAD') || action.startsWith('INVITE'))
     return 'bg-blue-100 text-blue-800';
   if (action.startsWith('DELETE') || action.startsWith('REMOVE') || action === 'ADMIN_DEACTIVATE')

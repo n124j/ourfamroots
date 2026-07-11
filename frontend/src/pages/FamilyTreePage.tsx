@@ -1209,7 +1209,6 @@ interface EditPersonModalProps {
   token: string | null;
   onClose: () => void;
   onSaved: () => void;
-  onRefresh?: () => void;
 }
 
 interface GalleryPhoto {
@@ -1219,16 +1218,19 @@ interface GalleryPhoto {
   position: number;
 }
 
-function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, onClose, onSaved, onRefresh }: EditPersonModalProps) {
+function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, onClose, onSaved }: EditPersonModalProps) {
   const { t } = useTranslation();
   const [fields,       setFields]       = useState<EditPersonFields>(initial);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
   const editGivenNameRef = React.useRef<HTMLInputElement>(null);
+  // Photo edits are staged locally and only persisted when "Save changes" is clicked.
   const [photoUrl,     setPhotoUrl]     = useState<string | undefined>(initialPhotoUrl);
-  const [photoLoading, setPhotoLoading] = useState(false);
   const [photoError,   setPhotoError]   = useState('');
   const [showPresets,  setShowPresets]  = useState(false);
+  const [pendingPhotoFile,    setPendingPhotoFile]    = useState<File | null>(null);
+  const [pendingPhotoPreview, setPendingPhotoPreview] = useState<string | null>(null);
+  const [photoRemoved,        setPhotoRemoved]        = useState(false);
   const [showExtra,    setShowExtra]    = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1251,6 +1253,12 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
     })();
     return () => { cancelled = true; };
   }, [treeId, personId]);
+
+  // Revoke the local preview object URL whenever it's replaced or the modal unmounts.
+  useEffect(() => {
+    if (!pendingPhotoPreview) return;
+    return () => URL.revokeObjectURL(pendingPhotoPreview);
+  }, [pendingPhotoPreview]);
 
   async function handleGalleryUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1295,53 +1303,36 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
     }
   }
 
-  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // These four handlers only stage the change locally — nothing is sent to the
+  // server until the user clicks "Save changes" (see handleSubmit below).
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { setPhotoError('Please select an image file.'); return; }
 
-    setPhotoLoading(true);
     setPhotoError('');
-    try {
-      const url = await uploadPersonPhoto(file, treeId, personId);
-      setPhotoUrl(url);
-      onRefresh?.();
-    } catch (err) {
-      setPhotoError((err as Error).message);
-    } finally {
-      setPhotoLoading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    setPendingPhotoFile(file);
+    setPendingPhotoPreview(URL.createObjectURL(file));
+    setPhotoRemoved(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  async function handleSelectPreset(presetId: string) {
-    setPhotoLoading(true);
+  function handleSelectPreset(presetId: string) {
     setPhotoError('');
-    try {
-      await patch(`/trees/${treeId}/persons/${personId}`, { photo_url: presetId });
-      setPhotoUrl(presetId);
-      setShowPresets(false);
-      onRefresh?.();
-    } catch (err) {
-      setPhotoError(apiErrorMessage(err, 'Failed to set avatar'));
-    } finally {
-      setPhotoLoading(false);
-    }
+    setPhotoUrl(presetId);
+    setPendingPhotoFile(null);
+    setPendingPhotoPreview(null);
+    setPhotoRemoved(false);
+    setShowPresets(false);
   }
 
-  async function handleRemovePhoto() {
-    setPhotoLoading(true);
+  function handleRemovePhoto() {
     setPhotoError('');
-    try {
-      await del(`/trees/${treeId}/persons/${personId}/photo`);
-      setPhotoUrl(undefined);
-      setShowPresets(false);
-      onRefresh?.();
-    } catch (err) {
-      setPhotoError(apiErrorMessage(err, 'Failed to remove photo'));
-    } finally {
-      setPhotoLoading(false);
-    }
+    setPhotoUrl(undefined);
+    setPendingPhotoFile(null);
+    setPendingPhotoPreview(null);
+    setPhotoRemoved(true);
+    setShowPresets(false);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -1372,6 +1363,16 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
       if (fields.diedCity)          body.died_city        = fields.diedCity.trim();
       if (fields.diedCountry)      body.died_country     = fields.diedCountry.trim();
       if (fields.notes)            body.notes            = fields.notes.trim();
+
+      // Apply whichever photo edit was staged, if any.
+      if (pendingPhotoFile) {
+        await uploadPersonPhoto(pendingPhotoFile, treeId, personId);
+      } else if (photoRemoved && initialPhotoUrl) {
+        await del(`/trees/${treeId}/persons/${personId}/photo`);
+      } else if (photoUrl !== initialPhotoUrl) {
+        body.photo_url = photoUrl;
+      }
+
       await patch(`/trees/${treeId}/persons/${personId}`, body);
       onSaved();
     } catch (err) {
@@ -1396,8 +1397,10 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
           <div className="flex items-center gap-4">
             <div className="relative flex-shrink-0">
               <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center text-slate-500 font-semibold text-lg">
-                {photoLoading ? (
+                {loading ? (
                   <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                ) : pendingPhotoPreview ? (
+                  <img src={pendingPhotoPreview} alt="Profile" className="w-full h-full object-cover" />
                 ) : photoUrl ? (
                   <img
                     src={isPreset(photoUrl) ? presetDataUri(photoUrl)! : photoUrl}
@@ -1411,7 +1414,7 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={photoLoading}
+                disabled={loading}
                 className="absolute -bottom-1 -right-1 w-6 h-6 bg-brand-500 text-white rounded-full flex items-center justify-center hover:bg-brand-600 disabled:opacity-50 shadow"
                 title="Upload photo"
               >
@@ -1427,16 +1430,16 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
                 <button
                   type="button"
                   onClick={() => setShowPresets((v) => !v)}
-                  disabled={photoLoading}
+                  disabled={loading}
                   className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50"
                 >
                   {showPresets ? t('treeForm.hidePresets') : t('treeForm.chooseAvatar')}
                 </button>
-                {photoUrl && (
+                {(photoUrl || pendingPhotoPreview) && (
                   <button
                     type="button"
                     onClick={handleRemovePhoto}
-                    disabled={photoLoading}
+                    disabled={loading}
                     className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
                   >
                     Remove
@@ -1462,7 +1465,7 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
                   key={preset.id}
                   type="button"
                   onClick={() => handleSelectPreset(preset.id)}
-                  disabled={photoLoading}
+                  disabled={loading}
                   className={`rounded-full overflow-hidden w-12 h-12 mx-auto ring-2 transition-all disabled:opacity-50 ${
                     photoUrl === preset.id ? 'ring-brand-500 scale-110' : 'ring-transparent hover:ring-slate-300'
                   }`}
@@ -1497,64 +1500,72 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
               onChange={handleGalleryUpload}
             />
             {galleryPhotos.length > 0 && (
-              <div className="flex gap-2">
-                {galleryPhotos.map((gp) => (
-                  <div key={gp.id} className="relative group">
-                    <div
-                      className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 cursor-pointer relative"
-                      onMouseEnter={() => setHoveredGallery(gp.id)}
-                      onMouseLeave={() => setHoveredGallery(null)}
-                    >
-                      <img src={gp.photoUrl} alt={gp.caption || 'Gallery'} className="w-full h-full object-cover" />
-                      {/* Hover overlay with enlarged view */}
-                      {hoveredGallery === gp.id && (
-                        <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
-                          <div className="bg-white rounded-xl shadow-2xl p-2 max-w-xs pointer-events-auto">
-                            <img src={gp.photoUrl} alt={gp.caption || 'Gallery'} className="w-64 h-64 object-cover rounded-lg" />
-                            {gp.caption && (
-                              <p className="text-xs text-slate-600 mt-1.5 px-1 text-center">{gp.caption}</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    {/* Delete button */}
-                    <button
-                      type="button"
-                      onClick={() => handleGalleryDelete(gp.id)}
-                      disabled={galleryLoading}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 shadow"
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                    {/* Caption */}
-                    {editingCaption === gp.id ? (
-                      <div className="mt-1">
-                        <input
-                          type="text"
-                          maxLength={200}
-                          value={captionDraft}
-                          onChange={(e) => setCaptionDraft(e.target.value)}
-                          onBlur={() => handleCaptionSave(gp.id)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleCaptionSave(gp.id); }}
-                          autoFocus
-                          className="w-16 h-5 px-1 text-[9px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
-                          placeholder="Caption"
-                        />
+              <div className="relative">
+                <div className="flex gap-2">
+                  {galleryPhotos.map((gp) => (
+                    <div key={gp.id} className="relative group">
+                      <div
+                        className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 cursor-pointer relative"
+                        onMouseEnter={() => setHoveredGallery(gp.id)}
+                        onMouseLeave={() => setHoveredGallery(null)}
+                      >
+                        <img src={gp.photoUrl} alt={gp.caption || 'Gallery'} className="w-full h-full object-cover" />
                       </div>
-                    ) : (
+                      {/* Delete button */}
                       <button
                         type="button"
-                        onClick={() => { setEditingCaption(gp.id); setCaptionDraft(gp.caption || ''); }}
-                        className="mt-1 w-16 text-[9px] text-slate-400 hover:text-slate-600 truncate block text-center"
-                        title={gp.caption || 'Add caption'}
+                        onClick={() => handleGalleryDelete(gp.id)}
+                        disabled={galleryLoading}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 shadow"
+                        title="Remove"
                       >
-                        {gp.caption || 'caption'}
+                        ×
                       </button>
-                    )}
-                  </div>
-                ))}
+                      {/* Caption */}
+                      {editingCaption === gp.id ? (
+                        <div className="mt-1">
+                          <input
+                            type="text"
+                            maxLength={200}
+                            value={captionDraft}
+                            onChange={(e) => setCaptionDraft(e.target.value)}
+                            onBlur={() => handleCaptionSave(gp.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleCaptionSave(gp.id); }}
+                            autoFocus
+                            className="w-16 h-5 px-1 text-[9px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            placeholder="Caption"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingCaption(gp.id); setCaptionDraft(gp.caption || ''); }}
+                          className="mt-1 w-16 text-[9px] text-slate-400 hover:text-slate-600 truncate block text-center"
+                          title={gp.caption || 'Add caption'}
+                        >
+                          {gp.caption || 'caption'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Hover preview — anchored below the whole row (not per-thumbnail) so it
+                    never sits on top of the small images themselves. */}
+                {hoveredGallery && (() => {
+                  const hoveredPhoto = galleryPhotos.find((p) => p.id === hoveredGallery);
+                  if (!hoveredPhoto) return null;
+                  return (
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 pointer-events-none">
+                      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-2">
+                        <img src={hoveredPhoto.photoUrl} alt={hoveredPhoto.caption || 'Gallery'} className="w-48 h-48 object-cover rounded-lg" />
+                        {hoveredPhoto.caption && (
+                          <p className="text-xs text-slate-600 mt-1.5 px-1 text-center max-w-[12rem] truncate">{hoveredPhoto.caption}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
             {galleryLoading && <p className="text-xs text-slate-400 mt-1">Uploading...</p>}
@@ -1758,7 +1769,7 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
               className="flex-1 h-9 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
               {t('treeForm.cancel')}
             </button>
-            <button type="submit" disabled={loading || photoLoading}
+            <button type="submit" disabled={loading}
               className="flex-1 h-9 text-sm bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50">
               {loading ? t('treeForm.saving') : t('treeForm.saveChanges')}
             </button>
@@ -3742,7 +3753,6 @@ export default function FamilyTreePage() {
             token={accessToken}
             onClose={() => setShowEdit(false)}
             onSaved={() => { setShowEdit(false); handleAdded(); }}
-            onRefresh={handleAdded}
           />
         );
       })()}

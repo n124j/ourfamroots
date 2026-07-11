@@ -9,7 +9,8 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { LayoutMode, UnionType, ParentageType } from '@features/tree/types';
 
-export type ViewStyle = 'default' | 'heritage' | 'timeline';
+// Matches a ViewPlugin id from the auto-discovered extensions/views registry.
+export type ViewStyle = string;
 
 export interface SelectedEdge {
   id: string;

@@ -54,4 +54,9 @@ export const queryKeys = {
 
   // ── Current user ─────────────────────────────────────────────────────────
   me: () => ['me'] as const,
+
+  // ── Subscriptions ────────────────────────────────────────────────────────
+  subscriptions: {
+    myFilters: () => ['subscriptions', 'my-filters'] as const,
+  },
 };

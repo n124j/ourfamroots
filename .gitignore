@@ -11,6 +11,7 @@ frontend/node_modules
 frontend/test-results
 frontend/e2e/report
 backend/coverage
+backend/celerybeat-schedule
 
 # Production deploy
 .env.prod

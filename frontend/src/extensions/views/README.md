@@ -102,3 +102,5 @@ Delete the folder. Restart the dev server.
 - `default/` — Standard modern tree (no overrides)
 - `heritage/` — Vintage parchment style with serif text and sepia photos
 - `timeline/` — Horizontal year-axis timeline with person bars
+- `text-pedigree/` — Compact indented text ancestor tree (connector-line style)
+- `poster/` — Decorative printable ancestor poster with a tree silhouette

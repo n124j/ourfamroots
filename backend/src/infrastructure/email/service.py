@@ -681,3 +681,39 @@ def change_request_resolved_email(
         f"{'' if not (approved and tree_url) else chr(10) + 'View the tree: ' + tree_url}"
     )
     return html, text
+
+
+def subscription_expiring_email(
+    display_name: str,
+    subscription_name: str,
+    expires_at_display: str,
+    filter_labels: list[str],
+) -> tuple[str, str]:
+    """Email sent to a subscription's members shortly before it expires."""
+    filters_line = ", ".join(filter_labels) if filter_labels else "your current filters"
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <h1 style="font-size:22px;font-weight:700;color:#d97706;margin:0 0 8px;">Your subscription is expiring soon</h1>
+    <p style="color:#64748b;margin:0 0 6px;">Hi {display_name},</p>
+    <p style="color:#64748b;margin:0 0 16px;">
+      Your <strong>{subscription_name}</strong> subscription expires on
+      <strong>{expires_at_display}</strong>. After that, you'll lose access to: {filters_line}.
+    </p>
+    <p style="color:#94a3b8;font-size:12px;margin:0;">
+      If you believe this is a mistake, please contact your administrator.
+    </p>
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"Hi {display_name},\n\n"
+        f"Your {subscription_name} subscription expires on {expires_at_display}. "
+        f"After that, you'll lose access to: {filters_line}.\n\n"
+        f"If you believe this is a mistake, please contact your administrator."
+    )
+    return html, text

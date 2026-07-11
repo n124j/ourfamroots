@@ -21,6 +21,11 @@ from src.infrastructure.database.models.permission_group import (
 )
 from src.infrastructure.database.models.site_settings import SiteSettingsModel
 from src.infrastructure.database.models.broadcast_log import BroadcastLogModel
+from src.infrastructure.database.models.subscription import (
+    SubscriptionModel,
+    SubscriptionFilterModel,
+    SubscriptionMemberModel,
+)
 
 __all__ = [
     "TenantModel",
@@ -39,4 +44,7 @@ __all__ = [
     "PermissionGroupMemberModel",
     "SiteSettingsModel",
     "BroadcastLogModel",
+    "SubscriptionModel",
+    "SubscriptionFilterModel",
+    "SubscriptionMemberModel",
 ]

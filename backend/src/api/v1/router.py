@@ -18,6 +18,8 @@ from src.api.v1.permission_groups import router as permission_groups_router
 from src.api.v1.persons import router as persons_router
 from src.api.v1.search import router as search_router
 from src.api.v1.site_settings import router as site_settings_router
+from src.api.v1.subscriptions import admin_router as subscriptions_admin_router
+from src.api.v1.subscriptions import self_service_router as subscriptions_self_service_router
 from src.api.v1.users import router as users_router
 
 v1_router = APIRouter(prefix="/api/v1")
@@ -35,6 +37,8 @@ v1_router.include_router(search_router)
 v1_router.include_router(activity_router)
 v1_router.include_router(admin_router)
 v1_router.include_router(permission_groups_router)
+v1_router.include_router(subscriptions_admin_router)
+v1_router.include_router(subscriptions_self_service_router)
 v1_router.include_router(notifications_router)
 v1_router.include_router(push_router)
 v1_router.include_router(site_settings_router)

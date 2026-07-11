@@ -39,9 +39,20 @@ celery_app.conf.update(
     # ── Result expiry ─────────────────────────────────────────────────────────
     result_expires=3600,                   # keep task results for 1 hour
 
-    # ── Beat schedule (not used in this module, but defined for completeness) ──
-    beat_schedule={},
+    # ── Beat schedule ──────────────────────────────────────────────────────────
+    beat_schedule={
+        "send-subscription-expiry-reminders": {
+            "task": "src.infrastructure.subscriptions.subscription_tasks.send_expiry_reminders",
+            "schedule": 900.0,  # every 15 minutes
+        },
+    },
 )
 
-# Auto-discover tasks in this package
-celery_app.autodiscover_tasks(["src.infrastructure.media"])
+# Auto-discover tasks in these packages
+celery_app.autodiscover_tasks(["src.infrastructure.media", "src.infrastructure.subscriptions"])
+
+# Explicit import so the worker/beat process (started via `-A
+# src.infrastructure.media.celery_app`) actually registers this task —
+# autodiscover_tasks() only looks for a `tasks` submodule by default, which
+# doesn't match this package's `subscription_tasks.py` filename.
+from src.infrastructure.subscriptions import subscription_tasks  # noqa: F401,E402
