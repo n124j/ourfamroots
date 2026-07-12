@@ -242,7 +242,7 @@ export default function DashboardPage() {
   const totalPages  = Math.max(1, Math.ceil(sortedTrees.length / PAGE_SIZE));
   const visibleTrees = sortedTrees.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Import .frt
+  // Import .ofr
   const importInputRef             = useRef<HTMLInputElement>(null);
   const [importing, setImporting]  = useState(false);
   const [importError, setImportError] = useState('');
@@ -271,10 +271,10 @@ export default function DashboardPage() {
         }
         ({ tree_id } = await res.json());
       } else {
-        // Plain .frt import — send as JSON
+        // Plain .ofr import — send as JSON
         const text = await file.text();
         const data = JSON.parse(text);
-        if (!data.frt_version || !data.tree_name) throw new Error('Invalid .frt file format');
+        if (!data.ofr_version || !data.tree_name) throw new Error('Invalid .ofr file format');
         const res = await fetch(`${API_BASE}/trees/import`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
@@ -531,14 +531,14 @@ export default function DashboardPage() {
           <input
             ref={importInputRef}
             type="file"
-            accept=".frt,.zip"
+            accept=".ofr,.zip"
             className="hidden"
             onChange={handleImportFile}
           />
           <button
             onClick={() => { setImportError(''); importInputRef.current?.click(); }}
             disabled={importing}
-            title="Import a .frt backup or a .zip with photos"
+            title="Import a .ofr backup or a .zip with photos"
             className="px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             {importing ? t('dashboard.importing') : t('dashboard.import')}

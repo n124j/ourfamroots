@@ -4,8 +4,8 @@ COMPLETED:
   ✅ 3. Update Date of Birth and Date of Death (if deceased)
   ✅ 4. Add Administrator who can manually manage tree, member, and more
   ✅ 5. Add email to the member
-  ✅ 6. Should be able to export the tree in (.frt) JSON
-  ✅ 7. Should be able to import the (.frt) JSON to form a tree again
+  ✅ 6. Should be able to export the tree in (.ofr) JSON
+  ✅ 7. Should be able to import the (.ofr) JSON to form a tree again
   ✅ 8. All the activities should be logged for audit purpose
   ✅ 9. If holding ctrl + mouse-down on particular member then its child member also should be able to draggable along
   ✅ 10. If holding ctrl + mouse-down then the ring union should also be draggable along with its members

@@ -1,21 +1,21 @@
 /**
- * Unit tests for .frt export payload construction.
+ * Unit tests for .ofr export payload construction.
  *
- * Verifies that the handleExportFrt logic includes all 'more details' fields
+ * Verifies that the handleExportOfr logic includes all 'more details' fields
  * (life dates, locations, notes, photo_url) and family group custom labels.
  */
 
 import type { ApiPerson, ApiFamilyGroup, ApiTreeGraph } from '@features/tree/types';
 
-// ── Payload builder (mirrors handleExportFrt in FamilyTreePage.tsx) ──
+// ── Payload builder (mirrors handleExportOfr in FamilyTreePage.tsx) ──
 
-function buildFrtPayload(
+function buildOfrPayload(
   graph: ApiTreeGraph,
   treeName: string,
   treeDescription: string | null,
 ) {
   return {
-    frt_version: '1.0',
+    ofr_version: '1.0',
     exported_at: new Date().toISOString(),
     tree_name: treeName,
     tree_description: treeDescription ?? null,
@@ -106,10 +106,10 @@ const minimalFg: ApiFamilyGroup = {
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-describe('.frt export payload', () => {
+describe('.ofr export payload', () => {
   it('includes all more-details fields for a fully populated person', () => {
     const graph: ApiTreeGraph = { treeId: 't1', persons: [fullPerson], familyGroups: [] };
-    const payload = buildFrtPayload(graph, 'Test Tree', 'A description');
+    const payload = buildOfrPayload(graph, 'Test Tree', 'A description');
     const p = payload.persons[0];
 
     expect(p.display_given_name).toBe('Mary Anne');
@@ -128,7 +128,7 @@ describe('.frt export payload', () => {
 
   it('omits optional fields when they are not set', () => {
     const graph: ApiTreeGraph = { treeId: 't1', persons: [minimalPerson], familyGroups: [] };
-    const payload = buildFrtPayload(graph, 'Test Tree', null);
+    const payload = buildOfrPayload(graph, 'Test Tree', null);
     const p = payload.persons[0];
 
     expect(p).not.toHaveProperty('photo_url');
@@ -145,7 +145,7 @@ describe('.frt export payload', () => {
 
   it('includes custom_label and union dates on family groups when present', () => {
     const graph: ApiTreeGraph = { treeId: 't1', persons: [], familyGroups: [fullFg] };
-    const payload = buildFrtPayload(graph, 'Test', null);
+    const payload = buildOfrPayload(graph, 'Test', null);
     const fg = payload.family_groups[0];
 
     expect(fg.custom_label).toBe('Church Wedding');
@@ -156,7 +156,7 @@ describe('.frt export payload', () => {
 
   it('omits custom_label and union dates on family groups when not set', () => {
     const graph: ApiTreeGraph = { treeId: 't1', persons: [], familyGroups: [minimalFg] };
-    const payload = buildFrtPayload(graph, 'Test', null);
+    const payload = buildOfrPayload(graph, 'Test', null);
     const fg = payload.family_groups[0];
 
     expect(fg).not.toHaveProperty('custom_label');
@@ -173,7 +173,7 @@ describe('.frt export payload', () => {
       persons: [fullPerson, minimalPerson],
       familyGroups: [fullFg, minimalFg],
     };
-    const payload = buildFrtPayload(graph, 'Mixed Tree', 'desc');
+    const payload = buildOfrPayload(graph, 'Mixed Tree', 'desc');
 
     expect(payload.persons).toHaveLength(2);
     expect(payload.persons[0].birth_year).toBe(1912);
@@ -186,9 +186,9 @@ describe('.frt export payload', () => {
 
   it('sets tree metadata correctly', () => {
     const graph: ApiTreeGraph = { treeId: 't1', persons: [], familyGroups: [] };
-    const payload = buildFrtPayload(graph, 'My Family', 'Some description');
+    const payload = buildOfrPayload(graph, 'My Family', 'Some description');
 
-    expect(payload.frt_version).toBe('1.0');
+    expect(payload.ofr_version).toBe('1.0');
     expect(payload.tree_name).toBe('My Family');
     expect(payload.tree_description).toBe('Some description');
     expect(payload.exported_at).toBeTruthy();
@@ -196,7 +196,7 @@ describe('.frt export payload', () => {
 
   it('sets tree_description to null when not provided', () => {
     const graph: ApiTreeGraph = { treeId: 't1', persons: [], familyGroups: [] };
-    const payload = buildFrtPayload(graph, 'My Family', null);
+    const payload = buildOfrPayload(graph, 'My Family', null);
 
     expect(payload.tree_description).toBeNull();
   });

@@ -1330,10 +1330,10 @@ components:
           type: string
           format: date-time
 
-    # ── .frt native backup format ─────────────────────────────
-    FrtPerson:
+    # ── .ofr native backup format ─────────────────────────────
+    OfrPerson:
       type: object
-      description: Person record within a .frt backup file
+      description: Person record within a .ofr backup file
       required: [id, display_given_name, display_surname, sex, is_living, is_deceased]
       properties:
         id:
@@ -1380,9 +1380,9 @@ components:
           type: string
           nullable: true
 
-    FrtFamilyGroup:
+    OfrFamilyGroup:
       type: object
-      description: Family group record within a .frt backup file
+      description: Family group record within a .ofr backup file
       required: [id, union_type, parent_ids, children]
       properties:
         id:
@@ -1404,12 +1404,12 @@ components:
             type: string
             enum: [BIOLOGICAL, ADOPTIVE, STEP, FOSTER, UNKNOWN]
 
-    FrtBackup:
+    OfrBackup:
       type: object
-      description: Complete .frt backup file structure for export and import
-      required: [frt_version, tree_name, persons, family_groups]
+      description: Complete .ofr backup file structure for export and import
+      required: [ofr_version, tree_name, persons, family_groups]
       properties:
-        frt_version:
+        ofr_version:
           type: string
           example: "1.0"
         exported_at:
@@ -1423,11 +1423,11 @@ components:
         persons:
           type: array
           items:
-            $ref: "#/components/schemas/FrtPerson"
+            $ref: "#/components/schemas/OfrPerson"
         family_groups:
           type: array
           items:
-            $ref: "#/components/schemas/FrtFamilyGroup"
+            $ref: "#/components/schemas/OfrFamilyGroup"
 
   # ──────────────────────────────────────────────────────────
   # COMMON RESPONSES
@@ -2462,14 +2462,14 @@ paths:
           $ref: "#/components/responses/404NotFound"
 
 
-  # ── .frt native backup import ─────────────────────────────────
+  # ── .ofr native backup import ─────────────────────────────────
   /trees/import:
     post:
       tags: [Trees]
-      operationId: importFrtTree
-      summary: Import a .frt backup file as a new tree
+      operationId: importOfrTree
+      summary: Import a .ofr backup file as a new tree
       description: |
-        Creates a new tree from a OurFamRoots .frt backup file. All persons are
+        Creates a new tree from a OurFamRoots .ofr backup file. All persons are
         re-created with new UUIDs. Imported fields include life dates (birth_date,
         death_date, birth_year, death_year), social handles (facebook_handle,
         x_handle, linkedin_handle), and family group custom labels.
@@ -2480,7 +2480,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/FrtBackup"
+              $ref: "#/components/schemas/OfrBackup"
       responses:
         "201":
           description: Tree imported successfully

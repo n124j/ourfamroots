@@ -8,13 +8,13 @@ require the API tree graph to carry:
   - family_groups[].union_type (for Heritage view edge styles)
   - family_groups[].is_divorced (for dashed divorce edge in Heritage view)
 
-These tests verify the _FrtFamilyGroup schema and the _FrtPerson schema carry
+These tests verify the _OfrFamilyGroup schema and the _OfrPerson schema carry
 the correct fields, and that the import/export round-trip preserves the
 parent–child structure that the ancestorSubgraphIds() and
 descendantFamilySubgraphIds() graph traversal functions depend on.
 
 Covers:
-  - _FrtFamilyGroup: parent_ids, children, union_type, is_divorced, custom_label
+  - _OfrFamilyGroup: parent_ids, children, union_type, is_divorced, custom_label
   - Family group with two parents (couple) → compact layout keeps couple adjacent
   - Family group with multiple children → all children receive the same FG id
   - Union types: MARRIAGE, PARTNERSHIP, COHABITATION, UNKNOWN
@@ -27,32 +27,32 @@ from __future__ import annotations
 
 import pytest
 
-from src.api.v1.collaboration import _FrtFamilyGroup, _FrtPerson, ImportTreeRequest
+from src.api.v1.collaboration import _OfrFamilyGroup, _OfrPerson, ImportTreeRequest
 
 
-# ── _FrtFamilyGroup basic structure ──────────────────────────────────────────
+# ── _OfrFamilyGroup basic structure ──────────────────────────────────────────
 
-class TestFrtFamilyGroupStructure:
+class TestOfrFamilyGroupStructure:
     def test_minimal_family_group(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1")
+        fg = _OfrFamilyGroup(id="fg1")
         assert fg.id == "fg1"
         assert fg.parent_ids == []
         assert fg.children == {}
 
     def test_two_parent_ids_accepted(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", parent_ids=["p1", "p2"])
+        fg = _OfrFamilyGroup(id="fg1", parent_ids=["p1", "p2"])
         assert fg.parent_ids == ["p1", "p2"]
 
     def test_single_parent_accepted(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", parent_ids=["p1"])
+        fg = _OfrFamilyGroup(id="fg1", parent_ids=["p1"])
         assert fg.parent_ids == ["p1"]
 
     def test_no_parents_accepted(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", parent_ids=[])
+        fg = _OfrFamilyGroup(id="fg1", parent_ids=[])
         assert fg.parent_ids == []
 
     def test_children_dict_accepted(self) -> None:
-        fg = _FrtFamilyGroup(
+        fg = _OfrFamilyGroup(
             id="fg1",
             parent_ids=["p1"],
             children={"c1": "BIOLOGICAL", "c2": "ADOPTED"},
@@ -61,12 +61,12 @@ class TestFrtFamilyGroupStructure:
         assert fg.children["c2"] == "ADOPTED"
 
     def test_empty_children_dict(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", children={})
+        fg = _OfrFamilyGroup(id="fg1", children={})
         assert fg.children == {}
 
     def test_multiple_children_preserved(self) -> None:
         children = {f"child-{i}": "BIOLOGICAL" for i in range(5)}
-        fg = _FrtFamilyGroup(id="fg1", children=children)
+        fg = _OfrFamilyGroup(id="fg1", children=children)
         assert len(fg.children) == 5
         for child_id in children:
             assert child_id in fg.children
@@ -74,41 +74,41 @@ class TestFrtFamilyGroupStructure:
 
 # ── Union type field ──────────────────────────────────────────────────────────
 
-class TestFrtFamilyGroupUnionType:
+class TestOfrFamilyGroupUnionType:
     def test_default_union_type_is_unknown(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1")
+        fg = _OfrFamilyGroup(id="fg1")
         assert fg.union_type == "UNKNOWN"
 
     def test_marriage_explicit(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", union_type="MARRIAGE")
+        fg = _OfrFamilyGroup(id="fg1", union_type="MARRIAGE")
         assert fg.union_type == "MARRIAGE"
 
     def test_partnership(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", union_type="PARTNERSHIP")
+        fg = _OfrFamilyGroup(id="fg1", union_type="PARTNERSHIP")
         assert fg.union_type == "PARTNERSHIP"
 
     def test_cohabitation(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", union_type="COHABITATION")
+        fg = _OfrFamilyGroup(id="fg1", union_type="COHABITATION")
         assert fg.union_type == "COHABITATION"
 
     def test_unknown(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", union_type="UNKNOWN")
+        fg = _OfrFamilyGroup(id="fg1", union_type="UNKNOWN")
         assert fg.union_type == "UNKNOWN"
 
 
 # ── Divorced flag (Heritage view edge style) ──────────────────────────────────
 
-class TestFrtFamilyGroupDivorced:
+class TestOfrFamilyGroupDivorced:
     def test_is_divorced_defaults_to_false(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1")
+        fg = _OfrFamilyGroup(id="fg1")
         assert fg.is_divorced is False
 
     def test_is_divorced_true_accepted(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", is_divorced=True)
+        fg = _OfrFamilyGroup(id="fg1", is_divorced=True)
         assert fg.is_divorced is True
 
     def test_divorced_marriage_round_trips(self) -> None:
-        fg = _FrtFamilyGroup(
+        fg = _OfrFamilyGroup(
             id="fg1",
             union_type="MARRIAGE",
             is_divorced=True,
@@ -120,17 +120,17 @@ class TestFrtFamilyGroupDivorced:
 
 # ── custom_label field ────────────────────────────────────────────────────────
 
-class TestFrtFamilyGroupCustomLabel:
+class TestOfrFamilyGroupCustomLabel:
     def test_custom_label_defaults_to_none(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1")
+        fg = _OfrFamilyGroup(id="fg1")
         assert fg.custom_label is None
 
     def test_custom_label_set(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", custom_label="Church Wedding")
+        fg = _OfrFamilyGroup(id="fg1", custom_label="Church Wedding")
         assert fg.custom_label == "Church Wedding"
 
     def test_custom_label_round_trips(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1", custom_label="2nd Marriage")
+        fg = _OfrFamilyGroup(id="fg1", custom_label="2nd Marriage")
         data = fg.model_dump()
         assert data["custom_label"] == "2nd Marriage"
 
@@ -151,23 +151,23 @@ class TestImportTreeRequestCompactGraph:
 
     def _make_graph(self) -> ImportTreeRequest:
         persons = [
-            _FrtPerson(id="alice", display_given_name="Alice", birth_year=1950, sex="FEMALE"),
-            _FrtPerson(id="bob",   display_given_name="Bob",   birth_year=1948, sex="MALE"),
-            _FrtPerson(id="carol", display_given_name="Carol", birth_year=1975, sex="FEMALE"),
-            _FrtPerson(id="dave",  display_given_name="Dave",  birth_year=1977, sex="MALE"),
-            _FrtPerson(id="eve",   display_given_name="Eve",   birth_year=1952, sex="FEMALE"),
-            _FrtPerson(id="fred",  display_given_name="Fred",  birth_year=1949, sex="MALE"),
-            _FrtPerson(id="grace", display_given_name="Grace", birth_year=1978, sex="FEMALE"),
-            _FrtPerson(id="harry", display_given_name="Harry", birth_year=1980, sex="MALE"),
+            _OfrPerson(id="alice", display_given_name="Alice", birth_year=1950, sex="FEMALE"),
+            _OfrPerson(id="bob",   display_given_name="Bob",   birth_year=1948, sex="MALE"),
+            _OfrPerson(id="carol", display_given_name="Carol", birth_year=1975, sex="FEMALE"),
+            _OfrPerson(id="dave",  display_given_name="Dave",  birth_year=1977, sex="MALE"),
+            _OfrPerson(id="eve",   display_given_name="Eve",   birth_year=1952, sex="FEMALE"),
+            _OfrPerson(id="fred",  display_given_name="Fred",  birth_year=1949, sex="MALE"),
+            _OfrPerson(id="grace", display_given_name="Grace", birth_year=1978, sex="FEMALE"),
+            _OfrPerson(id="harry", display_given_name="Harry", birth_year=1980, sex="MALE"),
         ]
         family_groups = [
-            _FrtFamilyGroup(
+            _OfrFamilyGroup(
                 id="fg1",
                 parent_ids=["alice", "bob"],
                 children={"carol": "BIOLOGICAL", "dave": "BIOLOGICAL"},
                 union_type="MARRIAGE",
             ),
-            _FrtFamilyGroup(
+            _OfrFamilyGroup(
                 id="fg2",
                 parent_ids=["eve", "fred"],
                 children={"grace": "BIOLOGICAL", "harry": "BIOLOGICAL"},
@@ -230,7 +230,7 @@ class TestImportTreeRequestCompactGraph:
 
 class TestAncestorSubgraphStructure:
     """
-    Verifies that the parent–child direction in _FrtFamilyGroup matches the
+    Verifies that the parent–child direction in _OfrFamilyGroup matches the
     ancestorSubgraphIds() graph traversal expectation:
 
       - parent_ids lists persons who ARE PARENTS (ancestors go upward)
@@ -241,9 +241,9 @@ class TestAncestorSubgraphStructure:
     """
 
     def test_parent_ids_direction(self) -> None:
-        grandparent = _FrtPerson(id="gp", birth_year=1900)
-        parent = _FrtPerson(id="parent", birth_year=1930)
-        fg = _FrtFamilyGroup(
+        grandparent = _OfrPerson(id="gp", birth_year=1900)
+        parent = _OfrPerson(id="parent", birth_year=1930)
+        fg = _OfrFamilyGroup(
             id="fg1",
             parent_ids=["gp"],          # grandparent IS the parent
             children={"parent": "BIOLOGICAL"},  # parent is the child
@@ -254,7 +254,7 @@ class TestAncestorSubgraphStructure:
         assert "parent" in fg.children
 
     def test_multiple_ancestors_in_parent_ids(self) -> None:
-        fg = _FrtFamilyGroup(
+        fg = _OfrFamilyGroup(
             id="fg1",
             parent_ids=["grandfather", "grandmother"],
             children={"father": "BIOLOGICAL"},
@@ -266,15 +266,15 @@ class TestAncestorSubgraphStructure:
     def test_compact_ancestor_graph_three_generations(self) -> None:
         """Minimal 3-gen graph: great-grandparent → grandparent → parent."""
         persons = [
-            _FrtPerson(id="ggp", birth_year=1880),
-            _FrtPerson(id="gp",  birth_year=1910),
-            _FrtPerson(id="par", birth_year=1940),
-            _FrtPerson(id="foc", birth_year=1970),
+            _OfrPerson(id="ggp", birth_year=1880),
+            _OfrPerson(id="gp",  birth_year=1910),
+            _OfrPerson(id="par", birth_year=1940),
+            _OfrPerson(id="foc", birth_year=1970),
         ]
         fgs = [
-            _FrtFamilyGroup(id="fg1", parent_ids=["ggp"], children={"gp": "BIOLOGICAL"}),
-            _FrtFamilyGroup(id="fg2", parent_ids=["gp"],  children={"par": "BIOLOGICAL"}),
-            _FrtFamilyGroup(id="fg3", parent_ids=["par"], children={"foc": "BIOLOGICAL"}),
+            _OfrFamilyGroup(id="fg1", parent_ids=["ggp"], children={"gp": "BIOLOGICAL"}),
+            _OfrFamilyGroup(id="fg2", parent_ids=["gp"],  children={"par": "BIOLOGICAL"}),
+            _OfrFamilyGroup(id="fg3", parent_ids=["par"], children={"foc": "BIOLOGICAL"}),
         ]
         req = ImportTreeRequest(tree_name="Test Tree", persons=persons, family_groups=fgs)
         assert len(req.persons) == 4

@@ -487,8 +487,6 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
   useEffect(() => {
     if (!graph || graph.persons.length === 0 || expandedNodeIds.size > 0) return;
     expandAll(graph);
-    // Wait for ReactFlow to finish laying out all nodes before fitting
-    setTimeout(() => fitView({ duration: 600, padding: 0.12 }), 150);
   }, [graph, expandedNodeIds, expandAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const viewStyle = useCanvasStore((s) => s.viewStyle);
@@ -541,6 +539,7 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
   const [displayNodes, setDisplayNodes] = useState<TreeNode[]>([]);
   const prevLayoutKey = useRef('');
   const containerRef  = useRef<HTMLDivElement>(null);
+  const hasFitOnLoadRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
     getPositions: () =>
@@ -724,6 +723,27 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
       );
     }
   }, [layoutNodes]);
+
+  // Fit the whole tree into view the first time it renders after a fresh
+  // load (or switching to a different tree). This is keyed off displayNodes
+  // — the array actually handed to ReactFlow — rather than a fixed delay
+  // after expandAll: a hardcoded timeout races against layout/render cost
+  // that grows with tree size, and ReactFlow's fitView() silently no-ops if
+  // any node isn't registered in its internal store yet, leaving the canvas
+  // at its raw default viewport (a "blank" canvas on larger trees). The
+  // double rAF waits for that internal store to catch up with the latest
+  // nodes before asking ReactFlow to fit them.
+  useEffect(() => {
+    hasFitOnLoadRef.current = false;
+  }, [graph?.treeId]);
+
+  useEffect(() => {
+    if (hasFitOnLoadRef.current || displayNodes.length === 0) return;
+    hasFitOnLoadRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => fitView({ duration: 600, padding: 0.12 }));
+    });
+  }, [displayNodes, fitView]);
 
   // Reset node positions only when the reset button is pressed (no fit view)
   useEffect(() => {

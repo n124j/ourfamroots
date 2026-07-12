@@ -399,9 +399,9 @@ the dev server. No core files need to change. See `frontend/src/extensions/views
 Backend extension hooks (for views needing server-side support) go in
 `backend/extensions/views/`. Currently unused — all views are frontend-only.
 
-#### Import / Export (.frt)
+#### Import / Export (.ofr)
 
-OurFamRoots uses a native `.frt` backup format (JSON-based) for tree import and export.
+OurFamRoots uses a native `.ofr` backup format (JSON-based) for tree import and export.
 The format preserves all person data including:
 
 | Field | Description |
@@ -416,9 +416,9 @@ The format preserves all person data including:
 
 Family groups also preserve `custom_label` (user-defined union labels) and `union_type`.
 
-**Export:** From the tree toolbar, click **Export as .frt** to download the full tree backup.
+**Export:** From the tree toolbar, click **Export as .ofr** to download the full tree backup.
 
-**Import:** From the dashboard, click **Import tree** and upload a `.frt` file. All persons
+**Import:** From the dashboard, click **Import tree** and upload a `.ofr` file. All persons
 are re-created with new UUIDs and the importing user becomes the tree owner.
 
 #### Propose Changes to a Shared Tree

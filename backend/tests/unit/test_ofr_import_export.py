@@ -1,6 +1,6 @@
-"""Unit tests for .frt import/export schema validation.
+"""Unit tests for .ofr import/export schema validation.
 
-Verifies that the _FrtPerson and _FrtFamilyGroup Pydantic models correctly
+Verifies that the _OfrPerson and _OfrFamilyGroup Pydantic models correctly
 parse all fields — including the 'more details' fields (life dates, social
 handles, custom_label) that were added in the export/import round-trip fix.
 """
@@ -12,14 +12,14 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from src.api.v1.collaboration import _FrtPerson, _FrtFamilyGroup, ImportTreeRequest
+from src.api.v1.collaboration import _OfrPerson, _OfrFamilyGroup, ImportTreeRequest
 
 
-# ── _FrtPerson ───────────────────────────────────────────────────
+# ── _OfrPerson ───────────────────────────────────────────────────
 
-class TestFrtPerson:
+class TestOfrPerson:
     def test_minimal_person(self) -> None:
-        p = _FrtPerson(id="abc-123")
+        p = _OfrPerson(id="abc-123")
         assert p.id == "abc-123"
         assert p.display_given_name == ""
         assert p.display_surname == ""
@@ -36,7 +36,7 @@ class TestFrtPerson:
         assert p.linkedin_handle is None
 
     def test_full_person_with_all_fields(self) -> None:
-        p = _FrtPerson(
+        p = _OfrPerson(
             id="p1",
             display_given_name="Mary Anne",
             display_surname="Trump",
@@ -67,21 +67,21 @@ class TestFrtPerson:
         assert p.linkedin_handle == "in/maryanne"
 
     def test_year_only_fields(self) -> None:
-        p = _FrtPerson(id="p2", birth_year=1850, death_year=1920)
+        p = _OfrPerson(id="p2", birth_year=1850, death_year=1920)
         assert p.birth_year == 1850
         assert p.death_year == 1920
         assert p.birth_date is None
         assert p.death_date is None
 
     def test_date_only_fields(self) -> None:
-        p = _FrtPerson(id="p3", birth_date="1990-01-15", death_date="2060-12-31")
+        p = _OfrPerson(id="p3", birth_date="1990-01-15", death_date="2060-12-31")
         assert p.birth_date == "1990-01-15"
         assert p.death_date == "2060-12-31"
         assert p.birth_year is None
         assert p.death_year is None
 
     def test_social_handles_only(self) -> None:
-        p = _FrtPerson(
+        p = _OfrPerson(
             id="p4",
             facebook_handle="john.doe",
             x_handle="johndoe",
@@ -93,14 +93,14 @@ class TestFrtPerson:
 
     def test_missing_id_raises(self) -> None:
         with pytest.raises(ValidationError):
-            _FrtPerson()  # type: ignore[call-arg]
+            _OfrPerson()  # type: ignore[call-arg]
 
 
-# ── _FrtFamilyGroup ──────────────────────────────────────────────
+# ── _OfrFamilyGroup ──────────────────────────────────────────────
 
-class TestFrtFamilyGroup:
+class TestOfrFamilyGroup:
     def test_minimal_family_group(self) -> None:
-        fg = _FrtFamilyGroup(id="fg1")
+        fg = _OfrFamilyGroup(id="fg1")
         assert fg.id == "fg1"
         assert fg.union_type == "UNKNOWN"
         assert fg.custom_label is None
@@ -108,7 +108,7 @@ class TestFrtFamilyGroup:
         assert fg.children == {}
 
     def test_full_family_group(self) -> None:
-        fg = _FrtFamilyGroup(
+        fg = _OfrFamilyGroup(
             id="fg1",
             union_type="MARRIAGE",
             custom_label="Church Wedding",
@@ -121,12 +121,12 @@ class TestFrtFamilyGroup:
         assert fg.children == {"p3": "BIOLOGICAL", "p4": "ADOPTIVE"}
 
     def test_custom_label_none_by_default(self) -> None:
-        fg = _FrtFamilyGroup(id="fg2", union_type="PARTNERSHIP")
+        fg = _OfrFamilyGroup(id="fg2", union_type="PARTNERSHIP")
         assert fg.custom_label is None
 
     def test_missing_id_raises(self) -> None:
         with pytest.raises(ValidationError):
-            _FrtFamilyGroup()  # type: ignore[call-arg]
+            _OfrFamilyGroup()  # type: ignore[call-arg]
 
 
 # ── ImportTreeRequest (full round-trip payload) ──────────────────
@@ -134,7 +134,7 @@ class TestFrtFamilyGroup:
 class TestImportTreeRequest:
     def test_full_payload_parses(self) -> None:
         payload = {
-            "frt_version": "1.0",
+            "ofr_version": "1.0",
             "tree_name": "Smith Family",
             "tree_description": "A test family",
             "persons": [
@@ -192,10 +192,10 @@ class TestImportTreeRequest:
         fg = req.family_groups[0]
         assert fg.custom_label == "First Marriage"
 
-    def test_backward_compatible_with_old_frt(self) -> None:
-        """Old .frt files without the new fields should still import fine."""
+    def test_backward_compatible_with_minimal_fields(self) -> None:
+        """Old .ofr files without the new fields should still import fine."""
         payload = {
-            "frt_version": "1.0",
+            "ofr_version": "1.0",
             "tree_name": "Old Tree",
             "persons": [
                 {

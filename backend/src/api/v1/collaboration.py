@@ -699,7 +699,7 @@ async def get_shared_tree_og_preview(
 
 @router.get(
     "/trees/{tree_id}/export-zip",
-    summary="Export tree as a ZIP archive containing the .frt backup and all member photos",
+    summary="Export tree as a ZIP archive containing the .ofr backup and all member photos",
 )
 async def export_tree_zip(
     tree_id: uuid.UUID,
@@ -865,8 +865,8 @@ async def export_tree_zip(
         if gal:
             pe["gallery_photos"] = gal
 
-    frt_payload = {
-        "frt_version": "1.1",
+    ofr_payload = {
+        "ofr_version": "1.1",
         "exported_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "tree_name": tree_row.name,
         "tree_description": tree_row.description,
@@ -881,9 +881,9 @@ async def export_tree_zip(
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # Write .frt JSON
+        # Write .ofr JSON
         tree_slug = tree_row.name.replace(" ", "_")[:50]
-        zf.writestr(f"{tree_slug}.frt", json.dumps(frt_payload, indent=2))
+        zf.writestr(f"{tree_slug}.ofr", json.dumps(ofr_payload, indent=2))
 
         # Download and write each photo
         if photo_downloads:
@@ -1497,14 +1497,14 @@ async def get_tree_graph(
     }
 
 
-# ── Import tree (.frt) ─────────────────────────────────────────────────────────
+# ── Import tree (.ofr) ─────────────────────────────────────────────────────────
 
 _VALID_SEX = {"MALE", "FEMALE", "OTHER", "UNKNOWN"}
 _VALID_UNION_TYPES = {"MARRIAGE", "PARTNERSHIP", "COHABITATION", "UNKNOWN"}
 _VALID_PARENTAGE_TYPES = {"BIOLOGICAL", "ADOPTIVE", "STEP", "FOSTER", "UNKNOWN"}
 
 
-class _FrtPerson(BaseModel):
+class _OfrPerson(BaseModel):
     id: str
     display_given_name: str = ""
     display_surname: str = ""
@@ -1526,7 +1526,7 @@ class _FrtPerson(BaseModel):
     linkedin_handle: Optional[str] = None
 
 
-class _FrtFamilyGroup(BaseModel):
+class _OfrFamilyGroup(BaseModel):
     id: str
     union_type: str = "UNKNOWN"
     custom_label: Optional[str] = None
@@ -1540,11 +1540,11 @@ class _FrtFamilyGroup(BaseModel):
 
 
 class ImportTreeRequest(BaseModel):
-    frt_version: str = "1.0"
+    ofr_version: str = "1.0"
     tree_name: str = Field(..., min_length=1, max_length=200)
     tree_description: Optional[str] = None
-    persons: list[_FrtPerson] = []
-    family_groups: list[_FrtFamilyGroup] = []
+    persons: list[_OfrPerson] = []
+    family_groups: list[_OfrFamilyGroup] = []
 
 
 @router.post("/trees/{tree_id}/export-log", status_code=204, summary="Record a tree export event in the audit log")
@@ -1572,7 +1572,7 @@ async def log_tree_export(
     return Response(status_code=204)
 
 
-@router.post("/trees/import", status_code=201, summary="Import a .frt backup file as a new tree")
+@router.post("/trees/import", status_code=201, summary="Import a .ofr backup file as a new tree")
 async def import_tree(
     body: ImportTreeRequest,
     current_user: NotAuditorDep,
@@ -1745,18 +1745,18 @@ async def import_tree_zip(
     except zipfile.BadZipFile:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "File is not a valid ZIP archive")
 
-    # Find the .frt file inside the ZIP
-    frt_names = [n for n in zf.namelist() if n.endswith(".frt") and "/" not in n]
-    if not frt_names:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "ZIP does not contain a .frt file")
-    frt_data = json.loads(zf.read(frt_names[0]))
-    if not frt_data.get("frt_version") or not frt_data.get("tree_name"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid .frt format")
+    # Find the .ofr file inside the ZIP
+    ofr_names = [n for n in zf.namelist() if n.endswith(".ofr") and "/" not in n]
+    if not ofr_names:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "ZIP does not contain a .ofr file")
+    ofr_data = json.loads(zf.read(ofr_names[0]))
+    if not ofr_data.get("ofr_version") or not ofr_data.get("tree_name"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid .ofr format")
 
-    tree_name = frt_data["tree_name"]
-    tree_description = frt_data.get("tree_description")
-    persons_raw = frt_data.get("persons", [])
-    fgs_raw = frt_data.get("family_groups", [])
+    tree_name = ofr_data["tree_name"]
+    tree_description = ofr_data.get("tree_description")
+    persons_raw = ofr_data.get("persons", [])
+    fgs_raw = ofr_data.get("family_groups", [])
 
     # 1. Create tree
     new_tree_id = uuid.uuid4()

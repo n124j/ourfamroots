@@ -2815,11 +2815,11 @@ function TreeTopBar({
     }
   }
 
-  function handleExportFrt() {
+  function handleExportOfr() {
     if (!graph) return;
     setExportOpen(false);
     const payload = {
-      frt_version: '1.0',
+      ofr_version: '1.0',
       exported_at: new Date().toISOString(),
       tree_name: treeName,
       tree_description: treeDescription ?? null,
@@ -2858,7 +2858,7 @@ function TreeTopBar({
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `${treeName.replace(/\s+/g, '_')}.frt`;
+    a.download = `${treeName.replace(/\s+/g, '_')}.ofr`;
     a.click();
     URL.revokeObjectURL(url);
     post(`/trees/${graph.treeId}/export-log`).catch(() => {});
@@ -2973,9 +2973,9 @@ function TreeTopBar({
                   {t('treePage.exportAsCsv')}
                 </button>
 
-                {/* FRT */}
+                {/* OFR */}
                 <button
-                  onClick={handleExportFrt}
+                  onClick={handleExportOfr}
                   disabled={!graph}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors text-left disabled:opacity-40"
                 >
@@ -2984,7 +2984,7 @@ function TreeTopBar({
                     <path d="M8 1v3h3" />
                     <path d="M4 7h4M4 9.5h2.5" strokeLinecap="round" />
                   </svg>
-                  {t('treePage.exportAsFrt')}
+                  {t('treePage.exportAsOfr')}
                 </button>
 
                 {/* ZIP */}
