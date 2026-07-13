@@ -10,6 +10,15 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { changeLanguage } from '../i18n';
+import { usePortalThemeStore, type PortalTheme } from './portalTheme.store';
+
+export interface AuthNamespace {
+  id: string;
+  name: string;
+  slug: string;
+  isGlobal?: boolean;
+}
 
 export interface AuthUser {
   id: string;
@@ -19,6 +28,11 @@ export interface AuthUser {
   avatarUrl?: string;
   isEmailVerified: boolean;
   appRole: 'SUPER_ADMIN' | 'ADMIN' | 'STANDARD' | 'AUDITOR';
+  namespace?: AuthNamespace;
+  /** Account-level UI language (e.g. 'en', 'ne') — the source of truth once signed in. */
+  language?: string;
+  /** Account-level portal appearance/theme — the source of truth once signed in. */
+  theme?: PortalTheme;
 }
 
 interface AuthStore {
@@ -51,10 +65,17 @@ export const useAuthStore = create<AuthStore>()(
       setAccessToken: (token) =>
         set({ accessToken: token, isAuthenticated: true }),
 
-      setUser: (user) => set({ user }),
+      setUser: (user) => {
+        if (user.language) changeLanguage(user.language);
+        if (user.theme) usePortalThemeStore.getState().setTheme(user.theme);
+        set({ user });
+      },
 
-      login: (accessToken, user) =>
-        set({ accessToken, user, isAuthenticated: true }),
+      login: (accessToken, user) => {
+        if (user.language) changeLanguage(user.language);
+        if (user.theme) usePortalThemeStore.getState().setTheme(user.theme);
+        set({ accessToken, user, isAuthenticated: true });
+      },
 
       logout: () =>
         set({ accessToken: null, user: null, isAuthenticated: false }),
@@ -104,6 +125,11 @@ export async function initAuth(): Promise<void> {
         avatarUrl: u.avatar_url,
         isEmailVerified: u.email_verified,
         appRole: u.app_role ?? 'STANDARD',
+        namespace: u.namespace
+          ? { id: u.namespace.id, name: u.namespace.name, slug: u.namespace.slug, isGlobal: u.namespace.is_global }
+          : undefined,
+        language: u.locale,
+        theme: u.theme ?? undefined,
       });
     } else {
       console.warn('[initAuth] /users/me failed:', meRes.status, await meRes.text().catch(() => ''));

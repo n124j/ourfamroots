@@ -594,6 +594,25 @@ export default function AppShell() {
         </button>
       </div>
 
+      {/* Current namespace — omitted for the default/global namespace, since that's
+          where most users land and calling it out isn't meaningful for them. */}
+      {user?.namespace && !user.namespace.isGlobal && (
+        <div
+          className="mx-3 mt-3 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shrink-0"
+          style={{ background: 'var(--portal-nav-hover)' }}
+          title={t('nav.currentNamespace')}
+        >
+          <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+            style={{ color: 'var(--portal-nav-text)', opacity: 0.7, flexShrink: 0 }}>
+            <path d="M3 21V7l7-4 7 4v14" />
+            <path d="M9 21v-6h2v6" />
+          </svg>
+          <span className="text-xs font-medium truncate" style={{ color: 'var(--portal-nav-text)' }}>
+            {user.namespace.name}
+          </span>
+        </div>
+      )}
+
       {/* Nav links */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {nav.map(({ to, label }) => (

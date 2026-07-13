@@ -158,8 +158,13 @@ paste the 16-character result into `SMTP_PASSWORD`.
 openssl rand -hex 64
 ```
 
-**`DEFAULT_TENANT_SLUG`** — OurFamRoots is single-tenant. All registered users join one
-shared tenant identified by this slug. Changing it after data is seeded requires a data migration.
+**`DEFAULT_TENANT_SLUG`** — OurFamRoots supports multiple **namespaces** (isolated
+spaces, each with its own Admin/Standard/Auditor roles). Exactly one namespace is
+flagged `is_global` and is where every new registration lands by default — this
+setting identifies that namespace by slug. A Super Admin can create additional
+namespaces (Admin Dashboard → Namespaces) and invite Global-namespace users into
+them; accepting an invitation transfers the user's account into that namespace
+and forces a re-login. Changing this slug after data is seeded requires a data migration.
 
 **`S3_PUBLIC_URL`** — Presigned MinIO download URLs are rewritten to this host before being
 returned to the browser. The internal `minio:9000` hostname is unreachable outside Docker,
@@ -168,7 +173,8 @@ so this must point to the externally reachable MinIO API port (`http://localhost
 **`SUPER_ADMIN_EMAIL`** — (Optional) The email address of the Super Administrator.
 This user automatically receives the `SUPER_ADMIN` role on login and gets:
 
-- **Full visibility** — can see all trees and all users across the platform
+- **Full visibility** — can see all trees and all users across every namespace
+- **Namespace management** — can create additional namespaces and invite Global-namespace users into them (Admin Dashboard → Namespaces)
 - **Maintenance mode** — can toggle the site to "Under Construction" with a custom message (Admin Dashboard → Site Settings)
 - **Broadcast email** — can compose and send emails to all users or selected recipients (Admin Dashboard → Broadcast), with full history tracking
 - Users can unsubscribe from broadcast emails in Settings → Notifications
@@ -450,11 +456,23 @@ restore rather than a surgical undo.
 
 #### Admin Dashboard
 
-Accessible to ADMIN-role accounts:
+Accessible to ADMIN-role accounts, scoped to their own namespace (a Super Admin
+sees and manages every namespace):
 
-- Manually verify / unverify user accounts
-- Deactivate / reactivate users (email notifications sent on each action)
-- All admin actions appear in the Activity feed
+- **Users** — manually verify/unverify, deactivate/reactivate (email notifications
+  sent on each action), search/filter/sort, and (Super Admin only) filter by namespace
+- **Permission Groups** — reusable bundles of tree access at a given role
+  (Viewer/Editor); grant to individual members, a linked User Group, or make
+  global (applies to every user in the namespace)
+- **User Groups** — reusable collections of users; link a User Group to a
+  Permission Group so its members inherit access immediately, or use it for
+  bulk role assignment
+- **Subscriptions** — Free/Premium plans that grant members access to a set of
+  tree filters, with optional expiry
+- **Namespaces** (Super Admin only) — create additional namespaces and invite
+  Global-namespace users into them
+- **Activity feed** — every admin action, login event, and (for Auditor/Super
+  Admin) cross-namespace activity, searchable and exportable to CSV
 
 ### 6. Optional: monitoring stack
 

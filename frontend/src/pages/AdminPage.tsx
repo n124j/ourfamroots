@@ -2,16 +2,24 @@
  * AdminPage — user management dashboard.
  * Visible to ADMIN role only.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@store/auth.store';
 import { SEO } from '@shared/components/SEO';
 import { UserAvatar } from '@shared/components/UserAvatar';
+import { SearchableCombobox } from '@shared/components/SearchableCombobox';
+import { MemberChips } from '@shared/components/MemberChips';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const PAGE_SIZE = 25;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+interface NamespaceSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 interface AdminUser {
   id: string;
@@ -24,6 +32,18 @@ interface AdminUser {
   is_active: boolean;
   last_login_at: string | null;
   created_at: string;
+  namespace?: NamespaceSummary | null;
+}
+
+interface Namespace {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  is_global: boolean;
+  user_count: number;
+  user_preview: string[];
+  created_at: string;
 }
 
 interface UsersResponse {
@@ -32,6 +52,13 @@ interface UsersResponse {
   page: number;
   page_size: number;
   total_pages: number;
+}
+
+/** Minimal shape used by user-picker comboboxes (add member to a group/subscription). */
+interface PickableUser {
+  id: string;
+  email: string;
+  display_name: string;
 }
 
 const ROLE_OPTIONS = ['ADMIN', 'STANDARD', 'AUDITOR'] as const;
@@ -53,6 +80,7 @@ interface PermissionGroup {
   is_global: boolean;
   tree_count: number;
   member_count: number;
+  member_preview: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -77,6 +105,37 @@ interface GroupMember {
 
 interface TenantTree { id: string; name: string; }
 
+// ── User Group types ───────────────────────────────────────────────────────────
+
+interface UserGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  member_count: number;
+  member_preview: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface UserGroupMember {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_display_name: string;
+  added_by: string | null;
+  added_at: string;
+}
+
+interface GroupUserGroupLink {
+  id: string;
+  user_group_id: string;
+  user_group_name: string;
+  member_count: number;
+  added_by: string | null;
+  added_at: string;
+}
+
 const LEVEL_LABEL_KEY: Record<string, string> = {
   VISIBLE:    'adminPage.visible',
   READ:       'adminPage.read',
@@ -99,6 +158,7 @@ interface Subscription {
   is_expired: boolean;
   filter_count: number;
   member_count: number;
+  member_preview: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -174,14 +234,83 @@ function formatDateTime(iso: string | null) {
   });
 }
 
+/** Shared `fetchPage` for SearchableCombobox pickers backed by /admin/users. */
+function fetchPickableUsersPage(token: string | null) {
+  return async (page: number, pageSize: number, search: string) => {
+    if (!token) return { items: [] as PickableUser[], total_pages: 1 };
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+    const res = await fetch(`${API_BASE}/admin/users?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) return { items: [] as PickableUser[], total_pages: 1 };
+    const data: UsersResponse = await res.json();
+    return {
+      items: data.items.map((u) => ({ id: u.id, email: u.email, display_name: displayName(u) })),
+      total_pages: data.total_pages,
+    };
+  };
+}
+
+// ── Searchable namespace combobox ───────────────────────────────────────────
+
+function NamespaceCombobox({
+  token,
+  selected,
+  onSelect,
+  emptyLabel,
+  placeholder,
+  excludeGlobal = false,
+}: {
+  token: string | null;
+  selected: Namespace | null;
+  onSelect: (ns: Namespace | null) => void;
+  emptyLabel: string;
+  placeholder?: string;
+  excludeGlobal?: boolean;
+}) {
+  const { t } = useTranslation();
+  const fetchPage = useCallback(async (page: number, pageSize: number, search: string) => {
+    if (!token) return { items: [], total_pages: 1 };
+    const params = new URLSearchParams({
+      page: String(page), page_size: String(pageSize),
+      ...(search ? { search } : {}),
+    });
+    const res = await fetch(`${API_BASE}/admin/namespaces?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) return { items: [], total_pages: 1 };
+    return await res.json();
+  }, [token]);
+
+  return (
+    <SearchableCombobox<Namespace>
+      fetchPage={fetchPage}
+      renderOption={(ns) => <>{ns.name} <span className="text-gray-400">/{ns.slug}</span>{ns.is_global ? ` · ${t('adminPage.globalTag')}` : ''}</>}
+      getLabel={(ns) => ns.name}
+      selected={selected}
+      onSelect={onSelect}
+      emptyLabel={emptyLabel}
+      placeholder={placeholder ?? t('adminPage.searchNamespacesPlaceholder')}
+      filterItems={excludeGlobal ? (items) => items.filter((n) => !n.is_global) : undefined}
+      noResultsLabel={t('adminPage.noNamespacesFound')}
+    />
+  );
+}
+
 // ── Create user modal ──────────────────────────────────────────────────────────
 
 function CreateUserModal({
   token,
+  isSuperAdmin,
+  currentNamespaceName,
   onClose,
   onCreated,
 }: {
   token: string | null;
+  isSuperAdmin: boolean;
+  currentNamespaceName: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -193,6 +322,10 @@ function CreateUserModal({
   const [saving,     setSaving]     = useState(false);
   const [error,      setError]      = useState('');
 
+  const [selectedNamespace, setSelectedNamespace] = useState<Namespace | null>(null);
+
+  const targetNamespaceName = selectedNamespace?.name ?? currentNamespaceName;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -202,7 +335,10 @@ function CreateUserModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), given_name: givenName.trim(), family_name: familyName.trim(), app_role: role }),
+        body: JSON.stringify({
+          email: email.trim(), given_name: givenName.trim(), family_name: familyName.trim(), app_role: role,
+          ...(isSuperAdmin && selectedNamespace ? { namespace_id: selectedNamespace.id } : {}),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -222,7 +358,10 @@ function CreateUserModal({
       onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.createUser')}</h2>
-        <p className="text-xs text-gray-500 mb-4">{t('adminPage.activationEmail')}</p>
+        <p className="text-xs text-gray-500 mb-4">
+          {t('adminPage.activationEmail')}
+          {targetNamespaceName && <> This user will be created in <strong>{targetNamespaceName}</strong>.</>}
+        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.email')} <span className="text-red-500">*</span></label>
@@ -249,6 +388,18 @@ function CreateUserModal({
               {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{t('roles.' + r)}</option>)}
             </select>
           </div>
+          {isSuperAdmin && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.namespaceLabel')}</label>
+              <NamespaceCombobox
+                token={token}
+                selected={selectedNamespace}
+                onSelect={setSelectedNamespace}
+                emptyLabel={t('adminPage.myNamespaceDefault', { name: currentNamespaceName ?? t('adminPage.myNamespaceFallback') })}
+                excludeGlobal
+              />
+            </div>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose} disabled={saving}
@@ -436,6 +587,7 @@ function Step2MergePanel({
   onBack, onMerge,
   autoMerging, showProgressBar, autoProgress, autoProgressLabel, onAutoMerge,
 }: Step2Props) {
+  const { t } = useTranslation();
   // Compute which persons would be auto-merged (live preview)
   const identicalMatches = React.useMemo(() => {
     if (!mergeIdentical) return [];
@@ -468,8 +620,7 @@ function Step2MergePanel({
   return (
     <div className="space-y-5">
       <p className="text-sm text-gray-600">
-        For each tree, select the <span className="font-medium">same real person</span> who connects the trees.
-        All pivot people will be merged into one person in the new tree.
+        {t('adminPage.pivotInstructions')}
       </p>
 
       {selectedTreeIds.map(tid => {
@@ -484,17 +635,17 @@ function Step2MergePanel({
                 <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
               </div>
             ) : pList.length === 0 ? (
-              <p className="text-xs text-gray-400">No people in this tree.</p>
+              <p className="text-xs text-gray-400">{t('adminPage.noPeopleInTree')}</p>
             ) : (
               <select
                 value={pivots[tid] ?? ''}
                 onChange={e => setPivots(prev => ({ ...prev, [tid]: e.target.value }))}
                 className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
-                <option value="">— select pivot person —</option>
+                <option value="">{t('adminPage.selectPivotPersonOption')}</option>
                 {pList.map(p => (
                   <option key={p.id} value={p.id}>
-                    {[p.display_given_name, p.display_surname].filter(Boolean).join(' ') || '(unnamed)'}
+                    {[p.display_given_name, p.display_surname].filter(Boolean).join(' ') || t('adminPage.unnamedPerson')}
                     {p.birth_year ? ` (${p.birth_year})` : ''}
                   </option>
                 ))}
@@ -514,10 +665,9 @@ function Step2MergePanel({
             className="mt-0.5 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
           />
           <div>
-            <span className="text-sm font-medium text-gray-800">Merge identical members</span>
+            <span className="text-sm font-medium text-gray-800">{t('adminPage.mergeIdenticalLabel')}</span>
             <p className="text-xs text-gray-500 mt-0.5">
-              Members with the same name (and compatible birth year / sex) across both trees
-              are collapsed into a single person in the merged tree.
+              {t('adminPage.mergeIdenticalDesc')}
             </p>
           </div>
         </label>
@@ -527,33 +677,33 @@ function Step2MergePanel({
           identicalMatches.length > 0 ? (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
               <p className="text-xs font-medium text-amber-700 mb-1.5">
-                {identicalMatches.length} member{identicalMatches.length !== 1 ? 's' : ''} will be auto-merged:
+                {t('adminPage.willBeAutoMerged', { count: identicalMatches.length })}
               </p>
               <ul className="space-y-0.5">
                 {identicalMatches.slice(0, 6).map((group, i) => {
                   const name = [group[0].person.display_given_name, group[0].person.display_surname]
-                    .filter(Boolean).join(' ') || '(unnamed)';
+                    .filter(Boolean).join(' ') || t('adminPage.unnamedPerson');
                   const by   = group[0].person.birth_year;
                   return (
                     <li key={i} className="text-xs text-amber-800 flex items-center gap-1">
                       <span className="text-amber-400">•</span>
                       {name}{by ? ` (${by})` : ''}
                       <span className="text-amber-500 ml-1">
-                        — found in {group.length} trees
+                        {t('adminPage.foundInTrees', { count: group.length })}
                       </span>
                     </li>
                   );
                 })}
                 {identicalMatches.length > 6 && (
                   <li className="text-xs text-amber-600">
-                    … and {identicalMatches.length - 6} more
+                    {t('adminPage.andMoreMerged', { count: identicalMatches.length - 6 })}
                   </li>
                 )}
               </ul>
             </div>
           ) : (
             <p className="text-xs text-gray-400">
-              No members with identical names found across the selected trees.
+              {t('adminPage.noIdenticalFound')}
             </p>
           )
         )}
@@ -585,7 +735,7 @@ function Step2MergePanel({
           disabled={merging || autoMerging}
           className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          Back
+          {t('adminPage.back')}
         </button>
         <button
           onClick={onMerge}
@@ -593,16 +743,16 @@ function Step2MergePanel({
           className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           {merging && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />}
-          {merging ? 'Merging…' : 'Create merged tree'}
+          {merging ? t('adminPage.merging') : t('adminPage.createMergedTree')}
         </button>
         <button
           onClick={onAutoMerge}
           disabled={merging || autoMerging}
-          title="Automatically find common members across all selected trees and create a merged tree"
+          title={t('adminPage.autoMergeTooltip')}
           className="px-4 py-2 border border-brand-400 text-brand-600 text-sm font-medium rounded-lg hover:bg-brand-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           {autoMerging && <span className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin inline-block" />}
-          {autoMerging ? 'Auto-merging…' : 'Auto'}
+          {autoMerging ? t('adminPage.autoMergingLabel') : t('adminPage.auto')}
         </button>
       </div>
     </div>
@@ -647,9 +797,9 @@ function MergeTreesPanel({ token }: { token: string | null }) {
   const [showProgressBar, setShowProgressBar] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/admin/trees`, { headers: authHeader, credentials: 'include' })
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setAllTrees(data))
+    fetch(`${API_BASE}/admin/trees?page_size=200`, { headers: authHeader, credentials: 'include' })
+      .then(r => r.ok ? r.json() : { items: [] })
+      .then(data => setAllTrees(data.items ?? []))
       .finally(() => setLoadingTrees(false));
   }, []);
 
@@ -694,7 +844,7 @@ function MergeTreesPanel({ token }: { token: string | null }) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).detail ?? 'Merge failed');
+        throw new Error((err as any).detail ?? t('adminPage.mergeFailed'));
       }
       setResult(await res.json());
       setStep(3);
@@ -717,14 +867,14 @@ function MergeTreesPanel({ token }: { token: string | null }) {
     const showBarTimer = setTimeout(() => {
       setShowProgressBar(true);
       setAutoProgress(10);
-      setAutoProgressLabel('Finding common members…');
+      setAutoProgressLabel(t('adminPage.findingCommonMembers'));
     }, 1500);
 
     // Simulated progress stages
-    const stage1 = setTimeout(() => { setAutoProgress(35); setAutoProgressLabel('Comparing trees…'); }, 2500);
-    const stage2 = setTimeout(() => { setAutoProgress(60); setAutoProgressLabel('Building merged tree…'); }, 4000);
-    const stage3 = setTimeout(() => { setAutoProgress(82); setAutoProgressLabel('Linking relationships…'); }, 5500);
-    const stage4 = setTimeout(() => { setAutoProgress(92); setAutoProgressLabel('Finalising…'); }, 7000);
+    const stage1 = setTimeout(() => { setAutoProgress(35); setAutoProgressLabel(t('adminPage.comparingTrees')); }, 2500);
+    const stage2 = setTimeout(() => { setAutoProgress(60); setAutoProgressLabel(t('adminPage.buildingMergedTree')); }, 4000);
+    const stage3 = setTimeout(() => { setAutoProgress(82); setAutoProgressLabel(t('adminPage.linkingRelationships')); }, 5500);
+    const stage4 = setTimeout(() => { setAutoProgress(92); setAutoProgressLabel(t('adminPage.finalising')); }, 7000);
 
     try {
       const res = await fetch(`${API_BASE}/trees/merge/auto`, {
@@ -739,10 +889,10 @@ function MergeTreesPanel({ token }: { token: string | null }) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).detail ?? 'Auto-merge failed');
+        throw new Error((err as any).detail ?? t('adminPage.autoMergeFailed'));
       }
       setAutoProgress(100);
-      setAutoProgressLabel('Done!');
+      setAutoProgressLabel(t('adminPage.done'));
       await new Promise(r => setTimeout(r, 400));
       setResult(await res.json());
       setStep(3);
@@ -784,7 +934,8 @@ function MergeTreesPanel({ token }: { token: string | null }) {
       </div>
       <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.mergeComplete')}</h2>
       <p className="text-sm text-gray-500 mb-1">
-        <span className="font-medium text-gray-700">{result.tree_name}</span> was created with {result.person_count} people.
+        <span className="font-medium text-gray-700">{result.tree_name}</span>{' '}
+        {t('adminPage.mergeCreatedWith', { count: result.person_count })}
       </p>
       <div className="mt-6 flex gap-3 justify-center">
         <a
@@ -867,7 +1018,7 @@ function MergeTreesPanel({ token }: { token: string | null }) {
             disabled={!newName.trim() || selectedTreeIds.length < 2}
             className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Next: choose pivot people
+            {t('adminPage.nextChoosePivot')}
           </button>
         </div>
       )}
@@ -952,8 +1103,39 @@ function BroadcastPanel({ token }: { token: string | null }) {
   const [recipientSearch,  setRecipientSearch]  = useState('');
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [selectedIds,      setSelectedIds]      = useState<Set<string>>(new Set());
+  const [addingFromGroup,  setAddingFromGroup]  = useState(false);
 
   const searchRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const fetchUserGroupsPage = useCallback(async (page: number, pageSize: number, search: string) => {
+    if (!token) return { items: [], total_pages: 1 };
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+    const res = await fetch(`${API_BASE}/admin/user-groups?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+    });
+    if (!res.ok) return { items: [], total_pages: 1 };
+    return await res.json();
+  }, [token]);
+
+  async function handleAddFromUserGroup(ug: UserGroup | null) {
+    if (!ug || !token) return;
+    setAddingFromGroup(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/user-groups/${ug.id}/members`, {
+        headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
+      });
+      if (res.ok) {
+        const members: UserGroupMember[] = await res.json();
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          members.forEach((m) => next.add(m.user_id));
+          return next;
+        });
+      }
+    } finally {
+      setAddingFromGroup(false);
+    }
+  }
 
   // Load recipients when switching to selective mode
   useEffect(() => {
@@ -1176,6 +1358,21 @@ function BroadcastPanel({ token }: { token: string | null }) {
         {/* Selective recipients list */}
         {!sendToAll && (
           <div className="border rounded-lg mb-5" style={{ borderColor: 'var(--portal-card-border)' }}>
+            {/* Add members of a user group */}
+            <div className="p-3 border-b" style={{ borderColor: 'var(--portal-card-border)' }}>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Add members of a user group</label>
+              <SearchableCombobox<UserGroup>
+                fetchPage={fetchUserGroupsPage}
+                renderOption={(ug) => <>{ug.name} <span className="text-gray-400">({ug.member_count} members)</span></>}
+                getLabel={() => ''}
+                selected={null}
+                onSelect={handleAddFromUserGroup}
+                emptyLabel="None"
+                placeholder={addingFromGroup ? 'Adding…' : 'Search user groups…'}
+                noResultsLabel="No user groups found"
+              />
+            </div>
+
             {/* Search + select/deselect all */}
             <div className="flex items-center gap-2 p-3 border-b" style={{ borderColor: 'var(--portal-card-border)' }}>
               <input
@@ -1544,7 +1741,8 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
   const [error, setError] = useState('');
 
   const [selectedTreeIds, setSelectedTreeIds] = useState<string[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState<PermissionGroup | null>(null);
+  const selectedGroupId = selectedGroup?.id ?? '';
   const [submitting, setSubmitting] = useState(false);
 
   const [groupTrees, setGroupTrees] = useState<Record<string, GroupTree[]>>({});
@@ -1556,12 +1754,17 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
     setLoading(true);
     setError('');
     try {
+      // page_size=200: this checklist + the "already global" list below expect
+      // the whole tenant catalog, not a paginated slice — the searchable
+      // combobox pattern (used for the permission-group picker just below)
+      // is for single-item pickers where hundreds of options is unusable in
+      // a <select>; a multi-select checklist already scrolls fine.
       const [treesRes, groupsRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/trees`, { headers: authHeader, credentials: 'include' }),
-        fetch(`${API_BASE}/admin/permission-groups`, { headers: authHeader, credentials: 'include' }),
+        fetch(`${API_BASE}/admin/trees?page_size=200`, { headers: authHeader, credentials: 'include' }),
+        fetch(`${API_BASE}/admin/permission-groups?page_size=200`, { headers: authHeader, credentials: 'include' }),
       ]);
-      if (treesRes.ok) setAllTrees(await treesRes.json());
-      if (groupsRes.ok) setGroups(await groupsRes.json());
+      if (treesRes.ok) setAllTrees((await treesRes.json()).items);
+      if (groupsRes.ok) setGroups((await groupsRes.json()).items);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1627,7 +1830,7 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
         throw new Error((err as any).detail ?? 'Failed to make group global');
       }
       setSelectedTreeIds([]);
-      setSelectedGroupId('');
+      setSelectedGroup(null);
       setGroupTrees((prev) => { const n = { ...prev }; delete n[selectedGroupId]; return n; });
       await fetchAll();
     } catch (e) {
@@ -1699,18 +1902,23 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
         <p className="text-xs font-medium text-gray-600 mb-1">
           {t('adminPage.selectPermissionGroup')} <span className="text-red-500">*</span>
         </p>
-        <select
-          value={selectedGroupId}
-          onChange={(e) => setSelectedGroupId(e.target.value)}
-          className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 mb-4"
-        >
-          <option value="">{t('adminPage.selectGroup')}</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name} — {t(LEVEL_LABEL_KEY[g.permission_level])}{g.is_global ? ` (${t('adminPage.alreadyGlobal')})` : ''}
-            </option>
-          ))}
-        </select>
+        <div className="mb-4">
+          <SearchableCombobox<PermissionGroup>
+            fetchPage={async (page, pageSize, search) => {
+              const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+              const res = await fetch(`${API_BASE}/admin/permission-groups?${params}`, { headers: authHeader, credentials: 'include' });
+              if (!res.ok) return { items: [], total_pages: 1 };
+              return await res.json();
+            }}
+            renderOption={(g) => <>{g.name} — {t(LEVEL_LABEL_KEY[g.permission_level])}{g.is_global ? ` (${t('adminPage.alreadyGlobal')})` : ''}</>}
+            getLabel={(g) => g.name}
+            selected={selectedGroup}
+            onSelect={setSelectedGroup}
+            emptyLabel={t('adminPage.selectGroup')}
+            placeholder="Search permission groups…"
+            noResultsLabel="No permission groups found"
+          />
+        </div>
 
         <button
           onClick={handleMakeGlobal}
@@ -1777,6 +1985,301 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
   );
 }
 
+// ── Namespaces panel (Super Admin only) ─────────────────────────────────────────
+
+function CreateNamespaceModal({
+  token,
+  onClose,
+  onCreated,
+}: {
+  token: string | null;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim(), slug: slug.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? t('adminPage.failedCreateNamespace'));
+      }
+      onCreated();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.createNamespaceTitle')}</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          {t('adminPage.createNamespaceDesc')}
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.name')} <span className="text-red-500">*</span></label>
+            <input type="text" value={name} required autoFocus maxLength={255}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (!slug) setSlug(e.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+              }}
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder={t('adminPage.namespaceNamePlaceholder')} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.slugLabel')} <span className="text-red-500">*</span></label>
+            <input type="text" value={slug} required maxLength={100} pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              onChange={(e) => setSlug(e.target.value)}
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder={t('adminPage.slugPlaceholder')} />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose} disabled={saving}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+              {t('adminPage.cancel')}
+            </button>
+            <button type="submit" disabled={saving || !name.trim() || !slug.trim()}
+              className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+              {saving ? t('adminPage.creating') : t('adminPage.createNamespaceTitle')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function InviteToNamespaceModal({
+  namespace,
+  token,
+  onClose,
+  onInvited,
+}: {
+  namespace: Namespace;
+  token: string | null;
+  onClose: () => void;
+  onInvited: () => void;
+}) {
+  const { t } = useTranslation();
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'ADMIN' | 'STANDARD' | 'AUDITOR'>('STANDARD');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces/${namespace.id}/invitations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+        body: JSON.stringify({ invitee_email: email.trim(), role }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? t('adminPage.failedSendInvitation'));
+      }
+      onInvited();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.inviteToNamespaceTitle', { name: namespace.name })}</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          {t('adminPage.inviteToNamespaceDesc', { name: namespace.name })}
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.email')} <span className="text-red-500">*</span></label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+              placeholder="user@example.com" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.role')}</label>
+            <select value={role} onChange={(e) => setRole(e.target.value as typeof role)}
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{t('roles.' + r)}</option>)}
+            </select>
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose} disabled={saving}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+              {t('adminPage.cancel')}
+            </button>
+            <button type="submit" disabled={saving || !email.trim()}
+              className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+              {saving ? t('adminPage.sending') : t('adminPage.sendInvitation')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function NamespacesPanel({ token }: { token: string | null }) {
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const [namespaces, setNamespaces] = useState<Namespace[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [inviteTarget, setInviteTarget] = useState<Namespace | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const fetchNamespaces = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError('');
+    try {
+      // page_size=100: this panel lists the full table (not yet paginated in
+      // the UI) — /admin/namespaces itself supports paging/search, used by
+      // NamespaceCombobox for the searchable pickers elsewhere on this page.
+      const res = await fetch(`${API_BASE}/admin/namespaces?page_size=100`, { headers: authHeader, credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load namespaces');
+      const data = await res.json();
+      setNamespaces(data.items);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { fetchNamespaces(); }, [fetchNamespaces]);
+
+  async function handleToggleActive(ns: Namespace) {
+    setTogglingId(ns.id);
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces/${ns.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ is_active: !ns.is_active }),
+      });
+      if (res.ok) await fetchNamespaces();
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  if (loading) return (
+    <div className="flex justify-center py-16">
+      <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">
+          Every member belongs to exactly one namespace. Namespaces are fully isolated from each
+          other — only a Super Admin can see across all of them.
+        </p>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="shrink-0 ml-4 px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 transition-colors"
+        >
+          Create namespace
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+      )}
+
+      <div className="space-y-3">
+        {namespaces.map((ns) => (
+          <div key={ns.id} className="rounded-xl border p-4" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-gray-900">{ns.name}</span>
+                <span className="text-xs text-gray-400">/{ns.slug}</span>
+                {ns.is_global && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                    Global
+                  </span>
+                )}
+                {!ns.is_active && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                    Inactive
+                  </span>
+                )}
+                <MemberChips names={ns.user_preview} total={ns.user_count} emptyLabel="No users" />
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!ns.is_global && (
+                  <button
+                    onClick={() => setInviteTarget(ns)}
+                    className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
+                  >
+                    Invite user
+                  </button>
+                )}
+                {!ns.is_global && (
+                  <button
+                    onClick={() => handleToggleActive(ns)}
+                    disabled={togglingId === ns.id}
+                    className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    {togglingId === ns.id ? '…' : ns.is_active ? 'Deactivate' : 'Activate'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {createOpen && (
+        <CreateNamespaceModal
+          token={token}
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => { setCreateOpen(false); fetchNamespaces(); }}
+        />
+      )}
+      {inviteTarget && (
+        <InviteToNamespaceModal
+          namespace={inviteTarget}
+          token={token}
+          onClose={() => setInviteTarget(null)}
+          onInvited={() => setInviteTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
@@ -1784,7 +2287,7 @@ export default function AdminPage() {
   const accessToken  = useAuthStore((s) => s.accessToken);
   const currentUser  = useAuthStore((s) => s.user);
   const isSuperAdmin = currentUser?.appRole === 'SUPER_ADMIN';
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'merge' | 'global' | 'subscriptions' | 'broadcast' | 'site'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'user-groups' | 'merge' | 'global' | 'subscriptions' | 'broadcast' | 'site' | 'namespaces'>('users');
 
   const [data,     setData]     = useState<UsersResponse | null>(null);
   const [loading,  setLoading]  = useState(false);
@@ -1795,6 +2298,7 @@ export default function AdminPage() {
   const [debouncedSearch, setDebounced] = useState('');
   const [roleFilter,  setRoleFilter]  = useState('');
   const [verifiedFilter, setVerifiedFilter] = useState('');
+  const [namespaceFilter, setNamespaceFilter] = useState<Namespace | null>(null);
   const [sort,     setSort]     = useState('created_at_desc');
 
   const [createOpen,      setCreateOpen]      = useState(false);
@@ -1820,6 +2324,7 @@ export default function AdminPage() {
         ...(debouncedSearch ? { search: debouncedSearch } : {}),
         ...(roleFilter ? { app_role: roleFilter } : {}),
         ...(verifiedFilter !== '' ? { verified: verifiedFilter } : {}),
+        ...(isSuperAdmin && namespaceFilter ? { namespace_id: namespaceFilter.id } : {}),
       });
       const res = await fetch(`${API_BASE}/admin/users?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -1832,7 +2337,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, page, debouncedSearch, roleFilter, verifiedFilter, sort]);
+  }, [accessToken, page, debouncedSearch, roleFilter, verifiedFilter, namespaceFilter, isSuperAdmin, sort]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -1908,10 +2413,12 @@ export default function AdminPage() {
         {([
           ['users', t('adminPage.tabs.users')],
           ['permissions', t('adminPage.tabs.permissions')],
+          ['user-groups', t('adminPage.tabs.userGroups')],
           ['merge', t('adminPage.tabs.merge')],
           ...(isSuperAdmin ? [
+            ['namespaces', t('adminPage.tabs.namespaces')] as const,
             ['global', t('adminPage.tabs.global')] as const,
-            ['subscriptions', 'Subscriptions'] as const,
+            ['subscriptions', t('adminPage.tabs.subscriptions')] as const,
             ['broadcast', t('adminPage.tabs.broadcast')] as const,
             ['site', t('adminPage.tabs.site')] as const,
           ] : []),
@@ -1931,7 +2438,9 @@ export default function AdminPage() {
       </div>
 
       {activeTab === 'permissions' && <PermissionGroupsPanel token={accessToken} />}
+      {activeTab === 'user-groups' && <UserGroupsPanel token={accessToken} />}
       {activeTab === 'merge' && <MergeTreesPanel token={accessToken} />}
+      {activeTab === 'namespaces' && isSuperAdmin && <NamespacesPanel token={accessToken} />}
       {activeTab === 'global' && isSuperAdmin && <GlobalTreesPanel token={accessToken} />}
       {activeTab === 'subscriptions' && isSuperAdmin && <SubscriptionsPanel token={accessToken} />}
       {activeTab === 'broadcast' && isSuperAdmin && <BroadcastPanel token={accessToken} />}
@@ -1958,7 +2467,7 @@ export default function AdminPage() {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('adminPage.search')}
+            placeholder={isSuperAdmin ? 'Search users or namespace…' : t('adminPage.search')}
             className="w-full h-9 pl-9 pr-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           style={{ background: 'var(--portal-card-bg)', color: 'var(--portal-text-primary)' }} />
         </div>
@@ -1978,6 +2487,17 @@ export default function AdminPage() {
           <option value="false">{t('adminPage.unverified')}</option>
           <option value="true">{t('adminPage.verified')}</option>
         </select>
+        {isSuperAdmin && (
+          <div className="w-56">
+            <NamespaceCombobox
+              token={accessToken}
+              selected={namespaceFilter}
+              onSelect={(ns) => { setNamespaceFilter(ns); setPage(1); }}
+              emptyLabel={t('adminPage.allNamespaces')}
+              placeholder={t('adminPage.filterByNamespace')}
+            />
+          </div>
+        )}
         <select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }}
           className="h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           style={{ background: 'var(--portal-card-bg)', color: 'var(--portal-text-primary)' }}>
@@ -1991,7 +2511,7 @@ export default function AdminPage() {
 
       {data && (
         <p className="text-xs text-gray-500 mb-3">
-          {debouncedSearch || roleFilter || verifiedFilter
+          {debouncedSearch || roleFilter || verifiedFilter || namespaceFilter
             ? t('adminPage.usersMatching', { count: data.total })
             : t('adminPage.usersTotal', { count: data.total })}
           {' · '}{t('adminPage.pageOf', { page: data.page, total: data.total_pages })}
@@ -2016,6 +2536,9 @@ export default function AdminPage() {
               <thead>
                 <tr className="border-b" style={{ background: 'var(--portal-main-bg)', borderColor: 'var(--portal-border)' }}>
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.name')}</th>
+                  {isSuperAdmin && (
+                    <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Namespace</th>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.role')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.status')}</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.lastLogin')}</th>
@@ -2040,6 +2563,18 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </td>
+                    {isSuperAdmin && (
+                      <td className="px-4 py-3">
+                        {user.namespace ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-gray-700">
+                            {user.namespace.name}
+                            <span className="text-gray-400">/{user.namespace.slug}</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_BADGE[user.app_role]}`}>
                         {t('roles.' + user.app_role)}
@@ -2129,6 +2664,8 @@ export default function AdminPage() {
       {createOpen && (
         <CreateUserModal
           token={accessToken}
+          isSuperAdmin={isSuperAdmin}
+          currentNamespaceName={currentUser?.namespace?.name ?? null}
           onClose={() => setCreateOpen(false)}
           onCreated={() => {
             setCreateOpen(false);
@@ -2219,9 +2756,12 @@ function PermissionGroupsPanel({ token }: { token: string | null }) {
     if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/permission-groups`, { headers: authHeader, credentials: 'include' });
+      // page_size=200: this panel lists the full table, not yet paginated in
+      // the UI — the picker at GlobalTreesPanel uses the same endpoint's
+      // search+pagination via SearchableCombobox instead.
+      const res = await fetch(`${API_BASE}/admin/permission-groups?page_size=200`, { headers: authHeader, credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load permission groups');
-      setGroups(await res.json());
+      setGroups((await res.json()).items);
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
   }, [token]);
@@ -2287,9 +2827,8 @@ function PermissionGroupsPanel({ token }: { token: string | null }) {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
-                    <span>{g.tree_count} {g.tree_count === 1 ? 'tree' : 'trees'}</span>
-                    <span className="mx-1 text-gray-300">·</span>
-                    <span>{g.member_count} {g.member_count === 1 ? 'member' : 'members'}</span>
+                    <div className="text-xs text-gray-500 mb-1">{g.tree_count} {g.tree_count === 1 ? 'tree' : 'trees'}</div>
+                    <MemberChips names={g.member_preview} total={g.member_count} emptyLabel="No members" />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
@@ -2476,35 +3015,36 @@ function GroupDetailModal({
   const { t } = useTranslation();
   const [groupTrees,   setGroupTrees]   = useState<GroupTree[]>([]);
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
-  const [availTrees,   setAvailTrees]   = useState<TenantTree[]>([]);
-  const [availUsers,   setAvailUsers]   = useState<{ id: string; email: string; display: string }[]>([]);
+  const [groupUserGroups, setGroupUserGroups] = useState<GroupUserGroupLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [addTreeOpen,   setAddTreeOpen]   = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [selTree,   setSelTree]   = useState('');
-  const [selUser,   setSelUser]   = useState('');
+  const [addUserGroupOpen, setAddUserGroupOpen] = useState(false);
+  const [selTree,   setSelTree]   = useState<TenantTree | null>(null);
+  const [selUser,   setSelUser]   = useState<PickableUser | null>(null);
+  const [selUserGroup, setSelUserGroup] = useState<UserGroup | null>(null);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
+  const fetchUserGroupsPage = useCallback(async (page: number, pageSize: number, search: string) => {
+    if (!token) return { items: [], total_pages: 1 };
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+    const res = await fetch(`${API_BASE}/admin/user-groups?${params}`, { headers: authHeader, credentials: 'include' });
+    if (!res.ok) return { items: [], total_pages: 1 };
+    return await res.json();
+  }, [token]);
+
   async function fetchAll() {
     setLoading(true);
-    const [tRes, mRes, atRes, auRes] = await Promise.all([
+    const [tRes, mRes, ugRes] = await Promise.all([
       fetch(`${API_BASE}/admin/permission-groups/${group.id}/trees`, { headers: authHeader, credentials: 'include' }),
       fetch(`${API_BASE}/admin/permission-groups/${group.id}/members`, { headers: authHeader, credentials: 'include' }),
-      fetch(`${API_BASE}/admin/trees`, { headers: authHeader, credentials: 'include' }),
-      fetch(`${API_BASE}/admin/users?page_size=200`, { headers: authHeader, credentials: 'include' }),
+      fetch(`${API_BASE}/admin/permission-groups/${group.id}/user-groups`, { headers: authHeader, credentials: 'include' }),
     ]);
     if (tRes.ok) setGroupTrees(await tRes.json());
     if (mRes.ok) setGroupMembers(await mRes.json());
-    if (atRes.ok) setAvailTrees(await atRes.json());
-    if (auRes.ok) {
-      const d = await auRes.json();
-      setAvailUsers((d.items ?? []).map((u: any) => ({
-        id: u.id, email: u.email,
-        display: [u.given_name, u.family_name].filter(Boolean).join(' ') || u.email,
-      })));
-    }
+    if (ugRes.ok) setGroupUserGroups(await ugRes.json());
     setLoading(false);
   }
 
@@ -2512,19 +3052,20 @@ function GroupDetailModal({
 
   async function handleAddTree(e: React.FormEvent) {
     e.preventDefault();
+    if (!selTree) return;
     setSaving(true); setError('');
     try {
       const res = await fetch(`${API_BASE}/admin/permission-groups/${group.id}/trees`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         credentials: 'include',
-        body: JSON.stringify({ tree_id: selTree }),
+        body: JSON.stringify({ tree_id: selTree.id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as any).detail ?? 'Failed to add tree');
       }
-      setAddTreeOpen(false); setSelTree('');
+      setAddTreeOpen(false); setSelTree(null);
       fetchAll();
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
@@ -2541,19 +3082,20 @@ function GroupDetailModal({
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault();
+    if (!selUser) return;
     setSaving(true); setError('');
     try {
       const res = await fetch(`${API_BASE}/admin/permission-groups/${group.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         credentials: 'include',
-        body: JSON.stringify({ user_id: selUser }),
+        body: JSON.stringify({ user_id: selUser.id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).detail ?? 'Failed to add member');
+        throw new Error((err as any).detail ?? t('adminPage.failedAddMember'));
       }
-      setAddMemberOpen(false); setSelUser('');
+      setAddMemberOpen(false); setSelUser(null);
       fetchAll();
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
@@ -2566,10 +3108,47 @@ function GroupDetailModal({
     fetchAll();
   }
 
+  async function handleAddUserGroup(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selUserGroup) return;
+    setSaving(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/permission-groups/${group.id}/user-groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ user_group_id: selUserGroup.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to link user group');
+      }
+      setAddUserGroupOpen(false); setSelUserGroup(null);
+      fetchAll();
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function handleRemoveUserGroup(linkId: string) {
+    await fetch(`${API_BASE}/admin/permission-groups/${group.id}/user-groups/${linkId}`, {
+      method: 'DELETE', headers: authHeader, credentials: 'include',
+    });
+    fetchAll();
+  }
+
   const groupTreeIds   = new Set(groupTrees.map(gt => gt.tree_id));
   const groupMemberIds = new Set(groupMembers.map(m => m.user_id));
-  const treesToAdd     = availTrees.filter(tr => !groupTreeIds.has(tr.id));
-  const usersToAdd     = availUsers.filter(u => !groupMemberIds.has(u.id));
+  const linkedUserGroupIds = new Set(groupUserGroups.map((l) => l.user_group_id));
+
+  const fetchTreesPage = useCallback(async (page: number, pageSize: number, search: string) => {
+    if (!token) return { items: [], total_pages: 1 };
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+    const res = await fetch(`${API_BASE}/admin/trees?${params}`, { headers: authHeader, credentials: 'include' });
+    if (!res.ok) return { items: [], total_pages: 1 };
+    return await res.json();
+  }, [token, group.id]);
+
+  const fetchUsersPage = useMemo(() => fetchPickableUsersPage(token), [token]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -2603,7 +3182,7 @@ function GroupDetailModal({
             <section>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.trees')} ({groupTrees.length})</h3>
-                {treesToAdd.length > 0 && !addTreeOpen && (
+                {!addTreeOpen && (
                   <button onClick={() => { setAddTreeOpen(true); setAddMemberOpen(false); setError(''); }}
                     className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addTree')}</button>
                 )}
@@ -2611,12 +3190,20 @@ function GroupDetailModal({
 
               {addTreeOpen && (
                 <form onSubmit={handleAddTree} className="flex gap-2 mb-3">
-                  <select value={selTree} onChange={(e) => setSelTree(e.target.value)} required
-                    className="flex-1 h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">{t('adminPage.selectTree')}</option>
-                    {treesToAdd.map(tr => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
-                  </select>
-                  <button type="button" onClick={() => { setAddTreeOpen(false); setSelTree(''); setError(''); }}
+                  <div className="flex-1">
+                    <SearchableCombobox<TenantTree>
+                      fetchPage={fetchTreesPage}
+                      renderOption={(tr) => <>{tr.name}</>}
+                      getLabel={(tr) => tr.name}
+                      selected={selTree}
+                      onSelect={setSelTree}
+                      emptyLabel={t('adminPage.selectTree')}
+                      placeholder="Search trees…"
+                      filterItems={(items) => items.filter((tr) => !groupTreeIds.has(tr.id))}
+                      noResultsLabel="No trees found"
+                    />
+                  </div>
+                  <button type="button" onClick={() => { setAddTreeOpen(false); setSelTree(null); setError(''); }}
                     className="px-3 text-sm text-gray-500 hover:text-gray-700">{t('adminPage.cancel')}</button>
                   <button type="submit" disabled={saving || !selTree}
                     className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
@@ -2646,7 +3233,7 @@ function GroupDetailModal({
             <section>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.membersLabel')} ({groupMembers.length})</h3>
-                {usersToAdd.length > 0 && !addMemberOpen && (
+                {!addMemberOpen && (
                   <button onClick={() => { setAddMemberOpen(true); setAddTreeOpen(false); setError(''); }}
                     className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addMember')}</button>
                 )}
@@ -2654,12 +3241,20 @@ function GroupDetailModal({
 
               {addMemberOpen && (
                 <form onSubmit={handleAddMember} className="flex gap-2 mb-3">
-                  <select value={selUser} onChange={(e) => setSelUser(e.target.value)} required
-                    className="flex-1 h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Select user…</option>
-                    {usersToAdd.map(u => <option key={u.id} value={u.id}>{u.display} ({u.email})</option>)}
-                  </select>
-                  <button type="button" onClick={() => { setAddMemberOpen(false); setSelUser(''); setError(''); }}
+                  <div className="flex-1">
+                    <SearchableCombobox<PickableUser>
+                      fetchPage={fetchUsersPage}
+                      renderOption={(u) => <>{u.display_name} <span className="text-gray-400">({u.email})</span></>}
+                      getLabel={(u) => u.display_name}
+                      selected={selUser}
+                      onSelect={setSelUser}
+                      emptyLabel="Select user…"
+                      placeholder="Search users…"
+                      filterItems={(items) => items.filter((u) => !groupMemberIds.has(u.id))}
+                      noResultsLabel="No users found"
+                    />
+                  </div>
+                  <button type="button" onClick={() => { setAddMemberOpen(false); setSelUser(null); setError(''); }}
                     className="px-3 text-sm text-gray-500 hover:text-gray-700">{t('adminPage.cancel')}</button>
                   <button type="submit" disabled={saving || !selUser}
                     className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
@@ -2687,6 +3282,452 @@ function GroupDetailModal({
                 </div>
               )}
             </section>
+
+            {/* ── User Groups section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">User groups ({groupUserGroups.length})</h3>
+                {!addUserGroupOpen && (
+                  <button onClick={() => { setAddUserGroupOpen(true); setAddTreeOpen(false); setAddMemberOpen(false); setError(''); }}
+                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ Add user group</button>
+                )}
+              </div>
+
+              {addUserGroupOpen && (
+                <form onSubmit={handleAddUserGroup} className="flex gap-2 mb-3">
+                  <div className="flex-1">
+                    <SearchableCombobox<UserGroup>
+                      fetchPage={fetchUserGroupsPage}
+                      renderOption={(ug) => <>{ug.name} <span className="text-gray-400">({ug.member_count} members)</span></>}
+                      getLabel={(ug) => ug.name}
+                      selected={selUserGroup}
+                      onSelect={setSelUserGroup}
+                      emptyLabel="Select user group…"
+                      placeholder="Search user groups…"
+                      filterItems={(items) => items.filter((ug) => !linkedUserGroupIds.has(ug.id))}
+                      noResultsLabel="No user groups found"
+                    />
+                  </div>
+                  <button type="button" onClick={() => { setAddUserGroupOpen(false); setSelUserGroup(null); setError(''); }}
+                    className="px-3 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                  <button type="submit" disabled={saving || !selUserGroup}
+                    className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                    {saving ? '…' : 'Add'}
+                  </button>
+                </form>
+              )}
+
+              {groupUserGroups.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
+                  No user groups linked. Link one to grant access to all of its members at once.
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                  {groupUserGroups.map((l) => (
+                    <div key={l.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                      <div>
+                        <div className="text-sm font-medium text-gray-800">{l.user_group_name}</div>
+                        <div className="text-xs text-gray-500">{l.member_count} member{l.member_count === 1 ? '' : 's'}</div>
+                      </div>
+                      <button onClick={() => handleRemoveUserGroup(l.id)}
+                        className="text-xs text-red-500 hover:text-red-700">{t('common.remove')}</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── User Groups Panel ────────────────────────────────────────────────────────
+
+function UserGroupsPanel({ token }: { token: string | null }) {
+  const { t } = useTranslation();
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<UserGroup | null>(null);
+  const [manageTarget, setManageTarget] = useState<UserGroup | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserGroup | null>(null);
+  const [error, setError] = useState('');
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const fetchGroups = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/user-groups?page_size=200`, { headers: authHeader, credentials: 'include' });
+      if (!res.ok) throw new Error(t('adminPage.failedLoadUserGroups'));
+      setGroups((await res.json()).items);
+    } catch (e) { setError((e as Error).message); }
+    finally { setLoading(false); }
+  }, [token]);
+
+  useEffect(() => { fetchGroups(); }, [fetchGroups]);
+
+  async function handleDelete(g: UserGroup) {
+    await fetch(`${API_BASE}/admin/user-groups/${g.id}`, { method: 'DELETE', headers: authHeader, credentials: 'include' });
+    setDeleteTarget(null);
+    fetchGroups();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">
+          {t('adminPage.userGroupsDesc')}
+        </p>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="shrink-0 ml-4 px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 transition-colors"
+        >
+          + {t('adminPage.createUserGroup')}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+      )}
+
+      <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : groups.length === 0 ? (
+          <div className="text-center py-16 text-sm" style={{ color: 'var(--portal-text-muted)' }}>
+            {t('adminPage.noUserGroupsYet')}
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b" style={{ background: 'var(--portal-main-bg)', borderColor: 'var(--portal-border)' }}>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.groupColumn')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.membersLabel')}</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.actions')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {groups.map((g) => (
+                <tr key={g.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">{g.name}</div>
+                    {g.description && <div className="text-xs text-gray-500 mt-0.5">{g.description}</div>}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    <MemberChips names={g.member_preview} total={g.member_count} emptyLabel={t('adminPage.noMembers')} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => setManageTarget(g)}
+                        className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors">
+                        {t('adminPage.manage')}
+                      </button>
+                      <button onClick={() => setEditTarget(g)}
+                        className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        {t('adminPage.edit')}
+                      </button>
+                      <button onClick={() => setDeleteTarget(g)}
+                        className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+                        {t('adminPage.delete')}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {(createOpen || editTarget) && (
+        <UserGroupFormModal
+          token={token}
+          initial={editTarget}
+          onClose={() => { setCreateOpen(false); setEditTarget(null); }}
+          onSaved={() => { setCreateOpen(false); setEditTarget(null); fetchGroups(); }}
+        />
+      )}
+
+      {manageTarget && (
+        <UserGroupDetailModal
+          group={manageTarget}
+          token={token}
+          onClose={() => { setManageTarget(null); fetchGroups(); }}
+        />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.deleteUserGroupTitle')}</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              <span className="font-medium text-gray-800">{deleteTarget.name}</span>{' '}
+              {t('adminPage.deleteUserGroupWarning', { count: deleteTarget.member_count })}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">{t('adminPage.cancel')}</button>
+              <button onClick={() => handleDelete(deleteTarget)}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">
+                {t('adminPage.delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UserGroupFormModal({
+  token, initial, onClose, onSaved,
+}: {
+  token: string | null;
+  initial: UserGroup | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(initial?.name ?? '');
+  const [desc, setDesc] = useState(initial?.description ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      const url = initial ? `${API_BASE}/admin/user-groups/${initial.id}` : `${API_BASE}/admin/user-groups`;
+      const res = await fetch(url, {
+        method: initial ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim(), description: desc.trim() || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? t('adminPage.failedToSave'));
+      }
+      onSaved();
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">{initial ? t('adminPage.editUserGroup') : t('adminPage.createUserGroup')}</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.name')} <span className="text-red-500">*</span></label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={255} autoFocus
+              placeholder={t('adminPage.userGroupNamePlaceholder')}
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.description')}</label>
+            <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2} maxLength={500}
+              placeholder={t('adminPage.optionalDescPlaceholder')}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose} disabled={saving} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">{t('adminPage.cancel')}</button>
+            <button type="submit" disabled={saving || !name.trim()}
+              className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+              {saving ? t('adminPage.saving') : initial ? t('adminPage.save') : t('adminPage.createUserGroup')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function UserGroupDetailModal({
+  group, token, onClose,
+}: { group: UserGroup; token: string | null; onClose: () => void; }) {
+  const { t } = useTranslation();
+  const [members, setMembers] = useState<UserGroupMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [selUser, setSelUser] = useState<PickableUser | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const [bulkRole, setBulkRole] = useState<'ADMIN' | 'STANDARD' | 'AUDITOR'>('STANDARD');
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkResult, setBulkResult] = useState('');
+
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const fetchUsersPage = useMemo(() => fetchPickableUsersPage(token), [token]);
+
+  async function fetchMembers() {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/user-groups/${group.id}/members`, { headers: authHeader, credentials: 'include' });
+      if (res.ok) setMembers(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { fetchMembers(); }, []);
+
+  async function handleAddMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selUser) return;
+    setSaving(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/user-groups/${group.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ user_id: selUser.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? t('adminPage.failedAddMember'));
+      }
+      setAddMemberOpen(false); setSelUser(null);
+      fetchMembers();
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function handleRemoveMember(memberId: string) {
+    await fetch(`${API_BASE}/admin/user-groups/${group.id}/members/${memberId}`, {
+      method: 'DELETE', headers: authHeader, credentials: 'include',
+    });
+    fetchMembers();
+  }
+
+  async function handleBulkRole() {
+    setBulkSaving(true); setBulkResult('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/user-groups/${group.id}/bulk-role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+        body: JSON.stringify({ app_role: bulkRole }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? t('adminPage.failedAssignRole'));
+      }
+      const data = await res.json();
+      setBulkResult(t('adminPage.updatedMembersToRole', { count: data.updated_count, role: bulkRole }));
+    } catch (e) {
+      setBulkResult((e as Error).message);
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">{group.name}</h2>
+            {group.description && <p className="text-xs text-gray-400 mt-1">{group.description}</p>}
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none mt-1">×</button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-6">
+            {error && (
+              <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+            )}
+
+            {/* ── Members section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.membersCountHeading', { count: members.length })}</h3>
+                {!addMemberOpen && (
+                  <button onClick={() => { setAddMemberOpen(true); setError(''); }}
+                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addMember')}</button>
+                )}
+              </div>
+
+              {addMemberOpen && (
+                <form onSubmit={handleAddMember} className="flex gap-2 mb-3">
+                  <div className="flex-1">
+                    <SearchableCombobox<PickableUser>
+                      fetchPage={fetchUsersPage}
+                      renderOption={(u) => <>{u.display_name} <span className="text-gray-400">({u.email})</span></>}
+                      getLabel={(u) => u.display_name}
+                      selected={selUser}
+                      onSelect={setSelUser}
+                      emptyLabel={t('adminPage.selectUser')}
+                      placeholder={t('adminPage.searchUsers')}
+                      filterItems={(items) => items.filter((u) => !members.some((m) => m.user_id === u.id))}
+                      noResultsLabel={t('adminPage.noUsersFound')}
+                    />
+                  </div>
+                  <button type="button" onClick={() => { setAddMemberOpen(false); setSelUser(null); setError(''); }}
+                    className="px-3 text-sm text-gray-500 hover:text-gray-700">{t('adminPage.cancel')}</button>
+                  <button type="submit" disabled={saving || !selUser}
+                    className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                    {saving ? '…' : t('adminPage.add')}
+                  </button>
+                </form>
+              )}
+
+              {members.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
+                  {t('adminPage.noMembersYet')}
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                  {members.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                      <div>
+                        <div className="text-sm font-medium text-gray-800">{m.user_display_name}</div>
+                        <div className="text-xs text-gray-400">{m.user_email}</div>
+                      </div>
+                      <button onClick={() => handleRemoveMember(m.id)}
+                        className="text-xs text-red-500 hover:text-red-700">{t('adminPage.remove')}</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* ── Bulk role assignment ── */}
+            <section>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('adminPage.bulkAssignRole')}</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                {t('adminPage.bulkAssignRoleDesc', { count: members.length })}
+              </p>
+              <div className="flex gap-2">
+                <select value={bulkRole} onChange={(e) => setBulkRole(e.target.value as typeof bulkRole)}
+                  className="h-9 px-3 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                  {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.charAt(0) + r.slice(1).toLowerCase()}</option>)}
+                </select>
+                <button
+                  onClick={handleBulkRole}
+                  disabled={bulkSaving || members.length === 0}
+                  className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50"
+                >
+                  {bulkSaving ? t('adminPage.applying') : t('adminPage.applyToAll', { count: members.length })}
+                </button>
+              </div>
+              {bulkResult && <p className="text-xs text-gray-500 mt-2">{bulkResult}</p>}
+            </section>
           </div>
         )}
       </div>
@@ -2697,6 +3738,7 @@ function GroupDetailModal({
 // ── Subscriptions Panel (Super Admin only) ──────────────────────────────────────
 
 function SubscriptionsPanel({ token }: { token: string | null }) {
+  const { t } = useTranslation();
   const [subs, setSubs]               = useState<Subscription[]>([]);
   const [loading, setLoading]         = useState(false);
   const [createOpen, setCreateOpen]   = useState(false);
@@ -2712,7 +3754,7 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/admin/subscriptions`, { headers: authHeader, credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load subscriptions');
+      if (!res.ok) throw new Error(t('adminPage.failedLoadSubscriptions'));
       setSubs(await res.json());
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
@@ -2732,13 +3774,13 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">
-          Manage Free and Premium subscriptions — each grants its members access to a set of tree filters.
+          {t('adminPage.subscriptionsDesc')}
         </p>
         <button
           onClick={() => setCreateOpen(true)}
           className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 transition-colors"
         >
-          + Create subscription
+          + {t('adminPage.createSubscription')}
         </button>
       </div>
 
@@ -2753,17 +3795,17 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
           </div>
         ) : subs.length === 0 ? (
           <div className="text-center py-16 text-sm" style={{ color: 'var(--portal-text-muted)' }}>
-            No subscriptions yet.
+            {t('adminPage.noSubscriptionsYet')}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b" style={{ background: 'var(--portal-main-bg)', borderColor: 'var(--portal-border)' }}>
-                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Name</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Tier</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Entitlements</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Expires</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>Actions</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.name')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.tier')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.entitlements')}</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.expiresColumn')}</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -2778,9 +3820,8 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
-                    <span>{s.filter_count} {s.filter_count === 1 ? 'filter' : 'filters'}</span>
-                    <span className="mx-1 text-gray-300">·</span>
-                    <span>{s.member_count} {s.member_count === 1 ? 'member' : 'members'}</span>
+                    <div className="text-xs text-gray-500 mb-1">{t('adminPage.filterCount', { count: s.filter_count })}</div>
+                    <MemberChips names={s.member_preview} total={s.member_count} emptyLabel={t('adminPage.noMembers')} />
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {!s.expires_at ? (
@@ -2790,11 +3831,11 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
                         <div className="text-gray-600">{formatExpiry(s.expires_at)}</div>
                         {s.is_expired ? (
                           <span className="inline-flex items-center px-1.5 py-0.5 mt-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700">
-                            Expired
+                            {t('adminPage.expired')}
                           </span>
                         ) : new Date(s.expires_at).getTime() - Date.now() < EXPIRING_SOON_MS ? (
                           <span className="inline-flex items-center px-1.5 py-0.5 mt-0.5 rounded text-[11px] font-medium bg-amber-100 text-amber-700">
-                            Expiring soon
+                            {t('adminPage.expiringSoon')}
                           </span>
                         ) : null}
                       </div>
@@ -2806,19 +3847,19 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
                         onClick={() => setManageTarget(s)}
                         className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
                       >
-                        Manage
+                        {t('adminPage.manage')}
                       </button>
                       <button
                         onClick={() => setEditTarget(s)}
                         className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                       >
-                        Edit
+                        {t('adminPage.edit')}
                       </button>
                       <button
                         onClick={() => setDeleteTarget(s)}
                         className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                       >
-                        Delete
+                        {t('adminPage.delete')}
                       </button>
                     </div>
                   </td>
@@ -2850,18 +3891,17 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null); }}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Delete subscription?</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t('adminPage.deleteSubscriptionTitle')}</h2>
             <p className="text-sm text-gray-500 mb-4">
-              <span className="font-medium text-gray-800">{deleteTarget.name}</span> will be permanently removed.
-              All {deleteTarget.member_count} member{deleteTarget.member_count !== 1 ? 's' : ''} will lose access to its{' '}
-              {deleteTarget.filter_count} filter{deleteTarget.filter_count !== 1 ? 's' : ''}.
+              <span className="font-medium text-gray-800">{deleteTarget.name}</span>{' '}
+              {t('adminPage.deleteSubscriptionWarning', { memberCount: deleteTarget.member_count, filterCount: deleteTarget.filter_count })}
             </p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancel</button>
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">{t('adminPage.cancel')}</button>
               <button onClick={() => handleDelete(deleteTarget)}
                 className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">
-                Delete
+                {t('adminPage.delete')}
               </button>
             </div>
           </div>
@@ -2881,6 +3921,7 @@ function SubscriptionFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName]   = useState(initial?.name ?? '');
   const [tier, setTier]   = useState<'FREE' | 'PREMIUM_INDIVIDUAL' | 'PREMIUM_TEAM'>(initial?.tier ?? 'FREE');
   const [saving, setSaving] = useState(false);
@@ -2920,7 +3961,7 @@ function SubscriptionFormModal({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).detail ?? 'Failed to save');
+        throw new Error((err as any).detail ?? t('adminPage.failedToSave'));
       }
       onSaved();
     } catch (e) { setError((e as Error).message); }
@@ -2932,22 +3973,22 @@ function SubscriptionFormModal({
       onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          {initial ? 'Edit subscription' : 'Create subscription'}
+          {initial ? t('adminPage.editSubscription') : t('adminPage.createSubscription')}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Name <span className="text-red-500">*</span>
+              {t('adminPage.name')} <span className="text-red-500">*</span>
             </label>
             <input
               type="text" value={name} onChange={(e) => setName(e.target.value)}
               required maxLength={100} autoFocus
-              placeholder="e.g. Premium Family Plan…"
+              placeholder={t('adminPage.subscriptionNamePlaceholder')}
               className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Tier</label>
+            <label className="block text-xs font-medium text-gray-600 mb-2">{t('adminPage.tier')}</label>
             <div className="space-y-2">
               {(['FREE', 'PREMIUM_INDIVIDUAL', 'PREMIUM_TEAM'] as const).map((tr) => (
                 <label key={tr} className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
@@ -2966,7 +4007,7 @@ function SubscriptionFormModal({
             <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-2">
               <input type="checkbox" checked={hasExpiry} onChange={(e) => setHasExpiry(e.target.checked)}
                 className="accent-brand-500" />
-              This subscription expires (promotional / time-limited)
+              {t('adminPage.subscriptionExpiresCheckbox')}
             </label>
             {hasExpiry && (
               <div className="pl-6 space-y-2">
@@ -2974,12 +4015,12 @@ function SubscriptionFormModal({
                   <label className="flex items-center gap-1.5 text-xs text-gray-600">
                     <input type="radio" name="expiryMode" checked={expiryMode === 'date'}
                       onChange={() => setExpiryMode('date')} className="accent-brand-500" />
-                    On a specific date
+                    {t('adminPage.onSpecificDate')}
                   </label>
                   <label className="flex items-center gap-1.5 text-xs text-gray-600">
                     <input type="radio" name="expiryMode" checked={expiryMode === 'duration'}
                       onChange={() => setExpiryMode('duration')} className="accent-brand-500" />
-                    In…
+                    {t('adminPage.inDuration')}
                   </label>
                 </div>
                 {expiryMode === 'date' ? (
@@ -2998,8 +4039,8 @@ function SubscriptionFormModal({
                     />
                     <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as 'Hours' | 'Days')}
                       className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                      <option value="Hours">Hours</option>
-                      <option value="Days">Days</option>
+                      <option value="Hours">{t('adminPage.hours')}</option>
+                      <option value="Days">{t('adminPage.days')}</option>
                     </select>
                   </div>
                 )}
@@ -3010,13 +4051,13 @@ function SubscriptionFormModal({
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose} disabled={saving}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
-              Cancel
+              {t('adminPage.cancel')}
             </button>
             <button
               type="submit"
               disabled={saving || !name.trim() || (hasExpiry && expiryMode === 'date' && !expiryDateTime)}
               className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
-              {saving ? 'Saving…' : initial ? 'Save' : 'Create subscription'}
+              {saving ? t('adminPage.saving') : initial ? t('adminPage.save') : t('adminPage.createSubscription')}
             </button>
           </div>
         </form>
@@ -3030,37 +4071,30 @@ function SubscriptionFormModal({
 function SubscriptionDetailModal({
   subscription, token, onClose,
 }: { subscription: Subscription; token: string | null; onClose: () => void; }) {
+  const { t } = useTranslation();
   const [subFilters, setSubFilters]     = useState<SubscriptionFilter[]>([]);
   const [subMembers, setSubMembers]     = useState<SubscriptionMember[]>([]);
   const [availFilters, setAvailFilters] = useState<AvailableFilter[]>([]);
-  const [availUsers, setAvailUsers]     = useState<{ id: string; email: string; display: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [addFilterOpen, setAddFilterOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selFilter, setSelFilter] = useState('');
-  const [selUser, setSelUser]     = useState('');
+  const [selUser, setSelUser]     = useState<PickableUser | null>(null);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const fetchUsersPage = useMemo(() => fetchPickableUsersPage(token), [token]);
 
   async function fetchAll() {
     setLoading(true);
-    const [fRes, mRes, afRes, auRes] = await Promise.all([
+    const [fRes, mRes, afRes] = await Promise.all([
       fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/filters`, { headers: authHeader, credentials: 'include' }),
       fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/members`, { headers: authHeader, credentials: 'include' }),
       fetch(`${API_BASE}/admin/subscriptions/available-filters`, { headers: authHeader, credentials: 'include' }),
-      fetch(`${API_BASE}/admin/users?page_size=200`, { headers: authHeader, credentials: 'include' }),
     ]);
     if (fRes.ok) setSubFilters(await fRes.json());
     if (mRes.ok) setSubMembers(await mRes.json());
     if (afRes.ok) setAvailFilters(await afRes.json());
-    if (auRes.ok) {
-      const d = await auRes.json();
-      setAvailUsers((d.items ?? []).map((u: any) => ({
-        id: u.id, email: u.email,
-        display: [u.given_name, u.family_name].filter(Boolean).join(' ') || u.email,
-      })));
-    }
     setLoading(false);
   }
 
@@ -3078,7 +4112,7 @@ function SubscriptionDetailModal({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).detail ?? 'Failed to add filter');
+        throw new Error((err as any).detail ?? t('adminPage.failedAddFilter'));
       }
       setAddFilterOpen(false); setSelFilter('');
       fetchAll();
@@ -3095,19 +4129,20 @@ function SubscriptionDetailModal({
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault();
+    if (!selUser) return;
     setSaving(true); setError('');
     try {
       const res = await fetch(`${API_BASE}/admin/subscriptions/${subscription.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         credentials: 'include',
-        body: JSON.stringify({ user_id: selUser }),
+        body: JSON.stringify({ user_id: selUser.id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).detail ?? 'Failed to add member');
+        throw new Error((err as any).detail ?? t('adminPage.failedAddMember'));
       }
-      setAddMemberOpen(false); setSelUser('');
+      setAddMemberOpen(false); setSelUser(null);
       fetchAll();
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
@@ -3123,7 +4158,6 @@ function SubscriptionDetailModal({
   const subFilterKeys = new Set(subFilters.map((f) => f.filter_key));
   const subMemberIds  = new Set(subMembers.map((m) => m.user_id));
   const filtersToAdd  = availFilters.filter((f) => !subFilterKeys.has(f.key));
-  const usersToAdd     = availUsers.filter((u) => !subMemberIds.has(u.id));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -3138,7 +4172,7 @@ function SubscriptionDetailModal({
               </span>
               {subscription.expires_at && (
                 <span className={`text-xs ${subscription.is_expired ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
-                  {subscription.is_expired ? 'Expired ' : 'Expires '}
+                  {subscription.is_expired ? `${t('adminPage.expiredWord')} ` : `${t('adminPage.expiresWord')} `}
                   {formatExpiry(subscription.expires_at)}
                 </span>
               )}
@@ -3160,10 +4194,10 @@ function SubscriptionDetailModal({
             {/* ── Filters section ── */}
             <section>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-gray-700">Filters ({subFilters.length})</h3>
+                <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.filtersCountHeading', { count: subFilters.length })}</h3>
                 {filtersToAdd.length > 0 && !addFilterOpen && (
                   <button onClick={() => { setAddFilterOpen(true); setAddMemberOpen(false); setError(''); }}
-                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ Add filter</button>
+                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addFilter')}</button>
                 )}
               </div>
 
@@ -3171,21 +4205,21 @@ function SubscriptionDetailModal({
                 <form onSubmit={handleAddFilter} className="flex gap-2 mb-3">
                   <select value={selFilter} onChange={(e) => setSelFilter(e.target.value)} required
                     className="flex-1 h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Select filter…</option>
+                    <option value="">{t('adminPage.selectFilterPlaceholder')}</option>
                     {filtersToAdd.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                   </select>
                   <button type="button" onClick={() => { setAddFilterOpen(false); setSelFilter(''); setError(''); }}
-                    className="px-3 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                    className="px-3 text-sm text-gray-500 hover:text-gray-700">{t('adminPage.cancel')}</button>
                   <button type="submit" disabled={saving || !selFilter}
                     className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
-                    {saving ? '…' : 'Add'}
+                    {saving ? '…' : t('adminPage.add')}
                   </button>
                 </form>
               )}
 
               {subFilters.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
-                  No filters yet. Add filters for members to unlock.
+                  {t('adminPage.noFiltersYet')}
                 </p>
               ) : (
                 <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
@@ -3195,7 +4229,7 @@ function SubscriptionDetailModal({
                         {availFilters.find((af) => af.key === f.filter_key)?.label ?? f.filter_key}
                       </span>
                       <button onClick={() => handleRemoveFilter(f)}
-                        className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                        className="text-xs text-red-500 hover:text-red-700">{t('adminPage.remove')}</button>
                     </div>
                   ))}
                 </div>
@@ -3205,32 +4239,40 @@ function SubscriptionDetailModal({
             {/* ── Members section ── */}
             <section>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-gray-700">Members ({subMembers.length})</h3>
-                {usersToAdd.length > 0 && !addMemberOpen && (
+                <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.membersCountHeading', { count: subMembers.length })}</h3>
+                {!addMemberOpen && (
                   <button onClick={() => { setAddMemberOpen(true); setAddFilterOpen(false); setError(''); }}
-                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ Add member</button>
+                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addMember')}</button>
                 )}
               </div>
 
               {addMemberOpen && (
                 <form onSubmit={handleAddMember} className="flex gap-2 mb-3">
-                  <select value={selUser} onChange={(e) => setSelUser(e.target.value)} required
-                    className="flex-1 h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Select user…</option>
-                    {usersToAdd.map((u) => <option key={u.id} value={u.id}>{u.display} ({u.email})</option>)}
-                  </select>
-                  <button type="button" onClick={() => { setAddMemberOpen(false); setSelUser(''); setError(''); }}
-                    className="px-3 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                  <div className="flex-1">
+                    <SearchableCombobox<PickableUser>
+                      fetchPage={fetchUsersPage}
+                      renderOption={(u) => <>{u.display_name} <span className="text-gray-400">({u.email})</span></>}
+                      getLabel={(u) => u.display_name}
+                      selected={selUser}
+                      onSelect={setSelUser}
+                      emptyLabel={t('adminPage.selectUser')}
+                      placeholder={t('adminPage.searchUsers')}
+                      filterItems={(items) => items.filter((u) => !subMemberIds.has(u.id))}
+                      noResultsLabel={t('adminPage.noUsersFound')}
+                    />
+                  </div>
+                  <button type="button" onClick={() => { setAddMemberOpen(false); setSelUser(null); setError(''); }}
+                    className="px-3 text-sm text-gray-500 hover:text-gray-700">{t('adminPage.cancel')}</button>
                   <button type="submit" disabled={saving || !selUser}
                     className="px-3 py-1.5 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
-                    {saving ? '…' : 'Add'}
+                    {saving ? '…' : t('adminPage.add')}
                   </button>
                 </form>
               )}
 
               {subMembers.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-lg">
-                  No members yet. Add users to grant them these filters.
+                  {t('adminPage.noMembersGrantFilters')}
                 </p>
               ) : (
                 <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
@@ -3241,7 +4283,7 @@ function SubscriptionDetailModal({
                         <div className="text-xs text-gray-500">{m.user_email}</div>
                       </div>
                       <button onClick={() => handleRemoveMember(m.id)}
-                        className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                        className="text-xs text-red-500 hover:text-red-700">{t('adminPage.remove')}</button>
                     </div>
                   ))}
                 </div>

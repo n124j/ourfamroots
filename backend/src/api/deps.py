@@ -200,3 +200,17 @@ async def require_super_admin(user: VerifiedUserDep) -> UserModel:
     return user
 
 SuperAdminDep = Annotated[UserModel, Depends(require_super_admin)]
+
+
+async def require_namespace_owner_or_super_admin(
+    namespace_id: uuid.UUID,
+    user: VerifiedUserDep,
+) -> UserModel:
+    """Restrict endpoint to the Super Administrator, or an ADMIN of the target namespace."""
+    if user.app_role == AppRole.SUPER_ADMIN:
+        return user
+    if user.app_role == AppRole.ADMIN and user.tenant_id == namespace_id:
+        return user
+    raise HTTPException(status_code=403, detail="Namespace administrator access required")
+
+NamespaceOwnerDep = Annotated[UserModel, Depends(require_namespace_owner_or_super_admin)]

@@ -83,6 +83,8 @@ export default function AdminLoginPage() {
         avatarUrl: me?.avatar_url ?? undefined,
         isEmailVerified: true,
         appRole: role,
+        language: me?.locale,
+        theme: me?.theme,
       });
 
       // Refresh maintenance status

@@ -18,6 +18,10 @@ class AppRole(str, Enum):
     AUDITOR     = "AUDITOR"      # Read-only access to all trees; cannot modify anything
 
 
+# Shown in place of a Super Admin's real name/identity to any non-Super-Admin viewer.
+SUPER_ADMIN_DISPLAY_LABEL = "Super Admin"
+
+
 class TreeRole(str, Enum):
     OWNER  = "OWNER"    # Full control including delete tree & transfer ownership
     ADMIN  = "ADMIN"    # Manage members, all data edits, view audit log

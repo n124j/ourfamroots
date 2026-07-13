@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { SEO } from '@shared/components/SEO';
 
 export default function HelpPage() {
+  const { t, i18n } = useTranslation();
   return (
     <div className="flex flex-col" style={{ height: '100vh', overflow: 'hidden' }}>
       <SEO
-        title="Help — Getting Started"
-        description="Step-by-step guide to getting started with OurFamRoots. Learn how to build your family tree, add members, collaborate, and more."
+        title={t('helpPage.title')}
+        description={t('helpPage.seoDescription')}
         canonical="/help"
         keywords="help, getting started, tutorial, family tree guide, how to use ourfamroots"
       />
@@ -27,32 +28,32 @@ export default function HelpPage() {
         <span className="text-gray-300 select-none">|</span>
 
         <span className="text-sm font-semibold text-gray-700">
-          Help — Getting Started Guide
+          {t('helpPage.headerTitle')}
         </span>
 
         {/* Right side */}
         <div className="ml-auto flex items-center gap-4">
           <a
-            href="/getting-started.html"
+            href={`/getting-started.html?lang=${i18n.language}`}
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:inline text-xs text-brand-600 hover:text-brand-700 hover:underline"
           >
-            Open fullscreen ↗
+            {t('helpPage.openFullscreen')}
           </a>
           <Link
             to="/login"
             className="text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors"
           >
-            Sign in →
+            {t('helpPage.signIn')}
           </Link>
         </div>
       </header>
 
       {/* ── Slideshow iframe ── */}
       <iframe
-        src="/getting-started.html"
-        title="OurFamRoots Getting Started Guide"
+        src={`/getting-started.html?lang=${i18n.language}`}
+        title={t('helpPage.iframeTitle')}
         className="flex-1 w-full border-0"
         style={{ display: 'block' }}
       />

@@ -19,6 +19,12 @@ from src.infrastructure.database.models.permission_group import (
     PermissionGroupTreeModel,
     PermissionGroupMemberModel,
 )
+from src.infrastructure.database.models.namespace_invitation import NamespaceInvitationModel
+from src.infrastructure.database.models.user_group import (
+    UserGroupModel,
+    UserGroupMemberModel,
+    PermissionGroupUserGroupModel,
+)
 from src.infrastructure.database.models.site_settings import SiteSettingsModel
 from src.infrastructure.database.models.broadcast_log import BroadcastLogModel
 from src.infrastructure.database.models.subscription import (
@@ -42,6 +48,10 @@ __all__ = [
     "PermissionGroupAssignmentModel",
     "PermissionGroupTreeModel",
     "PermissionGroupMemberModel",
+    "NamespaceInvitationModel",
+    "UserGroupModel",
+    "UserGroupMemberModel",
+    "PermissionGroupUserGroupModel",
     "SiteSettingsModel",
     "BroadcastLogModel",
     "SubscriptionModel",

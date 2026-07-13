@@ -119,6 +119,11 @@ apiClient.interceptors.response.use(
           avatarUrl: u.avatar_url,
           isEmailVerified: u.email_verified,
           appRole: u.app_role ?? 'STANDARD',
+          namespace: u.namespace
+            ? { id: u.namespace.id, name: u.namespace.name, slug: u.namespace.slug, isGlobal: u.namespace.is_global }
+            : undefined,
+          language: u.locale,
+          theme: u.theme,
         });
       } catch {
         // Profile fetch failed — keep existing user data, token is still valid

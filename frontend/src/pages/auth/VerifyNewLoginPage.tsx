@@ -50,6 +50,11 @@ export default function VerifyNewLoginPage() {
             avatarUrl: me?.avatar_url ?? undefined,
             isEmailVerified: true,
             appRole: me?.app_role ?? 'STANDARD',
+            namespace: me?.namespace
+              ? { id: me.namespace.id, name: me.namespace.name, slug: me.namespace.slug, isGlobal: me.namespace.is_global }
+              : undefined,
+            language: me?.locale,
+            theme: me?.theme,
           });
           setState('success');
           setTimeout(() => navigate('/settings/security', { replace: true }), 3000);

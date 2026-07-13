@@ -58,6 +58,10 @@ class AbstractUserRepository(AbstractRepository["UserModel"]):  # type: ignore[t
         ...
 
     @abstractmethod
+    async def exists_by_email_anywhere(self, email: str) -> bool:
+        ...
+
+    @abstractmethod
     async def get_by_login_verification_token(self, token: str) -> "UserModel | None":  # type: ignore[name-defined]
         ...
 

@@ -45,6 +45,11 @@ class SqlAlchemyUserRepository(
         )
         return bool(await self._scalar(stmt))
 
+    async def exists_by_email_anywhere(self, email: str) -> bool:
+        """Email is unique across all namespaces — a user has exactly one account."""
+        stmt = select(exists().where(UserModel.email == email.lower()))
+        return bool(await self._scalar(stmt))
+
     async def get_by_password_reset_token(
         self, token: str
     ) -> UserModel | None:

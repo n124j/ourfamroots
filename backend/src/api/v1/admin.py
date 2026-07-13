@@ -11,11 +11,13 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, text
 
 from src.api.deps import AdminUserDep, SessionDep, SuperAdminDep, TokenStoreDep
+from src.application.common.namespace import NamespaceSummary, get_namespace_summary
 from src.api.v1._admin_log import log_admin_action
 from src.domain.collaboration.entities import AppRole
 from src.config import get_settings
 from src.infrastructure.database.global_access import grant_global_tree_access
 from src.infrastructure.database.models.login_event import LoginEventModel
+from src.infrastructure.database.models.tenant import TenantModel
 from src.infrastructure.database.models.user import UserModel
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -34,6 +36,7 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     last_login_at: Optional[str]
     created_at: str
+    namespace: Optional[NamespaceSummary] = None
 
     model_config = {"from_attributes": True}
 
@@ -51,6 +54,10 @@ class CreateUserRequest(BaseModel):
     given_name: str = Field(..., min_length=1, max_length=100)
     family_name: str = Field("", max_length=100)
     app_role: str = Field("STANDARD", pattern="^(ADMIN|STANDARD|AUDITOR)$")
+    # Super Admin only: create this user in a specific namespace instead of
+    # their own. Ignored for a regular ADMIN, who can only create users in
+    # their own namespace.
+    namespace_id: Optional[uuid.UUID] = None
 
 
 class UpdateUserRequest(BaseModel):
@@ -70,7 +77,23 @@ def _presign_avatar(url: str | None) -> str | None:
     return url
 
 
-def _serialize(u: UserModel) -> AdminUserResponse:
+async def _scoped_user_lookup(
+    session: SessionDep, user_id: uuid.UUID, current_user: UserModel
+) -> UserModel | None:
+    """Look up a target user for a mutating admin action.
+
+    A namespace ADMIN is scoped to their own namespace, as before. A Super
+    Admin can target a user in any namespace — otherwise Super Admin could
+    see a namespace's users (via /admin/namespaces/{id}/users) but not act
+    on them, which defeats "Super Admin sees/manages everything."
+    """
+    conditions = [UserModel.id == user_id]
+    if current_user.app_role != AppRole.SUPER_ADMIN:
+        conditions.append(UserModel.tenant_id == current_user.tenant_id)
+    return (await session.execute(select(UserModel).where(*conditions))).scalars().first()
+
+
+def _serialize(u: UserModel, namespace: NamespaceSummary | None = None) -> AdminUserResponse:
     return AdminUserResponse(
         id=u.id,
         email=u.email,
@@ -82,6 +105,7 @@ def _serialize(u: UserModel) -> AdminUserResponse:
         is_active=u.is_active,
         last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
         created_at=u.created_at.isoformat(),
+        namespace=namespace,
     )
 
 
@@ -97,12 +121,19 @@ async def create_user(
 ) -> AdminUserResponse:
     from src.infrastructure.security.password import PasswordHasher
 
-    # Check email uniqueness within tenant
+    # Only a Super Admin may target a namespace other than their own — this is
+    # the "choose or create a namespace" step for manually-created users.
+    target_tenant_id = current_user.tenant_id
+    if body.namespace_id is not None and current_user.app_role == AppRole.SUPER_ADMIN:
+        target_tenant = await session.get(TenantModel, body.namespace_id)
+        if target_tenant is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Namespace not found")
+        target_tenant_id = target_tenant.id
+
+    # Email is unique across all namespaces (an account belongs to exactly one
+    # namespace at a time — see the namespace-invitation transfer flow).
     existing = (await session.execute(
-        select(UserModel).where(
-            UserModel.tenant_id == current_user.tenant_id,
-            UserModel.email == body.email.lower(),
-        )
+        select(UserModel).where(UserModel.email == body.email.lower())
     )).scalars().first()
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, f"A user with email {body.email} already exists")
@@ -111,7 +142,7 @@ async def create_user(
     hasher = PasswordHasher()
     reset_token = secrets.token_hex(32)
     user = UserModel(
-        tenant_id=current_user.tenant_id,
+        tenant_id=target_tenant_id,
         email=body.email.lower(),
         password_hash=hasher.hash(secrets.token_hex(32)),  # random, unusable
         given_name=body.given_name,
@@ -123,14 +154,14 @@ async def create_user(
         password_reset_expires_at=datetime.now(tz=timezone.utc) + timedelta(hours=24),
     )
     await log_admin_action(
-        session, current_user.tenant_id, current_user.id,
+        session, target_tenant_id, current_user.id,
         current_user.full_name, "ADMIN_CREATE", user.email, _admin_ip(request),
     )
     session.add(user)
     await session.commit()  # commit before returning so fetchUsers sees the row immediately
     await session.refresh(user)
 
-    await grant_global_tree_access(session, current_user.tenant_id, user.id)
+    await grant_global_tree_access(session, target_tenant_id, user.id)
     await session.commit()
 
     # Send activation email
@@ -150,10 +181,12 @@ async def create_user(
     except Exception:
         pass  # email failure must never roll back the user creation
 
-    return _serialize(user)
+    namespace = await get_namespace_summary(session, target_tenant_id)
+    return _serialize(user, namespace)
 
 
-@router.get("/users", response_model=AdminUsersResponse, summary="List all users in tenant")
+@router.get("/users", response_model=AdminUsersResponse,
+            summary="List users — Super Admin sees every namespace, a namespace ADMIN sees only their own")
 async def list_users(
     current_user: AdminUserDep,
     session: SessionDep,
@@ -162,19 +195,33 @@ async def list_users(
     search: Optional[str] = Query(None, max_length=200),
     app_role: Optional[str] = Query(None),
     verified: Optional[bool] = Query(None),
+    namespace_id: Optional[uuid.UUID] = Query(None, description="Super Admin only: filter to one namespace"),
     sort: str = Query("created_at_desc", pattern="^(created_at_desc|created_at_asc|name_asc|email_asc|last_login_desc)$"),
 ) -> AdminUsersResponse:
     import math
 
-    base = select(UserModel).where(UserModel.tenant_id == current_user.tenant_id)
+    is_super_admin = current_user.app_role == AppRole.SUPER_ADMIN
+
+    # Super Admin sees users across every namespace (joined so the namespace
+    # name/slug is both returned per-row and searchable); a namespace ADMIN
+    # stays scoped to their own namespace, same as before.
+    base = select(UserModel, TenantModel).join(TenantModel, TenantModel.id == UserModel.tenant_id)
+    if not is_super_admin:
+        base = base.where(UserModel.tenant_id == current_user.tenant_id)
+        base = base.where(UserModel.app_role != AppRole.SUPER_ADMIN.value)
+    elif namespace_id is not None:
+        base = base.where(UserModel.tenant_id == namespace_id)
 
     if search:
         pattern = f"%{search}%"
-        base = base.where(
-            (UserModel.email.ilike(pattern))
-            | (UserModel.given_name.ilike(pattern))
-            | (UserModel.family_name.ilike(pattern))
+        conditions = (
+            UserModel.email.ilike(pattern)
+            | UserModel.given_name.ilike(pattern)
+            | UserModel.family_name.ilike(pattern)
         )
+        if is_super_admin:
+            conditions = conditions | TenantModel.name.ilike(pattern) | TenantModel.slug.ilike(pattern)
+        base = base.where(conditions)
     if app_role:
         base = base.where(UserModel.app_role == app_role)
     if verified is not None:
@@ -196,11 +243,14 @@ async def list_users(
         base = base.order_by(order_clause)
 
     offset = (page - 1) * page_size
-    rows = (await session.execute(base.offset(offset).limit(page_size))).scalars().all()
+    rows = (await session.execute(base.offset(offset).limit(page_size))).all()
 
     return AdminUsersResponse(
         total=total,
-        items=[_serialize(u) for u in rows],
+        items=[
+            _serialize(u, NamespaceSummary(id=t.id, name=t.name, slug=t.slug))
+            for u, t in rows
+        ],
         page=page,
         page_size=page_size,
         total_pages=max(1, math.ceil(total / page_size)),
@@ -215,12 +265,7 @@ async def update_user(
     current_user: AdminUserDep,
     session: SessionDep,
 ) -> AdminUserResponse:
-    user = (await session.execute(
-        select(UserModel).where(
-            UserModel.id == user_id,
-            UserModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    user = await _scoped_user_lookup(session, user_id, current_user)
 
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -232,6 +277,12 @@ async def update_user(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot deactivate your own account")
         if body.email_verified is False:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot unverify your own account")
+
+    # SUPER_ADMIN is a single site-wide role, not namespace-scoped — only an
+    # existing Super Admin may grant it, otherwise a namespace ADMIN could
+    # mint themselves (or anyone) site-wide access.
+    if body.app_role == "SUPER_ADMIN" and current_user.app_role != AppRole.SUPER_ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Super Administrator can grant Super Admin access")
 
     if body.given_name is not None:
         user.given_name = body.given_name or None
@@ -255,19 +306,21 @@ async def update_user(
     user_email = user.email
     user_name = user.full_name
 
-    # Log each significant change as a separate activity entry
+    # Log each significant change as a separate activity entry, against the
+    # target user's own namespace (not the caller's — relevant when a Super
+    # Admin is acting cross-namespace).
     if verification_changed is True:
-        await log_admin_action(session, current_user.tenant_id, current_user.id,
+        await log_admin_action(session, user.tenant_id, current_user.id,
                                 current_user.full_name, "ADMIN_VERIFY", user_email, _admin_ip(request))
     elif verification_changed is False:
-        await log_admin_action(session, current_user.tenant_id, current_user.id,
+        await log_admin_action(session, user.tenant_id, current_user.id,
                                 current_user.full_name, "ADMIN_UNVERIFY", user_email, _admin_ip(request))
     if body.is_active is not None:
         event = "ADMIN_ACTIVATE" if body.is_active else "ADMIN_DEACTIVATE"
-        await log_admin_action(session, current_user.tenant_id, current_user.id,
+        await log_admin_action(session, user.tenant_id, current_user.id,
                                 current_user.full_name, event, user_email, _admin_ip(request))
     if verification_changed is None and body.is_active is None:
-        await log_admin_action(session, current_user.tenant_id, current_user.id,
+        await log_admin_action(session, user.tenant_id, current_user.id,
                                 current_user.full_name, "ADMIN_UPDATE", user_email, _admin_ip(request))
 
     await session.commit()
@@ -278,7 +331,8 @@ async def update_user(
     elif verification_changed is False:
         await _send_admin_unverified_email(user_email, user_name)
 
-    return _serialize(user)
+    namespace = await get_namespace_summary(session, user.tenant_id)
+    return _serialize(user, namespace)
 
 
 @router.post("/users/{user_id}/verify", response_model=AdminUserResponse, summary="Manually verify a user's email")
@@ -288,12 +342,7 @@ async def verify_user(
     current_user: AdminUserDep,
     session: SessionDep,
 ) -> AdminUserResponse:
-    user = (await session.execute(
-        select(UserModel).where(
-            UserModel.id == user_id,
-            UserModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    user = await _scoped_user_lookup(session, user_id, current_user)
 
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -303,12 +352,13 @@ async def verify_user(
     user.email_verification_token = None
     user_email = user.email
     user_name = user.full_name
-    await log_admin_action(session, current_user.tenant_id, current_user.id,
+    await log_admin_action(session, user.tenant_id, current_user.id,
                             current_user.full_name, "ADMIN_VERIFY", user_email, _admin_ip(request))
     await session.commit()
     await session.refresh(user)
     await _send_admin_verified_email(user_email, user_name)
-    return _serialize(user)
+    namespace = await get_namespace_summary(session, user.tenant_id)
+    return _serialize(user, namespace)
 
 
 @router.delete(
@@ -328,12 +378,7 @@ async def deactivate_user(
     if user_id == current_user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot deactivate your own account")
 
-    user = (await session.execute(
-        select(UserModel).where(
-            UserModel.id == user_id,
-            UserModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    user = await _scoped_user_lookup(session, user_id, current_user)
 
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -341,7 +386,7 @@ async def deactivate_user(
     user_email = user.email
     user_name = user.full_name
     user.is_active = False
-    await log_admin_action(session, current_user.tenant_id, current_user.id,
+    await log_admin_action(session, user.tenant_id, current_user.id,
                             current_user.full_name, "ADMIN_DEACTIVATE", user_email, _admin_ip(request))
     await session.commit()
     # Revoke all active sessions so they can't keep using the app
@@ -366,12 +411,7 @@ async def purge_user(
     if user_id == current_user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete your own account")
 
-    user = (await session.execute(
-        select(UserModel).where(
-            UserModel.id == user_id,
-            UserModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    user = await _scoped_user_lookup(session, user_id, current_user)
 
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -386,7 +426,7 @@ async def purge_user(
     target_display = f"{user.email} (role={user.app_role}, id={user.id})"
 
     await log_admin_action(
-        session, current_user.tenant_id, current_user.id,
+        session, user.tenant_id, current_user.id,
         current_user.full_name, "ADMIN_DELETE", target_display, _admin_ip(request),
     )
     await session.delete(user)

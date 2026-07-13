@@ -16,7 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.infrastructure.database.base import Base, TenantMixin, TimestampMixin
@@ -56,6 +56,10 @@ class UserModel(Base, TenantMixin, TimestampMixin):
     timezone: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default=text("'UTC'")
     )
+    # Portal appearance preference (preset name + colour overrides) — the
+    # frontend's PortalTheme shape, stored opaquely so it follows the account
+    # across devices rather than being a per-browser localStorage setting.
+    theme: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )

@@ -272,6 +272,65 @@ def tree_invitation_email(
     return html, text
 
 
+def namespace_invitation_email(
+    invitee_email: str,
+    inviter_name: str,
+    namespace_name: str,
+    role: str,
+    accept_url: str,
+    message: str | None = None,
+) -> tuple[str, str]:
+    """Email sent when a Global-namespace user is invited to join a namespace."""
+    role_label = {"ADMIN": "Admin", "STANDARD": "Standard", "AUDITOR": "Auditor"}.get(role, role.capitalize())
+    message_block = (
+        f'<p style="color:#64748b;margin:0 0 16px;padding:12px 16px;'
+        f'background:#f8fafc;border-left:3px solid #6366f1;border-radius:4px;">'
+        f'"{message}"</p>'
+    ) if message else ""
+    message_text = f'\n"{message}"\n' if message else ""
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 8px;">You've been invited to a namespace 🏷️</h1>
+    <p style="color:#64748b;margin:0 0 16px;">
+      <strong>{inviter_name}</strong> has invited you to join
+      <strong>{namespace_name}</strong> as an <strong>{role_label}</strong>.
+    </p>
+    {message_block}
+    <p style="color:#64748b;margin:0 0 16px;">
+      Accepting will move your account into <strong>{namespace_name}</strong>. You will
+      no longer have access to anything in your current namespace.
+    </p>
+    <a href="{accept_url}"
+       style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;
+              padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">
+      Accept invitation
+    </a>
+    <p style="color:#94a3b8;font-size:12px;margin:24px 0 0;">
+      This invitation expires in 7 days. If you weren't expecting this, you can safely ignore it.
+    </p>
+    <p style="color:#94a3b8;font-size:11px;margin:8px 0 0;word-break:break-all;">
+      Or copy this URL: {accept_url}
+    </p>
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"You've been invited to a namespace!\n\n"
+        f"{inviter_name} has invited you to join {namespace_name} as an {role_label}.\n"
+        f"{message_text}\n"
+        f"Accepting will move your account into {namespace_name}. You will no longer have "
+        f"access to anything in your current namespace.\n\n"
+        f"Accept the invitation by visiting:\n\n{accept_url}\n\n"
+        f"This invitation expires in 7 days. If you weren't expecting this, ignore this email."
+    )
+    return html, text
+
+
 def verification_email(display_name: str, verify_url: str) -> tuple[str, str]:
     """Returns (html_body, text_body) for the email-verification email."""
     html = f"""

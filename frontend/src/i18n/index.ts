@@ -34,4 +34,11 @@ export function getCurrentLanguage(): string {
   return i18n.language || 'en';
 }
 
+// Fixed-English translator — for surfaces (e.g. the public landing page)
+// that must always render in English regardless of the user's selected
+// app language, signed in or out.
+export function getEnglishT() {
+  return i18n.getFixedT('en');
+}
+
 export default i18n;

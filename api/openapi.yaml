@@ -1429,6 +1429,273 @@ components:
           items:
             $ref: "#/components/schemas/OfrFamilyGroup"
 
+    # ── Namespaces / Super-Admin subsystem ───────────────────
+    NamespaceSummary:
+      type: object
+      description: >
+        Lightweight namespace (tenant) reference attached to user-facing DTOs
+        (e.g. `AdminUser.namespace`, `ActivityItem.namespace`).
+      required: [id, name, slug]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        is_global:
+          type: boolean
+          default: false
+          description: True for the single namespace new users land in by default.
+
+    Namespace:
+      type: object
+      description: A namespace (tenant). Product-facing name for the internal `tenants` table.
+      required: [id, name, slug, is_active, is_global, user_count, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        slug: { type: string, minLength: 1, maxLength: 100 }
+        is_active: { type: boolean }
+        is_global:
+          type: boolean
+          description: True for the single namespace new users land in by default; cannot be deactivated.
+        user_count: { type: integer }
+        user_preview:
+          type: array
+          items: { type: string }
+          description: First 3 users' display names in this namespace, for an inline "who's in here" preview.
+        created_at: { type: string, format: date-time }
+
+    NamespaceInvitation:
+      type: object
+      description: >
+        Invitation transferring an existing Global-namespace user account into a
+        specific namespace with a chosen role. Accepting updates the user's
+        tenant_id/app_role in place — it never creates a second account.
+      required: [id, tenant_id, namespace_name, inviter_name, invitee_email, role, status, expires_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        namespace_name: { type: string }
+        inviter_name: { type: string }
+        invitee_email: { type: string, format: email }
+        role:
+          type: string
+          description: One of `ADMIN`, `STANDARD`, `AUDITOR` — the app role the invitee will have once accepted.
+        status:
+          type: string
+          description: One of `PENDING`, `ACCEPTED`, `DECLINED`, `EXPIRED`, `REVOKED`.
+        expires_at:
+          type: string
+          format: date-time
+          description: 168 hours (7 days) after creation.
+        created_at: { type: string, format: date-time }
+
+    UserGroup:
+      type: object
+      description: >
+        A named, reusable collection of users within a tenant. Linking a user
+        group to a Permission Group grants every current member that group's
+        access — membership changes propagate live.
+      required: [id, name, member_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        description: { type: string, nullable: true, maxLength: 500 }
+        member_count: { type: integer }
+        member_preview:
+          type: array
+          items: { type: string }
+          description: First 3 members' display names, for an inline table preview.
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    PermissionGroup:
+      type: object
+      description: >
+        A reusable access template: a list of trees and a list of members (or
+        linked user groups). Adding a member grants the group's permission
+        level on every tree in the group; adding a tree grants all current
+        members access to it.
+      required: [id, name, permission_level, is_global, tree_count, member_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, nullable: true, maxLength: 500 }
+        permission_level:
+          type: string
+          enum: [VISIBLE, READ, READ_WRITE]
+          description: >
+            VISIBLE/READ map to tree role VIEWER; READ_WRITE maps to EDITOR.
+            Never grants OWNER or ADMIN.
+        is_global:
+          type: boolean
+          description: >
+            Super Admin only flag. When true, this group's trees are granted
+            to every tenant user — present and future — instead of just its
+            explicit members.
+        tree_count: { type: integer }
+        member_count: { type: integer }
+        member_preview:
+          type: array
+          items: { type: string }
+          description: First 3 explicit members' display names, for an inline table preview.
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    PermissionGroupTree:
+      type: object
+      description: A tree that is part of a permission group.
+      required: [id, tree_id, tree_name, added_at]
+      properties:
+        id: { type: string, format: uuid }
+        tree_id: { type: string, format: uuid }
+        tree_name: { type: string }
+        added_by: { type: string, format: uuid, nullable: true }
+        added_at: { type: string, format: date-time }
+
+    PermissionGroupUserGroupLink:
+      type: object
+      description: A user group linked to a permission group — grants access to all its current and future members.
+      required: [id, user_group_id, user_group_name, member_count, added_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_group_id: { type: string, format: uuid }
+        user_group_name: { type: string }
+        member_count: { type: integer }
+        added_by: { type: string, format: uuid, nullable: true }
+        added_at: { type: string, format: date-time }
+
+    TenantTree:
+      type: object
+      description: Lightweight tree reference for assignment dropdowns (Permission Group tree/member pickers).
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    GroupMember:
+      type: object
+      description: >
+        A user entry within a group or subscription membership listing.
+        Shared shape used by User Groups, Permission Groups, and Subscriptions.
+      required: [id, user_id, user_email, user_display_name, added_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        user_email: { type: string, format: email }
+        user_display_name: { type: string }
+        added_by: { type: string, format: uuid, nullable: true }
+        added_at: { type: string, format: date-time }
+
+    Subscription:
+      type: object
+      description: >
+        A named access-control tier (Free / Premium – Individual / Premium –
+        Team) that entitles its members to a set of gated tree view "filters".
+        Pure access-control metadata — not real billing, and membership has no
+        side effects on tree_members (unlike Permission Groups).
+      required: [id, name, tier, is_expired, filter_count, member_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        tier:
+          type: string
+          enum: [FREE, PREMIUM_INDIVIDUAL, PREMIUM_TEAM]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null/omitted = never expires. When set, this is a time-limited "promotional" subscription.
+        is_expired: { type: boolean }
+        filter_count: { type: integer }
+        member_count: { type: integer }
+        member_preview:
+          type: array
+          items: { type: string }
+          description: First 3 members' display names, for an inline table preview.
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SubscriptionFilter:
+      type: object
+      description: A filter (tree view/extension id, e.g. "poster", "timeline") granted by a subscription.
+      required: [id, filter_key, added_at]
+      properties:
+        id: { type: string, format: uuid }
+        filter_key: { type: string }
+        added_by: { type: string, format: uuid, nullable: true }
+        added_at: { type: string, format: date-time }
+
+    AvailableFilter:
+      type: object
+      description: A known filter key that can be granted to a subscription.
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+
+    ActivityItem:
+      type: object
+      description: >
+        A single audit-log or login-event row. `actor_display_name` is always
+        replaced with a constant "Super Admin" label when the underlying actor
+        is a Super Admin and the viewer isn't one themself; for LOGIN/LOGOUT/
+        FAILED_LOGIN events `entity_display_name` (the same self-referential
+        account) is masked the same way, but for other action types it
+        describes a different target and is left untouched.
+      required: [id, event_source, actor_display_name, action, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        event_source:
+          type: string
+          enum: [audit, login]
+        actor_id: { type: string, format: uuid, nullable: true }
+        actor_display_name: { type: string }
+        action: { type: string }
+        entity_type: { type: string, nullable: true }
+        entity_id: { type: string, format: uuid, nullable: true }
+        entity_display_name: { type: string, nullable: true }
+        tree_id: { type: string, format: uuid, nullable: true }
+        tree_name: { type: string, nullable: true }
+        ip_address: { type: string, nullable: true }
+        occurred_at: { type: string, format: date-time }
+        tenant_id: { type: string, format: uuid, nullable: true }
+        namespace:
+          allOf:
+            - $ref: "#/components/schemas/NamespaceSummary"
+          nullable: true
+
+    TenantUserForShare:
+      type: object
+      description: Lightweight user reference for the tree "share" picker (tenant users not already on the tree).
+      required: [id, email, display_name]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+
+    AdminUser:
+      type: object
+      required: [id, email, app_role, email_verified, is_active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        given_name: { type: string, nullable: true }
+        family_name: { type: string, nullable: true }
+        avatar_url: { type: string, nullable: true }
+        app_role: { type: string, enum: [SUPER_ADMIN, ADMIN, STANDARD, AUDITOR] }
+        email_verified: { type: boolean }
+        is_active: { type: boolean }
+        last_login_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        namespace:
+          allOf:
+            - $ref: "#/components/schemas/NamespaceSummary"
+          nullable: true
+          description: The user's namespace. Populated whenever the caller can see across namespaces (Super Admin).
+
   # ──────────────────────────────────────────────────────────
   # COMMON RESPONSES
   # ──────────────────────────────────────────────────────────
@@ -1515,6 +1782,18 @@ tags:
     description: Full-text, fuzzy, and structured person and place search
   - name: Places
     description: Normalised place registry
+  - name: Admin
+    description: Tenant user administration — create, list, update, deactivate, and purge users
+  - name: Namespaces
+    description: Super Admin-only namespace (tenant) management and cross-namespace invitations
+  - name: User Groups
+    description: Named, reusable collections of users within a tenant
+  - name: Permission Groups
+    description: Reusable tree-access templates assignable to users, user groups, or made tenant-wide
+  - name: Subscriptions
+    description: Super Admin managed access-control tiers entitling members to gated tree view filters
+  - name: Activity
+    description: Audit log and login event feed
 
 # ──────────────────────────────────────────────────────────────
 # PATHS
@@ -4021,8 +4300,13 @@ paths:
       operationId: listUsers
       summary: List all users in the tenant
       description: |
-        Returns a paginated list of all users in the caller's tenant.
-        Requires `ADMIN` app role with a verified email address.
+        Returns a paginated list of users. Requires `ADMIN` app role with a
+        verified email address.
+
+        A regular `ADMIN` stays scoped to their own namespace and never sees
+        `SUPER_ADMIN` accounts. A `SUPER_ADMIN` instead sees users across
+        **every** namespace by default (each item's `namespace` field is
+        populated), optionally narrowed to one namespace via `namespace_id`.
       security:
         - BearerAuth: []
       parameters:
@@ -4035,7 +4319,9 @@ paths:
         - name: search
           in: query
           schema: { type: string, maxLength: 200 }
-          description: Search by name or email (case-insensitive)
+          description: >
+            Search by name or email (case-insensitive). For a Super Admin,
+            also matches the namespace's name/slug.
         - name: app_role
           in: query
           schema:
@@ -4045,6 +4331,10 @@ paths:
           in: query
           schema: { type: boolean }
           description: Filter by email verification status
+        - name: namespace_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Super Admin only — filter to one namespace.
         - name: sort
           in: query
           schema:
@@ -4080,7 +4370,8 @@ paths:
       description: |
         Creates a user in the tenant with a random unusable password.
         Sends an activation email containing a link to `POST /auth/reset-password`
-        where the user sets their own password.
+        where the user sets their own password. Email is unique across every
+        namespace — an account belongs to exactly one namespace at a time.
 
         **Side effects:**
         - Activation email sent immediately.
@@ -4110,6 +4401,14 @@ paths:
                   type: string
                   enum: [ADMIN, STANDARD, AUDITOR]
                   default: STANDARD
+                namespace_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: >
+                    Super Admin only — create the user in this namespace
+                    instead of the caller's own. Ignored for a regular ADMIN,
+                    who can only create users in their own namespace.
       responses:
         "201":
           description: User created
@@ -4437,22 +4736,9 @@ paths:
           $ref: "#/components/responses/403Forbidden"
 
 # ============================================================
-# AdminUser schema — referenced by admin endpoints above
-# (add to components.schemas in a full spec refactor)
+# AdminUser schema now lives in components/schemas (see NamespaceSummary
+# / Namespaces subsystem block) — it's referenced by the admin endpoints above.
 # ============================================================
-# AdminUser:
-#   type: object
-#   required: [id, email, app_role, email_verified, is_active, created_at]
-#   properties:
-#     id:               { type: string, format: uuid }
-#     email:            { type: string, format: email }
-#     given_name:       { type: string, nullable: true }
-#     family_name:      { type: string, nullable: true }
-#     app_role:         { type: string, enum: [SUPER_ADMIN, ADMIN, STANDARD, AUDITOR] }
-#     email_verified:   { type: boolean }
-#     is_active:        { type: boolean }
-#     last_login_at:    { type: string, format: date-time, nullable: true }
-#     created_at:       { type: string, format: date-time }
 
 # ============================================================
 # Site Settings — Maintenance Mode
@@ -4707,4 +4993,1788 @@ paths:
                 type: object
                 properties:
                   broadcast_unsubscribed: { type: boolean }
+
+# ============================================================
+# NAMESPACES (Super Admin) + NAMESPACE INVITATIONS
+# ============================================================
+
+  /admin/namespaces:
+    get:
+      tags: [Admin, Namespaces]
+      operationId: listNamespaces
+      summary: List namespaces, paginated and searchable (Super Admin only)
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+          description: Search by namespace name or slug (case-insensitive)
+      responses:
+        "200":
+          description: Paginated namespace list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Namespace"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Admin, Namespaces]
+      operationId: createNamespace
+      summary: Create a new namespace (Super Admin only)
+      description: |
+        Requires `SUPER_ADMIN` app role. `slug` must be unique across all
+        namespaces and match `^[a-z0-9]+(-[a-z0-9]+)*$`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                slug:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      responses:
+        "201":
+          description: Namespace created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Namespace"
+        "409":
+          description: A namespace with this slug already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/namespaces/{namespaceId}:
+    parameters:
+      - name: namespaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Admin, Namespaces]
+      operationId: updateNamespace
+      summary: Rename or activate/deactivate a namespace (Super Admin only)
+      description: |
+        Requires `SUPER_ADMIN` app role. All body fields are optional.
+
+        **Restriction:** the Global namespace (the single namespace new users
+        land in by default) cannot be deactivated → `400`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                is_active: { type: boolean }
+      responses:
+        "200":
+          description: Updated namespace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Namespace"
+        "400":
+          description: The Global namespace cannot be deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/namespaces/{namespaceId}/users:
+    parameters:
+      - name: namespaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, Namespaces]
+      operationId: listNamespaceUsers
+      summary: List users in any namespace (Super Admin only)
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+          description: Search by name or email (case-insensitive)
+      responses:
+        "200":
+          description: Paginated user list for this namespace
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminUser"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/namespaces/{namespaceId}/invitations:
+    parameters:
+      - name: namespaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Admin, Namespaces]
+      operationId: createNamespaceInvitation
+      summary: Invite a Global-namespace user into this namespace
+      description: |
+        Requires the `SUPER_ADMIN`, or an `ADMIN` of the target namespace.
+
+        The invitee must already be an existing user of the Global namespace
+        (found by email) — namespace invitations only ever move an existing
+        account, they never create a new one. Cannot target the Global
+        namespace itself.
+
+        **Side effects:**
+        - Invitation record created with a 168-hour (7-day) expiry.
+        - Invitation email sent to the invitee (best-effort — failure does
+          not roll back the invitation).
+        - In-app notification + Web Push sent to the invitee (best-effort).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invitee_email, role]
+              properties:
+                invitee_email: { type: string, format: email }
+                role:
+                  type: string
+                  enum: [ADMIN, STANDARD, AUDITOR]
+                message: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201":
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceInvitation"
+        "400":
+          description: No Global namespace is configured, or the target namespace is the Global namespace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          description: Namespace not found, or no Global-namespace user found with that email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/namespaces/{namespaceId}/invitations/{invitationId}:
+    parameters:
+      - name: namespaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invitationId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Admin, Namespaces]
+      operationId: revokeNamespaceInvitation
+      summary: Revoke a pending namespace invitation
+      description: |
+        Requires the `SUPER_ADMIN`, or an `ADMIN` of the target namespace.
+        Only a `PENDING` invitation can be revoked.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Invitation revoked — no body
+        "400":
+          description: Only a pending invitation can be revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /namespace-invitations/pending:
+    get:
+      tags: [Namespaces]
+      operationId: listPendingNamespaceInvitations
+      summary: List pending namespace invitations addressed to the current user
+      description: Requires a verified user account.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Pending invitations for this account
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NamespaceInvitation"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /namespace-invitations/{token}/accept:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Namespaces]
+      operationId: acceptNamespaceInvitation
+      summary: Accept a namespace invitation — transfers your account into that namespace
+      description: |
+        Requires a verified user account, and the invitation must be
+        addressed to that same account.
+
+        **Side effects:**
+        - Updates the caller's `tenant_id`/`app_role` in place (does not
+          create a second account).
+        - Drops stale tree memberships from the old namespace and grants the
+          new namespace's globally-shared trees.
+        - Marks the invitation `ACCEPTED`.
+        - Revokes all of the caller's refresh tokens/sessions — the JWT's
+          `tid`/`role` claims are now stale, so this forces a re-login
+          everywhere.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant_id: { type: string, format: uuid }
+                  app_role: { type: string, enum: [ADMIN, STANDARD, AUDITOR] }
+        "400":
+          description: Invitation is no longer pending, or has expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          description: This invitation was addressed to a different account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+# ============================================================
+# USER GROUPS (Admin)
+# ============================================================
+
+  /admin/user-groups:
+    get:
+      tags: [Admin, User Groups]
+      operationId: listUserGroups
+      summary: List user groups in the tenant, paginated and searchable
+      description: Requires `ADMIN` app role.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Paginated user group list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserGroup"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Admin, User Groups]
+      operationId: createUserGroup
+      summary: Create a user group
+      description: Requires `ADMIN` app role. `name` must be unique within the tenant.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                description: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201":
+          description: User group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserGroup"
+        "409":
+          description: A user group with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/user-groups/{groupId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Admin, User Groups]
+      operationId: updateUserGroup
+      summary: Rename or redescribe a user group
+      description: Requires `ADMIN` app role. All body fields are optional.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                description: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "200":
+          description: Updated user group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Admin, User Groups]
+      operationId: deleteUserGroup
+      summary: Delete a user group and revoke any access it was granting
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** cascades deletion of its memberships and any
+        permission-group links; for each former member, revokes tree access
+        that was only being granted through this group (unless they're still
+        entitled through some other permission group).
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: User group deleted — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/user-groups/{groupId}/members:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, User Groups]
+      operationId: listUserGroupMembers
+      summary: List members of a user group
+      description: Requires `ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Group members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GroupMember"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Admin, User Groups]
+      operationId: addUserGroupMember
+      summary: Add a user to a user group
+      description: |
+        Requires `ADMIN` app role. The user must belong to the caller's tenant.
+
+        **Side effects:** immediately grants the user access to every tree
+        implied by any permission group this user group is linked to.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMember"
+        "404":
+          description: User group not found, or user not found in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: User is already in this group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/user-groups/{groupId}/members/{memberId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Admin, User Groups]
+      operationId: removeUserGroupMember
+      summary: Remove a user from a user group
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** revokes the user's tree access that was granted
+        through this group, unless they're still entitled through some
+        other permission group.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Member removed — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/user-groups/{groupId}/bulk-role:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Admin, User Groups]
+      operationId: bulkAssignUserGroupRole
+      summary: Set the app role for every member of a user group at once
+      description: |
+        Requires `ADMIN` app role.
+
+        The caller's own account is never changed even if they're a member
+        of the group (self-protection, same as the single-user endpoint).
+        Granting `SUPER_ADMIN` requires the caller already be a
+        `SUPER_ADMIN` → `403` otherwise.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app_role]
+              properties:
+                app_role:
+                  type: string
+                  enum: [ADMIN, STANDARD, AUDITOR, SUPER_ADMIN]
+      responses:
+        "200":
+          description: Bulk role update result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated_count: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          description: Only a Super Administrator can grant Super Admin access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+# ============================================================
+# PERMISSION GROUPS (Admin)
+# ============================================================
+
+  /admin/permission-groups:
+    get:
+      tags: [Admin, Permission Groups]
+      operationId: listPermissionGroups
+      summary: List permission groups in the tenant, paginated and searchable
+      description: Requires `ADMIN` app role.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Paginated permission group list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PermissionGroup"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Admin, Permission Groups]
+      operationId: createPermissionGroup
+      summary: Create a permission group
+      description: Requires `ADMIN` app role. `name` must be unique within the tenant.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, permission_level]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                description: { type: string, maxLength: 500, nullable: true }
+                permission_level:
+                  type: string
+                  enum: [VISIBLE, READ, READ_WRITE]
+      responses:
+        "201":
+          description: Permission group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionGroup"
+        "409":
+          description: A permission group with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/permission-groups/{groupId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Admin, Permission Groups]
+      operationId: updatePermissionGroup
+      summary: Update a permission group
+      description: |
+        Requires `ADMIN` app role. All body fields are optional.
+
+        **Side effects:** changing `permission_level` propagates the new
+        tree role to every existing (member, tree) pair in the group (or to
+        every tenant user's tree_members row, if the group `is_global`) —
+        `OWNER`/`ADMIN` tree roles are never touched.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                description: { type: string, maxLength: 500, nullable: true }
+                permission_level:
+                  type: string
+                  enum: [VISIBLE, READ, READ_WRITE]
+      responses:
+        "200":
+          description: Updated permission group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Admin, Permission Groups]
+      operationId: deletePermissionGroup
+      summary: Delete a permission group and revoke all its access grants
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** revokes every `VIEWER`/`EDITOR` tree_members row
+        this group was granting (tenant-wide if `is_global`) before deleting
+        the group.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Permission group deleted — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/permission-groups/{groupId}/global:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Admin, Permission Groups]
+      operationId: setPermissionGroupGlobal
+      summary: Make a permission group's trees globally accessible to every tenant user (Super Admin only)
+      description: |
+        Requires `SUPER_ADMIN` app role.
+
+        **Side effects:**
+        - Turning on: inserts `tree_members` rows for every (tree, tenant
+          user) pair in the group, upgrading existing `VIEWER` rows to
+          `EDITOR` if the group grants `EDITOR` — never downgrades.
+        - Turning off: revokes access for tenant users who aren't also
+          explicit members of the group (explicit members keep their access).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_global]
+              properties:
+                is_global: { type: boolean }
+      responses:
+        "200":
+          description: Updated permission group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionGroup"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/permission-groups/{groupId}/trees:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, Permission Groups]
+      operationId: listPermissionGroupTrees
+      summary: List trees in a permission group
+      description: Requires `ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Trees in the group
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PermissionGroupTree"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Admin, Permission Groups]
+      operationId: addPermissionGroupTree
+      summary: Add a tree to a permission group
+      description: |
+        Requires `ADMIN` app role. The tree must exist (and not be deleted)
+        in the caller's tenant; a non-`AUDITOR` caller must also be a member
+        of the tree.
+
+        **Side effects:** grants access to every current recipient — the
+        group's explicit members plus everyone in any linked user group, or
+        every tenant user if the group `is_global`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tree_id]
+              properties:
+                tree_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Tree added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionGroupTree"
+        "403":
+          description: Caller is not a member of this tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Permission group not found, or tree not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: This tree is already in the group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/permission-groups/{groupId}/trees/{treeId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: "#/components/parameters/treeId"
+    delete:
+      tags: [Admin, Permission Groups]
+      operationId: removePermissionGroupTree
+      summary: Remove a tree from a permission group
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** revokes access for every current recipient of this
+        tree (tenant-wide if the group `is_global`).
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Tree removed from group — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/permission-groups/{groupId}/members:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, Permission Groups]
+      operationId: listPermissionGroupMembers
+      summary: List members of a permission group
+      description: Requires `ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Group members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GroupMember"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Admin, Permission Groups]
+      operationId: addPermissionGroupMember
+      summary: Add a user to a permission group
+      description: |
+        Requires `ADMIN` app role. The user must belong to the caller's
+        tenant. Rejected with `400` if the group `is_global` — global groups
+        apply to all tenant users automatically, so individuals cannot be
+        added.
+
+        **Side effects:** grants the user access to every tree in the group.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMember"
+        "400":
+          description: Global groups apply to all members automatically
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Permission group not found, or user not found in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: User is already in this group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/permission-groups/{groupId}/members/{memberId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Admin, Permission Groups]
+      operationId: removePermissionGroupMember
+      summary: Remove a user from a permission group
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** revokes the user's access to every tree in the group.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Member removed — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/permission-groups/{groupId}/user-groups:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, Permission Groups]
+      operationId: listPermissionGroupUserGroups
+      summary: List user groups linked to a permission group
+      description: Requires `ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Linked user groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PermissionGroupUserGroupLink"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Admin, Permission Groups]
+      operationId: addPermissionGroupUserGroup
+      summary: Link a user group to a permission group — grants access to all its current and future members
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** immediately grants access to all current members
+        of the user group, for every tree in this permission group. Future
+        members of the user group inherit this access automatically.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_group_id]
+              properties:
+                user_group_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: User group linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionGroupUserGroupLink"
+        "404":
+          description: Permission group not found, or user group not found in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: This user group is already linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/permission-groups/{groupId}/user-groups/{linkId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: linkId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Admin, Permission Groups]
+      operationId: removePermissionGroupUserGroup
+      summary: Unlink a user group from a permission group
+      description: |
+        Requires `ADMIN` app role.
+
+        **Side effects:** for each of the user group's members, revokes tree
+        access granted through this permission group unless they're still
+        entitled through some other overlapping permission group.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: User group unlinked — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/trees:
+    get:
+      tags: [Admin, Permission Groups]
+      operationId: listTenantTreesForAssignment
+      summary: List trees in the tenant, paginated and searchable (for assignment dropdowns)
+      description: |
+        Requires `ADMIN` app role. An `AUDITOR` sees every non-deleted tree
+        in the tenant; a regular `ADMIN` sees only trees they are a member of.
+        Used to populate the tree picker when adding a tree to a permission group.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Paginated tree list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantTree"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+# ============================================================
+# SUBSCRIPTIONS
+# ============================================================
+
+  /admin/subscriptions:
+    get:
+      tags: [Admin, Subscriptions]
+      operationId: listSubscriptions
+      summary: List all subscriptions in the tenant
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Subscriptions in the tenant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Subscription"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+    post:
+      tags: [Admin, Subscriptions]
+      operationId: createSubscription
+      summary: Create a subscription
+      description: Requires `SUPER_ADMIN` app role. `name` must be unique within the tenant.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, tier]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                tier:
+                  type: string
+                  enum: [FREE, PREMIUM_INDIVIDUAL, PREMIUM_TEAM]
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: Null/omitted = never expires.
+      responses:
+        "201":
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "409":
+          description: A subscription with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/subscriptions/available-filters:
+    get:
+      tags: [Admin, Subscriptions]
+      operationId: listAvailableSubscriptionFilters
+      summary: List all known filter keys that can be granted to a subscription
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Available filter keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AvailableFilter"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /admin/subscriptions/{subId}:
+    parameters:
+      - name: subId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Admin, Subscriptions]
+      operationId: updateSubscription
+      summary: Update a subscription's name/tier
+      description: |
+        Requires `SUPER_ADMIN` app role. All body fields are optional, except
+        that including `expires_at` at all (even as `null`) is what triggers
+        an expiry change — this re-arms the expiry-reminder email whenever
+        the expiry actually moves.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                tier:
+                  type: string
+                  enum: [FREE, PREMIUM_INDIVIDUAL, PREMIUM_TEAM]
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        "200":
+          description: Updated subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    delete:
+      tags: [Admin, Subscriptions]
+      operationId: deleteSubscription
+      summary: Delete a subscription
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Subscription deleted — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/subscriptions/{subId}/filters:
+    parameters:
+      - name: subId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, Subscriptions]
+      operationId: listSubscriptionFilters
+      summary: List filters granted by a subscription
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Filters granted by this subscription
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubscriptionFilter"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Admin, Subscriptions]
+      operationId: addSubscriptionFilter
+      summary: Add a filter to a subscription
+      description: Requires `SUPER_ADMIN` app role. `filter_key` must be one of the known available filter keys.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filter_key]
+              properties:
+                filter_key: { type: string, minLength: 1, maxLength: 50 }
+      responses:
+        "201":
+          description: Filter added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionFilter"
+        "400":
+          description: Unknown filter key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+        "409":
+          description: This filter is already in the subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/subscriptions/{subId}/filters/{filterKey}:
+    parameters:
+      - name: subId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: filterKey
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [Admin, Subscriptions]
+      operationId: removeSubscriptionFilter
+      summary: Remove a filter from a subscription
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Filter removed — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /admin/subscriptions/{subId}/members:
+    parameters:
+      - name: subId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin, Subscriptions]
+      operationId: listSubscriptionMembers
+      summary: List members entitled by a subscription
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Subscription members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GroupMember"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+    post:
+      tags: [Admin, Subscriptions]
+      operationId: addSubscriptionMember
+      summary: Add a user to a subscription
+      description: |
+        Requires `SUPER_ADMIN` app role. The user must belong to the
+        caller's tenant. This is pure access-control metadata — adding a
+        member has no side effects on `tree_members` (unlike Permission
+        Groups).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMember"
+        "404":
+          description: Subscription not found, or user not found in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: User is already in this subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "422":
+          $ref: "#/components/responses/422UnprocessableEntity"
+
+  /admin/subscriptions/{subId}/members/{memberId}:
+    parameters:
+      - name: subId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Admin, Subscriptions]
+      operationId: removeSubscriptionMember
+      summary: Remove a user from a subscription
+      description: Requires `SUPER_ADMIN` app role.
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Member removed — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
+
+  /subscriptions/my-filters:
+    get:
+      tags: [Subscriptions]
+      operationId: getMySubscriptionFilters
+      summary: List filter keys the current user is entitled to via their subscriptions
+      description: |
+        Requires a verified user account.
+
+        A `SUPER_ADMIN` is opted out of the subscription model entirely —
+        every gate-able filter key is always returned, regardless of any
+        subscription membership. Other users get the distinct filter keys
+        granted by every subscription they're a member of that hasn't
+        expired.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Entitled filter keys
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [filterKeys]
+                properties:
+                  filterKeys:
+                    type: array
+                    items: { type: string }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+# ============================================================
+# ACTIVITY
+# ============================================================
+
+  /activity:
+    get:
+      tags: [Activity]
+      operationId: listActivity
+      summary: Activity feed (admin/auditor only)
+      description: |
+        Requires `ADMIN`, `AUDITOR`, or `SUPER_ADMIN` app role → `403`
+        otherwise. A plain `ADMIN` stays scoped to their own namespace;
+        `AUDITOR` and `SUPER_ADMIN` see activity across every namespace by
+        default, optionally narrowed with `namespace_id`.
+
+        Combines the audit log and login-event streams into one feed,
+        ordered by `occurred_at`.
+
+        **Masking:** `actor_display_name` is replaced with a constant
+        "Super Admin" label whenever the underlying actor is a Super Admin
+        and the viewer isn't a Super Admin themself. For `LOGIN`/`LOGOUT`/
+        `FAILED_LOGIN` events, `entity_display_name` (which in those rows
+        also identifies the actor's own account) is masked the same way;
+        for every other action type, `entity_display_name` describes a
+        different target and is left untouched.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: action
+          in: query
+          schema: { type: string }
+          description: Filter by action, e.g. `CREATE_PERSON`, `LOGIN`
+        - name: entity_type
+          in: query
+          schema: { type: string }
+          description: Filter by entity type, e.g. `PERSON`, `TREE`, `LOGIN`
+        - name: namespace_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Super Admin/Auditor only — filter to one namespace.
+        - name: sort
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        "200":
+          description: Paginated activity feed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityItem"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          description: Activity log is restricted to Admin and Auditor roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /activity/export:
+    get:
+      tags: [Activity]
+      operationId: exportActivity
+      summary: Export activity feed as CSV (admin/auditor only)
+      description: |
+        Requires `ADMIN`, `AUDITOR`, or `SUPER_ADMIN` app role → `403`
+        otherwise. Same scoping, filtering, and actor/entity masking rules
+        as `GET /activity`, but returns up to 10,000 rows as a CSV file
+        instead of a paginated JSON list.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: entity_type
+          in: query
+          schema: { type: string }
+        - name: namespace_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Super Admin/Auditor only — filter to one namespace.
+        - name: sort
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        "200":
+          description: CSV export of the activity feed
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          description: Activity log is restricted to Admin and Auditor roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+# ============================================================
+# TREE SHARING — TENANT USERS (extends Trees)
+# ============================================================
+
+  /trees/{treeId}/tenant-users:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Trees]
+      operationId: listTenantUsersForShare
+      summary: List tenant users not already in this tree, paginated and searchable (for share modal, OWNER/ADMIN only)
+      description: |
+        Requires a non-`AUDITOR` verified user who holds `OWNER` or `ADMIN`
+        role on the tree → `403` otherwise. Excludes inactive users and
+        `SUPER_ADMIN` accounts, and excludes anyone already a member of the
+        tree.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Paginated tenant users eligible to be added to this tree
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items, page, page_size, total_pages]
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantUserForShare"
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          $ref: "#/components/responses/404NotFound"
 

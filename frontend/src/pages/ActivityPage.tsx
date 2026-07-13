@@ -7,11 +7,18 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@store/auth.store';
 import { SEO } from '@shared/components/SEO';
+import { SearchableCombobox } from '@shared/components/SearchableCombobox';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const PAGE_SIZE = 25;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+interface NamespaceSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 interface ActivityItem {
   id: string;
@@ -26,6 +33,8 @@ interface ActivityItem {
   tree_name: string | null;
   ip_address: string | null;
   occurred_at: string;
+  tenant_id: string | null;
+  namespace: NamespaceSummary | null;
 }
 
 interface ActivityResponse {
@@ -73,6 +82,12 @@ const ACTION_OPTIONS = [
   // Broadcast
   { value: 'BROADCAST_SEND', label: 'Broadcast: send email' },
   { value: 'BROADCAST_DEL', label: 'Broadcast: delete log' },
+  // Namespace management
+  { value: 'NS_CREATE', label: 'Namespace: create' },
+  { value: 'NS_UPDATE', label: 'Namespace: update' },
+  { value: 'NS_INVITE', label: 'Namespace: invite user' },
+  { value: 'NS_INVITE_ACCEPT', label: 'Namespace: invite accepted' },
+  { value: 'NS_INVITE_REVOKE', label: 'Namespace: invite revoked' },
   // Tree content
   { value: 'CREATE_PERSON', label: 'Create person' },
   { value: 'UPDATE_PERSON', label: 'Update person' },
@@ -156,11 +171,55 @@ function formatDate(iso: string): string {
   });
 }
 
+// ── Namespace filter (Super Admin / Auditor only) ───────────────────────────────
+
+function NamespaceFilterCombobox({
+  token,
+  selected,
+  onSelect,
+  emptyLabel,
+  placeholder,
+}: {
+  token: string | null;
+  selected: NamespaceSummary | null;
+  onSelect: (ns: NamespaceSummary | null) => void;
+  emptyLabel: string;
+  placeholder?: string;
+}) {
+  const fetchPage = useCallback(async (page: number, pageSize: number, search: string) => {
+    if (!token) return { items: [], total_pages: 1 };
+    const params = new URLSearchParams({
+      page: String(page), page_size: String(pageSize),
+      ...(search ? { search } : {}),
+    });
+    const res = await fetch(`${API_BASE}/admin/namespaces?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) return { items: [], total_pages: 1 };
+    return await res.json();
+  }, [token]);
+
+  return (
+    <SearchableCombobox<NamespaceSummary>
+      fetchPage={fetchPage}
+      renderOption={(ns) => <>{ns.name} <span className="text-gray-400">/{ns.slug}</span></>}
+      getLabel={(ns) => ns.name}
+      selected={selected}
+      onSelect={onSelect}
+      emptyLabel={emptyLabel}
+      placeholder={placeholder}
+    />
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ActivityPage() {
   const { t } = useTranslation();
   const accessToken = useAuthStore((s) => s.accessToken);
+  const currentUser = useAuthStore((s) => s.user);
+  const isGlobal = currentUser?.appRole === 'SUPER_ADMIN' || currentUser?.appRole === 'AUDITOR';
 
   const [data, setData]         = useState<ActivityResponse | null>(null);
   const [loading, setLoading]   = useState(false);
@@ -171,6 +230,7 @@ export default function ActivityPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [action, setAction]     = useState('');
   const [entityType, setEntityType] = useState('');
+  const [namespaceFilter, setNamespaceFilter] = useState<NamespaceSummary | null>(null);
   const [sort, setSort]         = useState<'desc' | 'asc'>('desc');
   const [exporting, setExporting] = useState(false);
 
@@ -197,6 +257,7 @@ export default function ActivityPage() {
         ...(debouncedSearch ? { search: debouncedSearch } : {}),
         ...(action ? { action } : {}),
         ...(entityType ? { entity_type: entityType } : {}),
+        ...(isGlobal && namespaceFilter ? { namespace_id: namespaceFilter.id } : {}),
       });
       const res = await fetch(`${API_BASE}/activity?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -209,7 +270,7 @@ export default function ActivityPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, page, debouncedSearch, action, entityType, sort]);
+  }, [accessToken, page, debouncedSearch, action, entityType, namespaceFilter, isGlobal, sort]);
 
   useEffect(() => { fetchActivity(); }, [fetchActivity]);
 
@@ -222,6 +283,7 @@ export default function ActivityPage() {
         ...(debouncedSearch ? { search: debouncedSearch } : {}),
         ...(action ? { action } : {}),
         ...(entityType ? { entity_type: entityType } : {}),
+        ...(isGlobal && namespaceFilter ? { namespace_id: namespaceFilter.id } : {}),
       });
       const res = await fetch(`${API_BASE}/activity/export?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -298,6 +360,19 @@ export default function ActivityPage() {
           style={{ background: 'var(--portal-card-bg)', color: 'var(--portal-text-primary)' }}
           />
         </div>
+
+        {/* Namespace filter (Super Admin / Auditor only) */}
+        {isGlobal && (
+          <div className="w-48">
+            <NamespaceFilterCombobox
+              token={accessToken}
+              selected={namespaceFilter}
+              onSelect={(ns) => { setNamespaceFilter(ns); setPage(1); }}
+              emptyLabel={t('activityPage.allNamespaces')}
+              placeholder={t('activityPage.namespaceLabel')}
+            />
+          </div>
+        )}
 
         {/* Action filter */}
         <select
@@ -385,6 +460,11 @@ export default function ActivityPage() {
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>
                     {t('activityPage.colTree')}
                   </th>
+                  {isGlobal && (
+                    <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--portal-text-muted)' }}>
+                      {t('activityPage.colNamespace')}
+                    </th>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider w-32" style={{ color: 'var(--portal-text-muted)' }}>
                     {t('activityPage.colIP')}
                   </th>
@@ -417,6 +497,16 @@ export default function ActivityPage() {
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       {item.tree_name ?? '—'}
                     </td>
+                    {isGlobal && (
+                      <td className="px-4 py-3 text-gray-600 text-xs">
+                        {item.namespace ? (
+                          <>
+                            {item.namespace.name}
+                            <span className="text-gray-400">/{item.namespace.slug}</span>
+                          </>
+                        ) : '—'}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-xs text-gray-400 font-mono">
                       {item.ip_address ?? '—'}
                     </td>

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import { getEnglishT } from '../i18n';
 import { useAuthStore } from '@store/auth.store';
 import { SEO } from '@shared/components/SEO';
 import { OAuthButtons, hasOAuthProviders } from '@features/auth/components/OAuthButtons';
@@ -20,7 +20,7 @@ function LoginModal({ onClose, onSwitchToRegister, initialError }: {
   onSwitchToRegister: () => void;
   initialError?: string | null;
 }) {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const navigate   = useNavigate();
   const storeLogin = useAuthStore((s) => s.login);
 
@@ -65,6 +65,11 @@ function LoginModal({ onClose, onSwitchToRegister, initialError }: {
         avatarUrl: me?.avatar_url ?? undefined,
         isEmailVerified: true,
         appRole: me?.app_role ?? 'STANDARD',
+        namespace: me?.namespace
+          ? { id: me.namespace.id, name: me.namespace.name, slug: me.namespace.slug, isGlobal: me.namespace.is_global }
+          : undefined,
+        language: me?.locale,
+        theme: me?.theme,
       });
       navigate('/dashboard', { replace: true });
     } catch (err) {
@@ -189,7 +194,7 @@ function RegisterModal({ onClose, onSwitchToLogin, initialError }: {
   onSwitchToLogin: () => void;
   initialError?: string | null;
 }) {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const [givenName,     setGivenName]     = useState('');
   const [familyName,    setFamilyName]    = useState('');
   const [email,         setEmail]         = useState('');
@@ -451,7 +456,7 @@ function ModalShell({ onClose, children }: { onClose: () => void; children: Reac
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 
 function LandingNav({ onSignIn, onSignUp }: { onSignIn: () => void; onSignUp: () => void }) {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const h = () => setScrolled(window.scrollY > 20);
@@ -658,7 +663,7 @@ function CanvasMockup() {
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
 function Hero({ onSignUp, onSignIn }: { onSignUp: () => void; onSignIn: () => void }) {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   return (
     <section aria-label="Build your family tree online for free" className="relative min-h-[90vh] flex items-center overflow-hidden bg-gradient-to-br from-brand-900 via-brand-800 to-indigo-900 pt-14">
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -721,7 +726,7 @@ function Hero({ onSignUp, onSignIn }: { onSignUp: () => void; onSignIn: () => vo
 // ─── Beta banner ──────────────────────────────────────────────────────────────
 
 function BetaBanner({ onSignUp }: { onSignUp: () => void }) {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   return (
     <section className="bg-brand-50 border-b border-brand-100 py-4">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-center gap-3 text-center sm:text-left">
@@ -823,7 +828,7 @@ const FEATURES = [
 ];
 
 function Features() {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   return (
     <section className="py-20 sm:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -853,7 +858,7 @@ function Features() {
 // ─── Dashboard mockup section ─────────────────────────────────────────────────
 
 function DashboardSection() {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const trees = [
     { emoji: '🌳', name: 'The Johnson Family',  role: 'Owner',  people: 47, members: 3, roleColor: '#6366f1', roleBg: '#eef2ff' },
     { emoji: '🌲', name: 'Smith Maternal Line', role: 'Editor', people: 21, members: 1, roleColor: '#16a34a', roleBg: '#f0fdf4' },
@@ -921,7 +926,7 @@ function DashboardSection() {
 // ─── Collaboration section ────────────────────────────────────────────────────
 
 function CollabSection() {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const roles = [
     { role: 'Owner',  color: '#6366f1', bg: '#eef2ff', descKey: 'landing.roleDescriptions.owner' },
     { role: 'Admin',  color: '#7c3aed', bg: '#f5f3ff', descKey: 'landing.roleDescriptions.admin' },
@@ -995,7 +1000,7 @@ function CollabSection() {
 // ─── How it works ─────────────────────────────────────────────────────────────
 
 function HowItWorks() {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const steps = [
     { num: '1', emoji: '✉️', titleKey: 'landing.step1Title', descKey: 'landing.step1Desc' },
     { num: '2', emoji: '🌳', titleKey: 'landing.step2Title', descKey: 'landing.step2Desc' },
@@ -1034,7 +1039,7 @@ function HowItWorks() {
 // ─── Fan chart teaser ─────────────────────────────────────────────────────────
 
 function FanChartTeaser() {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   const cx = 300, cy = 240, r0 = 30;
   const gens = [
     { r: 30,  R: 80,  count: 1, color: '#6366f1' },
@@ -1115,7 +1120,7 @@ function FanChartTeaser() {
 // ─── CTA ──────────────────────────────────────────────────────────────────────
 
 function CTA({ onSignUp }: { onSignUp: () => void }) {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   return (
     <section className="py-20 sm:py-24 bg-gradient-to-br from-brand-800 to-indigo-900 relative overflow-hidden">
       <div className="absolute inset-0 pointer-events-none opacity-10">
@@ -1149,7 +1154,7 @@ function CTA({ onSignUp }: { onSignUp: () => void }) {
 // ─── Footer ───────────────────────────────────────────────────────────────────
 
 function LandingFooter() {
-  const { t } = useTranslation();
+  const t = getEnglishT();
   return (
     <footer className="bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

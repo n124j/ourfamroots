@@ -69,6 +69,8 @@ interface PortalThemeStore {
   setPreset: (name: string) => void;
   updateField: <K extends keyof PortalTheme>(field: K, value: PortalTheme[K]) => void;
   reset: () => void;
+  /** Replace the whole theme wholesale — used to apply an account's saved theme on login. */
+  setTheme: (theme: PortalTheme) => void;
 }
 
 export const usePortalThemeStore = create<PortalThemeStore>()(
@@ -82,6 +84,7 @@ export const usePortalThemeStore = create<PortalThemeStore>()(
       updateField: (field, value) =>
         set((s) => ({ theme: { ...s.theme, preset: 'custom', [field]: value } })),
       reset: () => set({ theme: PORTAL_PRESETS[0] }),
+      setTheme: (theme) => set({ theme }),
     }),
     { name: 'fr:portal-theme' }
   )

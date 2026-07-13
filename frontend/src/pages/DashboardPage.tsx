@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@store/auth.store';
 import { SEO } from '@shared/components/SEO';
 import { UserAvatar } from '@shared/components/UserAvatar';
+import { SearchableCombobox } from '@shared/components/SearchableCombobox';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
@@ -889,12 +890,11 @@ function ShareTreeModal({
 
   const [members,     setMembers]     = useState<TreeMember[]>([]);
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
-  const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
 
   const [inviteMode,   setInviteMode]   = useState<'user' | 'email'>(isStandard ? 'email' : 'user');
-  const [selectedUser, setSelectedUser] = useState('');
+  const [selectedUser, setSelectedUser] = useState<TenantUser | null>(null);
   const [emailInput,   setEmailInput]   = useState('');
   const [inviteRole,   setInviteRole]   = useState('VIEWER');
   const [inviting,     setInviting]     = useState(false);
@@ -906,20 +906,25 @@ function ShareTreeModal({
 
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
+  const fetchTenantUsersPage = useCallback(async (page: number, pageSize: number, search: string) => {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+    const res = await fetch(`${API_BASE}/trees/${tree.id}/tenant-users?${params}`, { headers: authHeader, credentials: 'include' });
+    if (!res.ok) return { items: [], total_pages: 1 };
+    return await res.json();
+  }, [tree.id, token]);
+
   async function fetchAll() {
     setLoading(true);
     try {
-      const [mRes, iRes, uRes] = await Promise.all([
+      const [mRes, iRes] = await Promise.all([
         fetch(`${API_BASE}/trees/${tree.id}/members`,      { headers: authHeader, credentials: 'include' }),
         fetch(`${API_BASE}/trees/${tree.id}/invitations`,  { headers: authHeader, credentials: 'include' }),
-        fetch(`${API_BASE}/trees/${tree.id}/tenant-users`, { headers: authHeader, credentials: 'include' }),
       ]);
       if (mRes.ok) setMembers(await mRes.json());
       if (iRes.ok) {
         const all: PendingInvitation[] = await iRes.json();
         setInvitations(all.filter((i) => i.status === 'PENDING'));
       }
-      if (uRes.ok) setTenantUsers(await uRes.json());
 
       // Fetch pending requests for owners
       if (tree.role === 'OWNER') {
@@ -941,6 +946,7 @@ function ShareTreeModal({
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
+    if (inviteMode === 'user' && !selectedUser) return;
     setInviting(true);
     setInviteError('');
     try {
@@ -949,13 +955,13 @@ function ShareTreeModal({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeader },
           credentials: 'include',
-          body: JSON.stringify({ user_id: selectedUser, role: inviteRole }),
+          body: JSON.stringify({ user_id: selectedUser!.id, role: inviteRole }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error((err as any).detail ?? 'Failed to add member');
         }
-        setSelectedUser('');
+        setSelectedUser(null);
       } else {
         const email = emailInput.trim();
         if (!email) return;
@@ -1067,7 +1073,7 @@ function ShareTreeModal({
                       <button
                         key={m}
                         type="button"
-                        onClick={() => { setInviteMode(m); setSelectedUser(''); setEmailInput(''); }}
+                        onClick={() => { setInviteMode(m); setSelectedUser(null); setEmailInput(''); }}
                         className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                           inviteMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
                         }`}
@@ -1082,19 +1088,16 @@ function ShareTreeModal({
                   <div className="flex gap-2">
                     <div className="flex-1">
                       {inviteMode === 'user' ? (
-                        <select
-                          value={selectedUser}
-                          onChange={(e) => setSelectedUser(e.target.value)}
-                          required
-                          className="w-full h-10 px-3 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        >
-                          <option value="">
-                            {tenantUsers.length === 0 ? t('dashboard.allUsersAreMembers') : t('dashboard.selectPerson')}
-                          </option>
-                          {tenantUsers.map((u) => (
-                            <option key={u.id} value={u.id}>{u.display_name} ({u.email})</option>
-                          ))}
-                        </select>
+                        <SearchableCombobox<TenantUser>
+                          fetchPage={fetchTenantUsersPage}
+                          renderOption={(u) => <>{u.display_name} <span className="text-gray-400">({u.email})</span></>}
+                          getLabel={(u) => u.display_name}
+                          selected={selectedUser}
+                          onSelect={setSelectedUser}
+                          emptyLabel={t('dashboard.selectPerson')}
+                          placeholder={t('dashboard.selectPerson')}
+                          noResultsLabel={t('dashboard.allUsersAreMembers')}
+                        />
                       ) : (
                         <input
                           type="email"

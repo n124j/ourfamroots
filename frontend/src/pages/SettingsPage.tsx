@@ -49,6 +49,31 @@ function PortalColorField({
 function AppearanceTab() {
   const { t } = useTranslation();
   const { theme, setPreset, reset } = usePortalThemeStore();
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const storeUser   = useAuthStore((s) => s.user);
+  const setUser     = useAuthStore((s) => s.setUser);
+  const mounted = useRef(false);
+
+  // Persist to the account (not just this device) whenever the theme changes,
+  // however it changed — preset click, individual colour edit, or reset.
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    if (!accessToken) return;
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/users/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        credentials: 'include',
+        body: JSON.stringify({ theme }),
+      })
+        .then((res) => {
+          if (res.ok && storeUser) setUser({ ...storeUser, theme });
+        })
+        .catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, accessToken]);
 
   return (
     <div className="space-y-6">
@@ -734,14 +759,43 @@ function NotificationsTab({ accessToken }: { accessToken: string | null }) {
 // ── Language Tab ───────────────────────────────────────────────────────────────
 
 function LanguageTab() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const storeUser   = useAuthStore((s) => s.user);
+  const setUser     = useAuthStore((s) => s.setUser);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
   const currentLng = getCurrentLanguage();
 
-  function handleChange(lng: string) {
+  async function handleChange(lng: string) {
+    setError('');
+    // Immediate feedback (and the fallback for signed-out visitors).
     changeLanguage(lng);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+
+    if (!accessToken) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      return;
+    }
+
+    // Signed in: this is an account-level preference, not just this device's.
+    try {
+      const res = await fetch(`${API_BASE}/users/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        credentials: 'include',
+        body: JSON.stringify({ locale: lng }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail ?? 'Failed to save language');
+      }
+      if (storeUser) setUser({ ...storeUser, language: lng });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   const languages = [
@@ -786,6 +840,9 @@ function LanguageTab() {
 
       {saved && (
         <p className="text-sm text-green-600 font-medium">{t('settings.language.saved')}</p>
+      )}
+      {error && (
+        <p className="text-sm text-red-600 font-medium">{error}</p>
       )}
     </div>
   );

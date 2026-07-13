@@ -14,6 +14,9 @@ class TenantModel(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # The single namespace new users land in by default. Enforced to be at most
+    # one row via the partial unique index uq_tenants_single_global.
+    is_global: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     users: Mapped[list["UserModel"]] = relationship(

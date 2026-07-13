@@ -58,6 +58,11 @@ export default function OAuthCallbackPage() {
           avatarUrl: user.avatar_url,
           isEmailVerified: user.email_verified,
           appRole: user.app_role ?? 'STANDARD',
+          namespace: user.namespace
+            ? { id: user.namespace.id, name: user.namespace.name, slug: user.namespace.slug, isGlobal: user.namespace.is_global }
+            : undefined,
+          language: user.locale,
+          theme: user.theme,
         });
         // Drop token from URL, go to dashboard
         navigate('/dashboard', { replace: true });

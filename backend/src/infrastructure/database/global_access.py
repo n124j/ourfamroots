@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _LEVEL_TO_TREE_ROLE = {
@@ -16,6 +16,16 @@ _LEVEL_TO_TREE_ROLE = {
     "READ":       "VIEWER",
     "READ_WRITE": "EDITOR",
 }
+
+
+async def get_global_tenant_id(session: AsyncSession) -> uuid.UUID | None:
+    """Return the id of the single Global namespace (tenants.is_global = true), if any."""
+    from src.infrastructure.database.models.tenant import TenantModel
+
+    result = await session.execute(
+        select(TenantModel.id).where(TenantModel.is_global.is_(True))
+    )
+    return result.scalar_one_or_none()
 
 
 async def grant_global_tree_access(

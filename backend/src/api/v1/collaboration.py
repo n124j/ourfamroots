@@ -11,7 +11,7 @@ from src.api.deps import AdminUserDep, CurrentUserDep, EditableTreeDep, NotAudit
 from src.application.collaboration.service import CollaborationService
 from src.domain.collaboration.entities import (
     Action, AppRole, AuditEntityType, AuditEntry, Invitation,
-    PersonVersion, TreeMembership, TreeRole,
+    PersonVersion, SUPER_ADMIN_DISPLAY_LABEL, TreeMembership, TreeRole,
 )
 from src.domain.collaboration.exceptions import (
     AlreadyMemberError, CannotDowngradeOwnerError, CannotRemoveOwnerError,
@@ -2554,7 +2554,10 @@ async def add_member_direct(
     )).first()
     tree_name = tree_name_row.name if tree_name_row else str(tree_id)
 
-    actor_display = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    actor_display = (
+        SUPER_ADMIN_DISPLAY_LABEL if current_user.app_role == AppRole.SUPER_ADMIN
+        else f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    )
 
     # Create in-app notification for the added user
     import json as _json
@@ -2608,13 +2611,24 @@ class TenantUserForShareResponse(BaseModel):
     display_name: str
 
 
-@router.get("/trees/{tree_id}/tenant-users", response_model=list[TenantUserForShareResponse],
-            summary="List tenant users not already in this tree (for share modal, OWNER/ADMIN only)")
+class TenantUsersForShareResponse(BaseModel):
+    total: int
+    items: list[TenantUserForShareResponse]
+    page: int
+    page_size: int
+    total_pages: int
+
+
+@router.get("/trees/{tree_id}/tenant-users", response_model=TenantUsersForShareResponse,
+            summary="List tenant users not already in this tree, paginated and searchable (for share modal, OWNER/ADMIN only)")
 async def list_tenant_users_for_share(
     tree_id: uuid.UUID,
     current_user: NotAuditorDep,
     uow: UoWDep,
-) -> list[TenantUserForShareResponse]:
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    search: Optional[str] = Query(None, max_length=200),
+) -> TenantUsersForShareResponse:
     from sqlalchemy import text
 
     row = (await uow._session.execute(
@@ -2626,7 +2640,21 @@ async def list_tenant_users_for_share(
     if row.role not in ("OWNER", "ADMIN"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only owners and admins can share this tree")
 
-    rows = (await uow._session.execute(text("""
+    search_clause = "AND (u.email ILIKE :pattern OR u.given_name ILIKE :pattern OR u.family_name ILIKE :pattern)" if search else ""
+    params: dict = {"tenant_id": current_user.tenant_id, "tree_id": tree_id}
+    if search:
+        params["pattern"] = f"%{search}%"
+
+    count_row = (await uow._session.execute(text(f"""
+        SELECT COUNT(*) FROM users u
+        WHERE u.tenant_id = :tenant_id
+          AND u.is_active = true
+          AND u.app_role != 'SUPER_ADMIN'
+          AND u.id NOT IN (SELECT user_id FROM tree_members WHERE tree_id = :tree_id)
+          {search_clause}
+    """), params)).scalar_one()
+
+    rows = (await uow._session.execute(text(f"""
         SELECT
             u.id,
             u.email,
@@ -2634,13 +2662,21 @@ async def list_tenant_users_for_share(
         FROM users u
         WHERE u.tenant_id = :tenant_id
           AND u.is_active = true
-          AND u.id NOT IN (
-              SELECT user_id FROM tree_members WHERE tree_id = :tree_id
-          )
+          AND u.app_role != 'SUPER_ADMIN'
+          AND u.id NOT IN (SELECT user_id FROM tree_members WHERE tree_id = :tree_id)
+          {search_clause}
         ORDER BY display_name
-    """), {"tenant_id": current_user.tenant_id, "tree_id": tree_id})).fetchall()
+        LIMIT :limit OFFSET :offset
+    """), {**params, "limit": page_size, "offset": (page - 1) * page_size})).fetchall()
 
-    return [TenantUserForShareResponse(id=r.id, email=r.email, display_name=r.display_name) for r in rows]
+    import math
+    return TenantUsersForShareResponse(
+        total=count_row,
+        items=[TenantUserForShareResponse(id=r.id, email=r.email, display_name=r.display_name) for r in rows],
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, math.ceil(count_row / page_size)),
+    )
 
 
 @router.patch("/trees/{tree_id}/members/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT, response_model=None, response_class=Response)
@@ -2706,7 +2742,10 @@ async def send_invitation(
     current_user: NotAuditorDep,
     svc: CollabDep,
 ) -> InvitationResponse:
-    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    actor_name = (
+        SUPER_ADMIN_DISPLAY_LABEL if current_user.app_role == AppRole.SUPER_ADMIN
+        else f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    )
 
     # Resolve tree name for the email
     from sqlalchemy import text as _text
@@ -2847,7 +2886,25 @@ async def get_audit_log(
         filter_actor_id=actor_id,
         app_role=current_user.app_role,
     )
-    return [AuditEntryResponse.from_domain(e) for e in entries]
+    responses = [AuditEntryResponse.from_domain(e) for e in entries]
+
+    # Mask any entry whose actor is *currently* a Super Admin, unless the viewer
+    # is one too — actor_display_name is a write-time snapshot, so this has to be
+    # resolved against the actor's live role rather than anything stored on the entry.
+    if current_user.app_role != AppRole.SUPER_ADMIN:
+        actor_ids = {e.actor_id for e in entries if e.actor_id}
+        if actor_ids:
+            from sqlalchemy import text as _text
+            role_rows = (await svc._session.execute(
+                _text("SELECT id, app_role FROM users WHERE id = ANY(:ids)"),
+                {"ids": list(actor_ids)},
+            )).fetchall()
+            super_admin_ids = {r.id for r in role_rows if r.app_role == AppRole.SUPER_ADMIN.value}
+            for resp, entry in zip(responses, entries):
+                if entry.actor_id in super_admin_ids:
+                    resp.actor_display_name = SUPER_ADMIN_DISPLAY_LABEL
+
+    return responses
 
 
 # ── Version history ────────────────────────────────────────────────────────────

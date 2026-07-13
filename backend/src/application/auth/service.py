@@ -66,7 +66,9 @@ class AuthService:
         settings = get_settings()
         tenant_slug = settings.default_tenant_slug
         async with self._uow:
-            # 1. Create or fetch the single shared tenant
+            # 1. Create or fetch the Global namespace — every self-registered
+            # user lands here first; they move to a specific namespace later
+            # via the namespace-invitation transfer flow.
             tenant = await self._uow.tenants.get_by_slug(tenant_slug)
             is_new_tenant = tenant is None
             if tenant is None:
@@ -74,11 +76,15 @@ class AuthService:
                     name=tenant_slug.replace("-", " ").title(),
                     slug=tenant_slug,
                     is_active=True,
+                    is_global=True,
                 )
                 tenant = await self._uow.tenants.add(tenant)
 
-            # 2. Check email uniqueness within tenant
-            if await self._uow.users.exists_by_email(tenant.id, req.email):
+            # 2. Check email uniqueness across all namespaces — a user has
+            # exactly one account, which later moves between namespaces via
+            # the namespace-invitation transfer flow rather than a second
+            # account being created.
+            if await self._uow.users.exists_by_email_anywhere(req.email):
                 raise AlreadyExistsError(
                     resource="user", field="email", value=req.email
                 )
@@ -427,12 +433,13 @@ class AuthService:
         raise_if_missing: bool = True,
     ) -> UserModel | None:
         """
-        Single-tenant helper. For multi-tenant, the tenant slug must be
-        supplied and the UoW scoped accordingly.
+        Looks up a user by email with no tenant/namespace scoping. This is safe
+        because email is enforced globally unique at registration and admin
+        user-creation time (see AuthService.register(), admin.py::create_user) —
+        a user has exactly one account, which moves between namespaces via the
+        namespace-invitation transfer flow rather than a second account being
+        created for the same email in a different namespace.
         """
-        # In a real multi-tenant flow the tenant_id would come from the request.
-        # For now we search without tenant scoping (works when RLS sets the context).
-        # This will be revisited when the tree/tenant selection UI is built.
         from sqlalchemy import select
         from src.infrastructure.database.models.user import UserModel as _U
 

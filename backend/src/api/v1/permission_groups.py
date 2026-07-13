@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 def _ip(request: Request) -> str | None:
     xff = request.headers.get("x-forwarded-for")
@@ -43,6 +43,11 @@ from src.infrastructure.database.models.permission_group import (
     PermissionGroupTreeModel,
 )
 from src.infrastructure.database.models.user import UserModel
+from src.infrastructure.database.models.user_group import (
+    PermissionGroupUserGroupModel,
+    UserGroupMemberModel,
+    UserGroupModel,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin", "Permission Groups"])
 
@@ -56,6 +61,33 @@ _LEVEL_TO_TREE_ROLE = {
 
 # Role ranks — PG never grants ADMIN or OWNER
 _ROLE_RANK = {"VIEWER": 1, "EDITOR": 2, "ADMIN": 3, "OWNER": 4}
+
+PREVIEW_LIMIT = 3
+
+
+async def _member_previews(session, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+    """First PREVIEW_LIMIT explicit members per permission group, for an inline table preview."""
+    if not group_ids:
+        return {}
+    rows = (await session.execute(
+        text("""
+            SELECT group_id, display_name FROM (
+                SELECT
+                    pgm.group_id,
+                    COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS display_name,
+                    ROW_NUMBER() OVER (PARTITION BY pgm.group_id ORDER BY pgm.added_at) AS rn
+                FROM permission_group_members pgm
+                JOIN users u ON u.id = pgm.user_id
+                WHERE pgm.group_id = ANY(:gids)
+            ) ranked
+            WHERE rn <= :limit
+        """),
+        {"gids": group_ids, "limit": PREVIEW_LIMIT},
+    )).all()
+    previews: dict[uuid.UUID, list[str]] = {}
+    for gid, name in rows:
+        previews.setdefault(gid, []).append(name)
+    return previews
 
 # ── Schemas ─────────────────────────────────────────────────────────────────────
 
@@ -79,6 +111,7 @@ class PermissionGroupResponse(BaseModel):
     is_global: bool
     tree_count: int
     member_count: int
+    member_preview: list[str] = []
     created_by: Optional[uuid.UUID]
     created_at: str
     updated_at: str
@@ -115,11 +148,40 @@ class AddMemberBody(BaseModel):
     user_id: uuid.UUID
 
 
+class GroupUserGroupResponse(BaseModel):
+    id: uuid.UUID
+    user_group_id: uuid.UUID
+    user_group_name: str
+    member_count: int
+    added_by: Optional[uuid.UUID]
+    added_at: str
+
+
+class AddUserGroupBody(BaseModel):
+    user_group_id: uuid.UUID
+
+
 class TenantTreeResponse(BaseModel):
     id: uuid.UUID
     name: str
 
     model_config = {"from_attributes": True}
+
+
+class TenantTreesResponse(BaseModel):
+    total: int
+    items: list[TenantTreeResponse]
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class PermissionGroupsResponse(BaseModel):
+    total: int
+    items: list[PermissionGroupResponse]
+    page: int
+    page_size: int
+    total_pages: int
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -200,28 +262,94 @@ async def _get_tenant_user_ids(session, tenant_id: uuid.UUID) -> list[uuid.UUID]
     return list(rows)
 
 
+async def _get_user_group_member_ids_for_permission_group(session, group_id: uuid.UUID) -> list[uuid.UUID]:
+    """Every user who belongs to any user group linked to this permission group."""
+    rows = (await session.execute(
+        select(UserGroupMemberModel.user_id)
+        .join(PermissionGroupUserGroupModel, PermissionGroupUserGroupModel.user_group_id == UserGroupMemberModel.group_id)
+        .where(PermissionGroupUserGroupModel.permission_group_id == group_id)
+        .distinct()
+    )).scalars().all()
+    return list(rows)
+
+
 async def _get_group_recipient_ids(
     session, group_id: uuid.UUID, tenant_id: uuid.UUID, is_global: bool
 ) -> list[uuid.UUID]:
     """Who should be granted/revoked access when a tree is added/removed from this group.
 
-    Global groups apply to every tenant user; regular groups only to explicit members.
+    Global groups apply to every tenant user; regular groups apply to explicit
+    members plus everyone in any linked user group.
     """
     if is_global:
         return await _get_tenant_user_ids(session, tenant_id)
-    return await _get_group_user_ids(session, group_id)
+    direct = await _get_group_user_ids(session, group_id)
+    via_user_groups = await _get_user_group_member_ids_for_permission_group(session, group_id)
+    return list(set(direct) | set(via_user_groups))
+
+
+async def _user_still_entitled(
+    session, tenant_id: uuid.UUID, user_id: uuid.UUID, tree_id: uuid.UUID,
+) -> bool:
+    """True if user_id is still entitled to tree_id through *some* permission
+    group — direct membership, an is_global group, or a linked user group.
+
+    Used only by the user-group-driven revoke paths (member removed from a
+    user group, user group unlinked from a permission group, user group
+    deleted) — call this *after* deleting the row that's going away, so the
+    check reflects the post-removal state, and only revoke tree_members when
+    it returns False. Not used by the pre-existing direct-member-removal
+    path, which already has this same class of overlap gap and is out of
+    scope to fix here.
+    """
+    row = (await session.execute(
+        text("""
+            SELECT 1
+            FROM permission_groups pg
+            JOIN permission_group_trees pgt ON pgt.group_id = pg.id AND pgt.tree_id = :tree_id
+            WHERE pg.tenant_id = :tenant_id
+              AND (
+                  pg.is_global
+                  OR EXISTS (
+                      SELECT 1 FROM permission_group_members pgm
+                      WHERE pgm.group_id = pg.id AND pgm.user_id = :user_id
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM permission_group_user_groups pgug
+                      JOIN user_group_members ugm ON ugm.group_id = pgug.user_group_id
+                      WHERE pgug.permission_group_id = pg.id AND ugm.user_id = :user_id
+                  )
+              )
+            LIMIT 1
+        """),
+        {"tenant_id": tenant_id, "tree_id": tree_id, "user_id": user_id},
+    )).first()
+    return row is not None
 
 
 # ── Endpoints — Groups ──────────────────────────────────────────────────────────
 
-@router.get("/permission-groups", response_model=list[PermissionGroupResponse],
-            summary="List all permission groups in the tenant")
+@router.get("/permission-groups", response_model=PermissionGroupsResponse,
+            summary="List permission groups in the tenant, paginated and searchable")
 async def list_permission_groups(
     current_user: AdminUserDep,
     session: SessionDep,
-) -> list[PermissionGroupResponse]:
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    search: Optional[str] = Query(None, max_length=200),
+) -> PermissionGroupsResponse:
+    search_clause = "AND pg.name ILIKE :pattern" if search else ""
+    params: dict = {"tid": current_user.tenant_id}
+    if search:
+        params["pattern"] = f"%{search}%"
+
+    count_row = (await session.execute(
+        text(f"SELECT COUNT(*) FROM permission_groups pg WHERE pg.tenant_id = :tid {search_clause}"),
+        params,
+    )).scalar_one()
+
     rows = (await session.execute(
-        text("""
+        text(f"""
             SELECT
                 pg.id,
                 pg.name,
@@ -236,28 +364,39 @@ async def list_permission_groups(
             FROM permission_groups pg
             LEFT JOIN permission_group_trees pgt ON pgt.group_id = pg.id
             LEFT JOIN permission_group_members pgm ON pgm.group_id = pg.id
-            WHERE pg.tenant_id = :tid
+            WHERE pg.tenant_id = :tid {search_clause}
             GROUP BY pg.id
             ORDER BY pg.name
+            LIMIT :limit OFFSET :offset
         """),
-        {"tid": current_user.tenant_id},
+        {**params, "limit": page_size, "offset": (page - 1) * page_size},
     )).fetchall()
 
-    return [
-        PermissionGroupResponse(
-            id=r.id,
-            name=r.name,
-            description=r.description,
-            permission_level=r.permission_level,
-            is_global=r.is_global,
-            tree_count=r.tree_count,
-            member_count=r.member_count,
-            created_by=r.created_by,
-            created_at=r.created_at.isoformat(),
-            updated_at=r.updated_at.isoformat(),
-        )
-        for r in rows
-    ]
+    previews = await _member_previews(session, [r.id for r in rows])
+
+    import math
+    return PermissionGroupsResponse(
+        total=count_row,
+        items=[
+            PermissionGroupResponse(
+                id=r.id,
+                name=r.name,
+                description=r.description,
+                permission_level=r.permission_level,
+                is_global=r.is_global,
+                tree_count=r.tree_count,
+                member_count=r.member_count,
+                member_preview=previews.get(r.id, []),
+                created_by=r.created_by,
+                created_at=r.created_at.isoformat(),
+                updated_at=r.updated_at.isoformat(),
+            )
+            for r in rows
+        ],
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, math.ceil(count_row / page_size)),
+    )
 
 
 @router.post("/permission-groups", response_model=PermissionGroupResponse,
@@ -897,28 +1036,238 @@ async def remove_group_member(
     await session.commit()
 
 
+# ── Endpoints — Group User Groups ───────────────────────────────────────────────
+
+@router.get("/permission-groups/{group_id}/user-groups",
+            response_model=list[GroupUserGroupResponse],
+            summary="List user groups linked to a permission group")
+async def list_group_user_groups(
+    group_id: uuid.UUID,
+    current_user: AdminUserDep,
+    session: SessionDep,
+) -> list[GroupUserGroupResponse]:
+    group = (await session.execute(
+        select(PermissionGroupModel).where(
+            PermissionGroupModel.id == group_id,
+            PermissionGroupModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
+
+    rows = (await session.execute(
+        text("""
+            SELECT
+                pgug.id, pgug.user_group_id, ug.name AS user_group_name,
+                COUNT(ugm.id) AS member_count,
+                pgug.added_by, pgug.added_at
+            FROM permission_group_user_groups pgug
+            JOIN user_groups ug ON ug.id = pgug.user_group_id
+            LEFT JOIN user_group_members ugm ON ugm.group_id = ug.id
+            WHERE pgug.permission_group_id = :gid
+            GROUP BY pgug.id, pgug.user_group_id, ug.name, pgug.added_by, pgug.added_at
+            ORDER BY ug.name
+        """),
+        {"gid": group_id},
+    )).fetchall()
+
+    return [
+        GroupUserGroupResponse(
+            id=r.id, user_group_id=r.user_group_id, user_group_name=r.user_group_name,
+            member_count=r.member_count, added_by=r.added_by, added_at=r.added_at.isoformat(),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/permission-groups/{group_id}/user-groups",
+             response_model=GroupUserGroupResponse,
+             status_code=status.HTTP_201_CREATED,
+             summary="Link a user group to a permission group — grants access to all its current and future members")
+async def add_group_user_group(
+    group_id: uuid.UUID,
+    body: AddUserGroupBody,
+    current_user: AdminUserDep,
+    session: SessionDep,
+    request: Request,
+) -> GroupUserGroupResponse:
+    group = (await session.execute(
+        select(PermissionGroupModel).where(
+            PermissionGroupModel.id == group_id,
+            PermissionGroupModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
+
+    user_group = (await session.execute(
+        select(UserGroupModel).where(
+            UserGroupModel.id == body.user_group_id,
+            UserGroupModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+    if user_group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User group not found in this tenant")
+
+    dup = (await session.execute(
+        select(PermissionGroupUserGroupModel).where(
+            PermissionGroupUserGroupModel.permission_group_id == group_id,
+            PermissionGroupUserGroupModel.user_group_id == body.user_group_id,
+        )
+    )).scalars().first()
+    if dup:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This user group is already linked")
+
+    entry = PermissionGroupUserGroupModel(
+        permission_group_id=group_id,
+        user_group_id=body.user_group_id,
+        added_by=current_user.id,
+    )
+    session.add(entry)
+
+    # Grant access to all current members of the user group, for all trees in this group
+    tree_role = _LEVEL_TO_TREE_ROLE.get(group.permission_level)
+    if tree_role:
+        tree_ids = await _get_group_tree_ids(session, group_id)
+        member_ids = (await session.execute(
+            select(UserGroupMemberModel.user_id).where(UserGroupMemberModel.group_id == body.user_group_id)
+        )).scalars().all()
+        for uid in member_ids:
+            for tid in tree_ids:
+                await _grant_tree_access(
+                    session, tree_id=tid, user_id=uid,
+                    tenant_id=current_user.tenant_id, role=tree_role, granted_by=current_user.id,
+                )
+
+    await session.commit()
+    await session.refresh(entry)
+
+    member_count = (await session.execute(
+        select(func.count()).where(UserGroupMemberModel.group_id == body.user_group_id)
+    )).scalar_one()
+
+    await log_admin_action(session, current_user.tenant_id, current_user.id,
+                           current_user.full_name, "PG_ADD_USER_GROUP",
+                           f"{group.name} → {user_group.name}", _ip(request))
+    await session.commit()
+
+    return GroupUserGroupResponse(
+        id=entry.id, user_group_id=entry.user_group_id, user_group_name=user_group.name,
+        member_count=member_count, added_by=entry.added_by, added_at=entry.added_at.isoformat(),
+    )
+
+
+@router.delete("/permission-groups/{group_id}/user-groups/{link_id}",
+               status_code=status.HTTP_204_NO_CONTENT,
+               response_model=None,
+               summary="Unlink a user group from a permission group")
+async def remove_group_user_group(
+    group_id: uuid.UUID,
+    link_id: uuid.UUID,
+    current_user: AdminUserDep,
+    session: SessionDep,
+    request: Request,
+) -> None:
+    group = (await session.execute(
+        select(PermissionGroupModel).where(
+            PermissionGroupModel.id == group_id,
+            PermissionGroupModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
+
+    entry = (await session.execute(
+        select(PermissionGroupUserGroupModel).where(
+            PermissionGroupUserGroupModel.id == link_id,
+            PermissionGroupUserGroupModel.permission_group_id == group_id,
+        )
+    )).scalars().first()
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User group is not linked to this permission group")
+
+    user_group_id = entry.user_group_id
+    user_group_row = (await session.execute(
+        text("SELECT name FROM user_groups WHERE id = :uid LIMIT 1"), {"uid": user_group_id},
+    )).first()
+    user_group_name = user_group_row.name if user_group_row else str(user_group_id)
+
+    member_ids = (await session.execute(
+        select(UserGroupMemberModel.user_id).where(UserGroupMemberModel.group_id == user_group_id)
+    )).scalars().all()
+    tree_ids = await _get_group_tree_ids(session, group_id)
+
+    await session.delete(entry)
+    await session.flush()  # so _user_still_entitled sees the link as already gone
+
+    for uid in member_ids:
+        for tid in tree_ids:
+            if not await _user_still_entitled(session, current_user.tenant_id, uid, tid):
+                await _revoke_tree_access(session, tree_id=tid, user_id=uid)
+
+    await log_admin_action(session, current_user.tenant_id, current_user.id,
+                           current_user.full_name, "PG_REMOVE_USER_GROUP",
+                           f"{group.name} → {user_group_name}", _ip(request))
+    await session.commit()
+
+
 # ── Helper endpoint — list trees in tenant (for assignment modal) ──────────────
 
-@router.get("/trees", response_model=list[TenantTreeResponse],
-            summary="List all trees in the tenant (for assignment dropdowns)")
+@router.get("/trees", response_model=TenantTreesResponse,
+            summary="List trees in the tenant, paginated and searchable (for assignment dropdowns)")
 async def list_tenant_trees(
     current_user: AdminUserDep,
     session: SessionDep,
-) -> list[TenantTreeResponse]:
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    search: Optional[str] = Query(None, max_length=200),
+) -> TenantTreesResponse:
+    search_clause = "AND ft.name ILIKE :pattern" if search else ""
+    params: dict = {"tid": current_user.tenant_id}
+    if search:
+        params["pattern"] = f"%{search}%"
+
     if current_user.app_role == AppRole.AUDITOR:
+        count_row = (await session.execute(
+            text(f"SELECT COUNT(*) FROM family_trees ft WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}"),
+            params,
+        )).scalar_one()
         rows = (await session.execute(
-            text("SELECT id, name FROM family_trees WHERE tenant_id = :tid AND is_deleted = false ORDER BY name"),
-            {"tid": current_user.tenant_id},
+            text(f"""
+                SELECT ft.id, ft.name FROM family_trees ft
+                WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}
+                ORDER BY ft.name
+                LIMIT :limit OFFSET :offset
+            """),
+            {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )).fetchall()
     else:
         # ADMIN sees only trees they are a member of
+        params["user_id"] = current_user.id
+        count_row = (await session.execute(
+            text(f"""
+                SELECT COUNT(*) FROM family_trees ft
+                JOIN tree_members tm ON tm.tree_id = ft.id AND tm.user_id = :user_id
+                WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}
+            """),
+            params,
+        )).scalar_one()
         rows = (await session.execute(
-            text("""
+            text(f"""
                 SELECT ft.id, ft.name FROM family_trees ft
                 JOIN tree_members tm ON tm.tree_id = ft.id AND tm.user_id = :user_id
-                WHERE ft.tenant_id = :tid AND ft.is_deleted = false
+                WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}
                 ORDER BY ft.name
+                LIMIT :limit OFFSET :offset
             """),
-            {"tid": current_user.tenant_id, "user_id": current_user.id},
+            {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )).fetchall()
-    return [TenantTreeResponse(id=r.id, name=r.name) for r in rows]
+
+    import math
+    return TenantTreesResponse(
+        total=count_row,
+        items=[TenantTreeResponse(id=r.id, name=r.name) for r in rows],
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, math.ceil(count_row / page_size)),
+    )

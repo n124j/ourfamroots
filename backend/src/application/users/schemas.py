@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
+from src.application.common.namespace import NamespaceSummary
+
 
 class UserProfileResponse(BaseModel):
     id: uuid.UUID
@@ -18,12 +20,14 @@ class UserProfileResponse(BaseModel):
     avatar_url: str | None
     locale: str
     timezone: str
+    theme: dict | None = None
     is_active: bool
     app_role: str = "STANDARD"
     last_login_at: datetime | None
     created_at: datetime
     updated_at: datetime
     oauth_providers: list[str] = []
+    namespace: NamespaceSummary | None = None
 
     model_config = {"from_attributes": True}
 
@@ -33,4 +37,5 @@ class UpdateUserRequest(BaseModel):
     family_name: str | None = Field(default=None, min_length=1, max_length=100)
     locale: str | None = Field(default=None, max_length=10)
     timezone: str | None = Field(default=None, max_length=50)
+    theme: dict | None = None
     avatar_url: str | None = Field(default=None, max_length=2048)

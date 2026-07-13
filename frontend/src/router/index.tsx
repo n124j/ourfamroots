@@ -30,6 +30,7 @@ const VerifyNewLoginPage  = lazy(() => import('@pages/auth/VerifyNewLoginPage'))
 
 const DashboardPage           = lazy(() => import('@pages/DashboardPage'));
 const InvitationAcceptPage    = lazy(() => import('@pages/InvitationAcceptPage'));
+const NamespaceInvitationAcceptPage = lazy(() => import('@pages/NamespaceInvitationAcceptPage'));
 const FamilyTreePage     = lazy(() => import('@pages/FamilyTreePage'));
 const ProfilePage        = lazy(() => import('@pages/ProfilePage'));
 const SearchPage         = lazy(() => import('@pages/SearchPage'));
@@ -150,6 +151,12 @@ const router = createBrowserRouter([
   {
     path: '/invitations/accept',
     element: <Lazy><InvitationAcceptPage /></Lazy>,
+  },
+
+  // ── Namespace invitation accept (public — handles its own auth check) ───
+  {
+    path: '/namespace-invitations/:token',
+    element: <Lazy><NamespaceInvitationAcceptPage /></Lazy>,
   },
 
   // ── Admin login (public — only works during maintenance mode) ─────────

@@ -32,6 +32,32 @@ admin_router = APIRouter(prefix="/admin/subscriptions", tags=["Admin", "Subscrip
 self_service_router = APIRouter(prefix="/subscriptions", tags=["Subscriptions"])
 
 VALID_TIERS = {"FREE", "PREMIUM_INDIVIDUAL", "PREMIUM_TEAM"}
+PREVIEW_LIMIT = 3
+
+
+async def _member_previews(session, subscription_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+    """First PREVIEW_LIMIT members per subscription, for an inline table preview."""
+    if not subscription_ids:
+        return {}
+    rows = (await session.execute(
+        text("""
+            SELECT subscription_id, display_name FROM (
+                SELECT
+                    sm.subscription_id,
+                    COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS display_name,
+                    ROW_NUMBER() OVER (PARTITION BY sm.subscription_id ORDER BY sm.added_at) AS rn
+                FROM subscription_members sm
+                JOIN users u ON u.id = sm.user_id
+                WHERE sm.subscription_id = ANY(:sids)
+            ) ranked
+            WHERE rn <= :limit
+        """),
+        {"sids": subscription_ids, "limit": PREVIEW_LIMIT},
+    )).all()
+    previews: dict[uuid.UUID, list[str]] = {}
+    for sid, name in rows:
+        previews.setdefault(sid, []).append(name)
+    return previews
 
 # Keep in sync with frontend/src/extensions/views/*/index.ts ids.
 # "default" is deliberately excluded — it's always free for every user and
@@ -75,6 +101,7 @@ class SubscriptionResponse(BaseModel):
     is_expired: bool
     filter_count: int
     member_count: int
+    member_preview: list[str] = []
     created_by: Optional[uuid.UUID]
     created_at: str
     updated_at: str
@@ -182,12 +209,15 @@ async def list_subscriptions(
         {"tid": current_user.tenant_id},
     )).fetchall()
 
+    previews = await _member_previews(session, [r.id for r in rows])
+
     return [
         SubscriptionResponse(
             id=r.id, name=r.name, tier=r.tier,
             expires_at=r.expires_at.isoformat() if r.expires_at else None,
             is_expired=_is_expired(r.expires_at),
             filter_count=r.filter_count, member_count=r.member_count,
+            member_preview=previews.get(r.id, []),
             created_by=r.created_by,
             created_at=r.created_at.isoformat(), updated_at=r.updated_at.isoformat(),
         )

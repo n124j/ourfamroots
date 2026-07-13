@@ -46,8 +46,11 @@ class UserService:
         return list(result.scalars().all())
 
     async def _to_response(self, user) -> UserProfileResponse:
+        from src.application.common.namespace import get_namespace_summary
+
         resp = UserProfileResponse.model_validate(user)
         resp.oauth_providers = await self._oauth_providers(user.id)
+        resp.namespace = await get_namespace_summary(self._uow._session, user.tenant_id)  # type: ignore[attr-defined]
         return resp
 
     async def get_me(self, user_id: uuid.UUID, tenant_id: uuid.UUID) -> UserProfileResponse:

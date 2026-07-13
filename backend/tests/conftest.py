@@ -93,6 +93,9 @@ class FakeUserRepository(AbstractUserRepository):
     async def exists_by_email(self, tenant_id: uuid.UUID, email: str) -> bool:
         return any(u.tenant_id == tenant_id and u.email == email.lower() for u in self._users)
 
+    async def exists_by_email_anywhere(self, email: str) -> bool:
+        return any(u.email == email.lower() for u in self._users)
+
     async def get_by_password_reset_token(self, token: str) -> UserModel | None:
         return next((u for u in self._users if u.password_reset_token == token), None)
 
@@ -101,6 +104,9 @@ class FakeUserRepository(AbstractUserRepository):
 
     async def get_by_login_verification_token(self, token: str) -> UserModel | None:
         return next((u for u in self._users if u.login_verification_token == token), None)
+
+    async def grant_global_tree_access(self, user: UserModel) -> None:
+        pass  # no-op — global permission groups aren't modelled in unit-test fakes
 
 
 class FakeTenantRepository:
@@ -145,6 +151,9 @@ class FakeUnitOfWork(AbstractUnitOfWork):
         _default_tenant.slug = TEST_TENANT_SLUG
         _default_tenant.name = "OurFamRoots System"
         _default_tenant.is_active = True
+        _default_tenant.is_global = True
+        _default_tenant.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        _default_tenant.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
         self._tenants._tenants = [_default_tenant]
 
         # Pre-seed a default authenticated user so get_current_user() resolves
@@ -199,12 +208,43 @@ class FakeUnitOfWork(AbstractUnitOfWork):
         async def execute(self, stmt: Any, params: Any = None) -> Any:
             from src.infrastructure.database.models.user import UserModel as _UM
             from src.infrastructure.database.models.tenant import TenantModel as _TM
+            from sqlalchemy.sql.selectable import Subquery
+
+            # COUNT(*) FROM (subquery) — every paginated admin endpoint uses
+            # exactly this shape (`select(func.count()).select_from(base.subquery())`).
+            # Recursively resolve the wrapped subquery's original select through
+            # this same fake and count the rows, rather than falling through to
+            # the generic "unmodelled projection" empty-result path below, which
+            # would return None for a supposedly-integer scalar and crash the
+            # caller's `total / page_size` arithmetic.
+            try:
+                froms = stmt.get_final_froms()
+            except Exception:
+                froms = []
+            if len(froms) == 1 and isinstance(froms[0], Subquery) and len(getattr(stmt, 'selected_columns', [])) == 1:
+                inner_result = await self.execute(froms[0].element)
+                count = len(inner_result.all())
+
+                class _CountResult:
+                    def scalar_one(self_inner) -> int:
+                        return count
+                    def scalar(self_inner) -> int:
+                        return count
+                return _CountResult()
 
             items: list = []
             try:
                 col_descs = getattr(stmt, 'column_descriptions', None)
-                is_user_query = bool(col_descs and col_descs[0].get('entity') is _UM)
-                is_tenant_query = bool(col_descs and col_descs[0].get('entity') is _TM)
+                # Only treat this as a "give me whole rows" query when it's a
+                # full-entity select (`select(Model)`), not a column projection
+                # like `select(Model.tenant_id, func.count())` — the latter
+                # isn't modelled here, so it falls through to an empty result
+                # below rather than returning raw entities that don't match
+                # the requested column shape (which would break tuple-unpacking
+                # call sites like `for tid, count in rows`).
+                is_full_entity_select = bool(col_descs and len(col_descs) == 1 and col_descs[0].get('expr') in (_UM, _TM))
+                is_user_query = is_full_entity_select and col_descs[0].get('entity') is _UM
+                is_tenant_query = is_full_entity_select and col_descs[0].get('entity') is _TM
             except Exception:
                 is_user_query = False
                 is_tenant_query = False
@@ -228,6 +268,8 @@ class FakeUnitOfWork(AbstractUnitOfWork):
                                 items = [u for u in items if u.email == val.lower()]
                             elif key == 'id' and val is not None:
                                 items = [u for u in items if str(u.id) == str(val)]
+                            elif key == 'slug' and val is not None:
+                                items = [t for t in items if getattr(t, 'slug', None) == val]
                 except Exception:
                     pass
 
@@ -266,11 +308,27 @@ class FakeUnitOfWork(AbstractUnitOfWork):
                 self._users[:] = [u for u in self._users if u.id != entity.id]
 
         async def commit(self) -> None:
-            pass  # mutations are applied directly to the shared lists
+            # Mirrors real AsyncSession.commit(), which implicitly flushes
+            # pending session.add()'d entities first.
+            await self.flush()
+
+        async def refresh(self, entity: Any) -> None:
+            pass  # no server-side defaults to reload — entity is already current
 
         async def flush(self) -> None:
             from src.infrastructure.database.models.tenant import TenantModel as _TM
+            now = datetime.now(timezone.utc)
             for entity in self._pending:
+                # Stand in for the server_default=gen_random_uuid()/now() a real
+                # DB would populate on INSERT, so callers that immediately
+                # serialise the just-added entity (id, created_at, ...) don't
+                # see None.
+                if getattr(entity, 'id', None) is None:
+                    entity.id = uuid.uuid4()
+                if getattr(entity, 'created_at', None) is None:
+                    entity.created_at = now
+                if getattr(entity, 'updated_at', None) is None:
+                    entity.updated_at = now
                 if isinstance(entity, _TM):
                     self._tenants.append(entity)
                 elif isinstance(entity, UserModel):

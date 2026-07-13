@@ -228,6 +228,7 @@ async def _find_or_create_user(
         tenant = TenantModel(
             name=tenant_slug.replace("-", " ").title(),
             slug=tenant_slug,
+            is_global=True,
         )
         uow._session.add(tenant)
         await uow._session.flush()

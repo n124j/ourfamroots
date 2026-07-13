@@ -79,6 +79,11 @@ export default function LoginPage() {
         avatarUrl: me?.avatar_url ?? undefined,
         isEmailVerified: true,
         appRole: me?.app_role ?? 'STANDARD',
+        namespace: me?.namespace
+          ? { id: me.namespace.id, name: me.namespace.name, slug: me.namespace.slug, isGlobal: me.namespace.is_global }
+          : undefined,
+        language: me?.locale,
+        theme: me?.theme,
       });
       const next = searchParams.get('next') ?? '/dashboard';
       navigate(next, { replace: true });
