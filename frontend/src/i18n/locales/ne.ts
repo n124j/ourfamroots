@@ -1659,6 +1659,7 @@ const ne = {
     bornIn: 'जन्म स्थान',
     died: 'मृत्यु',
     buried: 'दफन',
+    diedIn: 'मृत्यु स्थान',
     notesLabel: 'टिप्पणी',
     relationships: 'सम्बन्धहरू',
     parents: 'अभिभावकहरू',

@@ -208,7 +208,7 @@ function ChartLegend({
         <LegendRow icon="●" label={t('legend.living')}   count={stats.living} color="#22c55e"            textColor={theme.nodeText} />
         <LegendRow icon="✝" label={t('legend.deceased')} count={stats.dead}   color={theme.nodeSubtext}  textColor={theme.nodeText} />
       </div>
-      {(hasUnions || hasChildren) && (
+      {mode !== 'ancestry-fan' && (hasUnions || hasChildren) && (
         <div className="mt-2.5 pt-2 space-y-1.5" style={{ borderTop: `1px solid ${theme.nodeBorder}` }}>
           <p className="text-[9px] font-semibold uppercase tracking-widest mb-1" style={{ color: theme.nodeSubtext }}>{t('legend.lines')}</p>
           {hasUnions && (
@@ -943,6 +943,16 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
   }, [layoutMode, fanNode, displayNodes, ctrlHeld, diffStatusMap]);
   const reactFlowEdges = layoutMode === 'ancestry-fan' ? [] : edges;
 
+  // The ancestry fan chart renders as a single custom node, so the node counts
+  // above don't reflect which persons are actually drawn — use the same
+  // ancestor subgraph the fan chart itself is built from instead.
+  const visibleNodeIds = useMemo(() => {
+    if (layoutMode === 'ancestry-fan' && fanNode && graph) {
+      return ancestorSubgraphIds(graph, (fanNode.data as unknown as FanNodeData).focusPersonId, 8);
+    }
+    return new Set(reactFlowNodes.map((n) => n.id));
+  }, [layoutMode, fanNode, graph, reactFlowNodes]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -1049,7 +1059,10 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
 
         {!isPdfMode && (
           <div className="absolute bottom-4 left-4 z-10 text-xs text-slate-400 bg-white/80 px-2 py-1 rounded-lg border border-slate-200">
-            {t('legend.peopleVisible', { total: graph.persons.length, visible: displayNodes.filter((n) => n.type === 'person').length })}
+            {t('legend.peopleVisible', {
+              total: graph.persons.length,
+              visible: graph.persons.filter((p) => visibleNodeIds.has(p.id)).length,
+            })}
           </div>
         )}
       </ReactFlow>
@@ -1061,11 +1074,7 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
           <ChartLegend
             graph={graph}
             mode={layoutMode}
-            visibleNodeIds={
-              layoutMode === 'ancestry-fan' && fanNode
-                ? ancestorSubgraphIds(graph, (fanNode.data as unknown as FanNodeData).focusPersonId, 8)
-                : new Set(reactFlowNodes.map((n) => n.id))
-            }
+            visibleNodeIds={visibleNodeIds}
           />
         </DraggableLegend>
       )}

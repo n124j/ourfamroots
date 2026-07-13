@@ -1648,6 +1648,7 @@ const en = {
     bornIn: 'Born in',
     died: 'Died',
     buried: 'Buried',
+    diedIn: 'Died in',
     notesLabel: 'Notes',
     relationships: 'Relationships',
     parents: 'Parents',

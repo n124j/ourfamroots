@@ -162,7 +162,7 @@ function DetailsPanel({ data, borderColor, bg, textColor, subtextColor, borderCs
   if (data.diedCity || data.diedCountry) {
     rows.push({
       icon: <span style={{ color: subtextColor, fontSize: 10 }}>📍</span>,
-      label: 'Buried',
+      label: 'Died in',
       value: [data.diedCity, data.diedCountry].filter(Boolean).join(', '),
     });
   }

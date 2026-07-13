@@ -48,13 +48,16 @@ async function createPerson(
     is_deceased: !fields.isLiving,
   };
   if (fields.birthDate)      body.birth_date       = fields.birthDate;
-  if (fields.deathDate)      body.death_date       = fields.deathDate;
   if (fields.birthYear)      body.birth_year       = parseInt(fields.birthYear, 10);
-  if (fields.deathYear)      body.death_year       = parseInt(fields.deathYear, 10);
   if (fields.bornCity)         body.born_city        = fields.bornCity.trim();
   if (fields.bornCountry)     body.born_country     = fields.bornCountry.trim();
-  if (fields.diedCity)         body.died_city        = fields.diedCity.trim();
-  if (fields.diedCountry)     body.died_country     = fields.diedCountry.trim();
+  // Living persons never carry death details, even if left over from a status toggle.
+  if (!fields.isLiving) {
+    if (fields.deathDate)    body.death_date  = fields.deathDate;
+    if (fields.deathYear)    body.death_year  = parseInt(fields.deathYear, 10);
+    if (fields.diedCity)     body.died_city    = fields.diedCity.trim();
+    if (fields.diedCountry)  body.died_country = fields.diedCountry.trim();
+  }
   if (fields.notes)           body.notes            = fields.notes.trim();
   try {
     const data = await post<{ id: string }>(`/trees/${treeId}/persons`, body);
@@ -215,27 +218,31 @@ function PersonFormFields({
                   className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathDate')}</label>
-                <input
-                  type="date"
-                  value={values.deathDate}
-                  onChange={(e) => onChange({ ...values, deathDate: e.target.value })}
-                  className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathYear')}</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={9999}
-                  placeholder="e.g. 2005"
-                  value={values.deathYear}
-                  onChange={(e) => onChange({ ...values, deathYear: e.target.value })}
-                  className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
+              {!values.isLiving && (
+                <>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathDate')}</label>
+                    <input
+                      type="date"
+                      value={values.deathDate}
+                      onChange={(e) => onChange({ ...values, deathDate: e.target.value })}
+                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathYear')}</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={9999}
+                      placeholder="e.g. 2005"
+                      value={values.deathYear}
+                      onChange={(e) => onChange({ ...values, deathYear: e.target.value })}
+                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Date consistency error */}
@@ -275,29 +282,33 @@ function PersonFormFields({
             </div>
 
             {/* Died/Buried location */}
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.diedCity')}</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCity')}</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Manchester"
-                  value={values.diedCity}
-                  onChange={(e) => onChange({ ...values, diedCity: e.target.value })}
-                  className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCountry')}</label>
-                <input
-                  type="text"
-                  placeholder="e.g. United Kingdom"
-                  value={values.diedCountry}
-                  onChange={(e) => onChange({ ...values, diedCountry: e.target.value })}
-                  className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-            </div>
+            {!values.isLiving && (
+              <>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.diedCity')}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCity')}</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Manchester"
+                      value={values.diedCity}
+                      onChange={(e) => onChange({ ...values, diedCity: e.target.value })}
+                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCountry')}</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. United Kingdom"
+                      value={values.diedCountry}
+                      onChange={(e) => onChange({ ...values, diedCountry: e.target.value })}
+                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Notes */}
             <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.notes')}</p>
@@ -1354,14 +1365,20 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
         is_living:   fields.status === 'living',
         is_deceased: fields.status === 'deceased',
       };
-      if (fields.birthDate)       body.birth_date       = fields.birthDate;
-      if (fields.deathDate)       body.death_date       = fields.deathDate;
-      if (fields.birthYear)       body.birth_year       = parseInt(fields.birthYear, 10);
-      if (fields.deathYear)       body.death_year       = parseInt(fields.deathYear, 10);
-      if (fields.bornCity)          body.born_city        = fields.bornCity.trim();
-      if (fields.bornCountry)      body.born_country     = fields.bornCountry.trim();
-      if (fields.diedCity)          body.died_city        = fields.diedCity.trim();
-      if (fields.diedCountry)      body.died_country     = fields.diedCountry.trim();
+      // "More details" fields are cleared to match what the collapsed form allows
+      // for the chosen status: Unknown keeps only Notes, Living drops death details.
+      if (fields.status !== 'unknown') {
+        if (fields.birthDate)     body.birth_date   = fields.birthDate;
+        if (fields.birthYear)     body.birth_year   = parseInt(fields.birthYear, 10);
+        if (fields.bornCity)      body.born_city    = fields.bornCity.trim();
+        if (fields.bornCountry)   body.born_country = fields.bornCountry.trim();
+        if (fields.status !== 'living') {
+          if (fields.deathDate)   body.death_date  = fields.deathDate;
+          if (fields.deathYear)   body.death_year  = parseInt(fields.deathYear, 10);
+          if (fields.diedCity)    body.died_city    = fields.diedCity.trim();
+          if (fields.diedCountry) body.died_country = fields.diedCountry.trim();
+        }
+      }
       if (fields.notes)            body.notes            = fields.notes.trim();
 
       // Apply whichever photo edit was staged, if any.
@@ -1639,113 +1656,125 @@ function EditPersonModal({ personId, initial, initialPhotoUrl, treeId, token, on
 
             {showExtra && (
               <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
-                {/* Dates */}
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Life dates</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.birthDate')}</label>
-                    <input
-                      type="date"
-                      value={fields.birthDate}
-                      onChange={(e) => setFields((f) => ({ ...f, birthDate: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.birthYear')}</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={9999}
-                      placeholder="e.g. 1950"
-                      value={fields.birthYear}
-                      onChange={(e) => setFields((f) => ({ ...f, birthYear: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathDate')}</label>
-                    <input
-                      type="date"
-                      value={fields.deathDate}
-                      onChange={(e) => setFields((f) => ({ ...f, deathDate: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathYear')}</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={9999}
-                      placeholder="e.g. 2005"
-                      value={fields.deathYear}
-                      onChange={(e) => setFields((f) => ({ ...f, deathYear: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
+                {fields.status !== 'unknown' && (
+                  <>
+                    {/* Dates */}
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Life dates</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.birthDate')}</label>
+                        <input
+                          type="date"
+                          value={fields.birthDate}
+                          onChange={(e) => setFields((f) => ({ ...f, birthDate: e.target.value }))}
+                          className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.birthYear')}</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={9999}
+                          placeholder="e.g. 1950"
+                          value={fields.birthYear}
+                          onChange={(e) => setFields((f) => ({ ...f, birthYear: e.target.value }))}
+                          className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </div>
+                      {fields.status !== 'living' && (
+                        <>
+                          <div>
+                            <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathDate')}</label>
+                            <input
+                              type="date"
+                              value={fields.deathDate}
+                              onChange={(e) => setFields((f) => ({ ...f, deathDate: e.target.value }))}
+                              className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.deathYear')}</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={9999}
+                              placeholder="e.g. 2005"
+                              value={fields.deathYear}
+                              onChange={(e) => setFields((f) => ({ ...f, deathYear: e.target.value }))}
+                              className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
 
-                {/* Date consistency error */}
-                {(() => {
-                  const msg = validateDates(fields);
-                  if (!msg) return null;
-                  return (
-                    <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                      {msg}
-                    </p>
-                  );
-                })()}
+                    {/* Date consistency error */}
+                    {(() => {
+                      const msg = validateDates(fields);
+                      if (!msg) return null;
+                      return (
+                        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                          {msg}
+                        </p>
+                      );
+                    })()}
 
-                {/* Born location */}
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.bornCity')}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.bornCity')}</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. London"
-                      value={fields.bornCity}
-                      onChange={(e) => setFields((f) => ({ ...f, bornCity: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.bornCountry')}</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. United Kingdom"
-                      value={fields.bornCountry}
-                      onChange={(e) => setFields((f) => ({ ...f, bornCountry: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
+                    {/* Born location */}
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.bornCity')}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.bornCity')}</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. London"
+                          value={fields.bornCity}
+                          onChange={(e) => setFields((f) => ({ ...f, bornCity: e.target.value }))}
+                          className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.bornCountry')}</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. United Kingdom"
+                          value={fields.bornCountry}
+                          onChange={(e) => setFields((f) => ({ ...f, bornCountry: e.target.value }))}
+                          className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </div>
+                    </div>
 
-                {/* Died/Buried location */}
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.diedCity')}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCity')}</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Manchester"
-                      value={fields.diedCity}
-                      onChange={(e) => setFields((f) => ({ ...f, diedCity: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCountry')}</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. United Kingdom"
-                      value={fields.diedCountry}
-                      onChange={(e) => setFields((f) => ({ ...f, diedCountry: e.target.value }))}
-                      className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
+                    {/* Died/Buried location */}
+                    {fields.status !== 'living' && (
+                      <>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.diedCity')}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCity')}</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Manchester"
+                              value={fields.diedCity}
+                              onChange={(e) => setFields((f) => ({ ...f, diedCity: e.target.value }))}
+                              className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 mb-1 block">{t('treeForm.diedCountry')}</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. United Kingdom"
+                              value={fields.diedCountry}
+                              onChange={(e) => setFields((f) => ({ ...f, diedCountry: e.target.value }))}
+                              className="w-full h-8 px-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
 
                 {/* Notes */}
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 pt-1">{t('treeForm.notes')}</p>
@@ -2080,7 +2109,7 @@ function PersonProfileModal({ initialPersonId, treeId, token, graph, onClose }: 
                   {(detail.died_city || detail.died_country) && (
                     <div className="flex items-center gap-3 px-4 py-2.5">
                       <span className="text-xs shrink-0">📍</span>
-                      <span className="text-xs text-gray-400 w-12 shrink-0">{t('treeForm.buried')}</span>
+                      <span className="text-xs text-gray-400 w-12 shrink-0">{t('treeForm.diedIn')}</span>
                       <span className="text-gray-800">{[detail.died_city, detail.died_country].filter(Boolean).join(', ')}</span>
                     </div>
                   )}
