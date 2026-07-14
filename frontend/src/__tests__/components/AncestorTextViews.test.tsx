@@ -132,9 +132,10 @@ describe('TextPedigreeView', () => {
 });
 
 describe('PosterPedigreeView', () => {
-  it('renders the decorative title and the root person centred at the bottom', () => {
-    render(<PosterPedigreeView graph={graph} />);
-    expect(screen.getByText('My Family Tree')).toBeInTheDocument();
+  it('renders the decorative title image and the root person centred at the bottom', () => {
+    const { container } = render(<PosterPedigreeView graph={graph} />);
+    const titleImg = container.querySelector('image[href="/My_Family_Tree_Design.png"]');
+    expect(titleImg).toBeInTheDocument();
     // Root appears in the SVG box; there may be a duplicate in the toolbar caption.
     expect(screen.getAllByText('Lavinia Mitchell').length).toBeGreaterThan(0);
   });

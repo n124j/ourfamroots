@@ -24,13 +24,19 @@ import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiTreeGraph, ApiPerson, Sex } from '@features/tree/types';
 import { useCanvasStore } from '@store/canvas.store';
 import { isPreset, presetDataUri } from '@features/tree/avatarPresets';
-import { PosterOrnament } from './PosterOrnament';
 
 // Real bare-tree artwork (frontend/public/tree-bg.png), background made
 // transparent and cropped tight to its bounding box so the trunk's bottom
 // edge lines up exactly with the bottom of the image.
 const TREE_IMG_SRC = '/tree-bg.png';
 const TREE_IMG_ASPECT = 1405 / 1059; // width / height
+
+// Calligraphic "My Family Tree" title + swirl ornament artwork, replacing
+// the old SVG <text> + ornament component. Flat white background, so it's
+// composited with mix-blend-mode: multiply — white drops out to reveal
+// whatever's behind (paper or tree canopy), only the dark ink stays.
+const TITLE_IMG_SRC = '/My_Family_Tree_Design.png';
+const TITLE_IMG_ASPECT = 1928 / 816; // width / height
 
 const DEFAULT_GENERATIONS = 4;
 const MIN_GENERATIONS = 2;
@@ -501,6 +507,18 @@ function PosterPedigreeViewComponent({ graph }: PosterPedigreeViewProps) {
   const treeImgX = centerX - treeImgWidth / 2;
   const treeImgY = treeBaseY - treeImgHeight;
 
+  // Title image sits in the TOP_MARGIN band, capped so it never outgrows the
+  // poster on narrow (few-generation) layouts.
+  let titleImgHeight = 130;
+  let titleImgWidth = titleImgHeight * TITLE_IMG_ASPECT;
+  const maxTitleImgWidth = Math.min(480, contentWidth - SIDE_MARGIN * 2);
+  if (titleImgWidth > maxTitleImgWidth) {
+    titleImgWidth = maxTitleImgWidth;
+    titleImgHeight = titleImgWidth / TITLE_IMG_ASPECT;
+  }
+  const titleImgX = centerX - titleImgWidth / 2;
+  const titleImgY = 10;
+
   const headerName = hasSpouse
     ? `${personName(rootPerson) || 'Unknown'} & ${personName(spousePerson) || 'Unknown'}`
     : personName(rootPerson) || 'Unknown';
@@ -664,19 +682,15 @@ function PosterPedigreeViewComponent({ graph }: PosterPedigreeViewProps) {
             ))}
           </g>
 
-          {/* Title */}
-          <text
-            x={centerX} y={64}
-            textAnchor="middle"
-            style={{ fontFamily: '"Great Vibes", cursive', fontSize: 52, fill: INK }}
-          >
-            My Family Tree
-          </text>
-          <foreignObject x={centerX - 130} y={78} width={260} height={40}>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <PosterOrnament width={260} color="#6b5d4a" />
-            </div>
-          </foreignObject>
+          {/* Title — calligraphic "My Family Tree" + swirl ornament artwork.
+              multiply blend drops the image's flat white background so only
+              the dark ink reads, letting paper/tree canopy show through. */}
+          <image
+            href={TITLE_IMG_SRC}
+            x={titleImgX} y={titleImgY}
+            width={titleImgWidth} height={titleImgHeight}
+            style={{ mixBlendMode: 'multiply' }}
+          />
 
           {/* Ancestor boxes */}
           {boxes.map((b) =>
