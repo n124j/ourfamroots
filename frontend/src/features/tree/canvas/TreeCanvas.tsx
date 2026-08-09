@@ -445,7 +445,7 @@ export interface TreeCanvasHandle {
   getPositions: () => Record<string, { x: number; y: number }>;
   loadPositions: (positions: Record<string, { x: number; y: number }>) => void;
   exportPdf: () => Promise<void>;
-  scrollToNode: (personId: string) => void;
+  scrollToNode: (personId: string | string[]) => void;
   refitView: () => void;
 }
 
@@ -551,7 +551,8 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
       setTimeout(() => fitView({ duration: 500, padding: 0.15 }), 80);
     },
     scrollToNode: (personId) => {
-      fitView({ nodes: [{ id: personId }], duration: 600, padding: 0.5, minZoom: 0.8, maxZoom: 1.5 });
+      const ids = Array.isArray(personId) ? personId : [personId];
+      fitView({ nodes: ids.map((id) => ({ id })), duration: 600, padding: 0.5, minZoom: 0.8, maxZoom: 1.5 });
     },
     refitView: () => {
       fitView({ duration: 500, padding: 0.15, minZoom: 0.05 });

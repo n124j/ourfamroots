@@ -156,6 +156,7 @@ interface Subscription {
   tier: 'FREE' | 'PREMIUM_INDIVIDUAL' | 'PREMIUM_TEAM';
   expires_at: string | null;
   is_expired: boolean;
+  is_default: boolean;
   filter_count: number;
   member_count: number;
   member_preview: string[];
@@ -2412,8 +2413,8 @@ export default function AdminPage() {
       <div className="flex gap-1 border-b border-gray-200 mb-6">
         {([
           ['users', t('adminPage.tabs.users')],
-          ['permissions', t('adminPage.tabs.permissions')],
           ['user-groups', t('adminPage.tabs.userGroups')],
+          ['permissions', t('adminPage.tabs.permissions')],
           ['merge', t('adminPage.tabs.merge')],
           ...(isSuperAdmin ? [
             ['namespaces', t('adminPage.tabs.namespaces')] as const,
@@ -3812,7 +3813,14 @@ function SubscriptionsPanel({ token }: { token: string | null }) {
               {subs.map((s) => (
                 <tr key={s.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{s.name}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-gray-900">{s.name}</span>
+                      {s.is_default && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-700">
+                          {t('adminPage.defaultForAllUsers')}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TIER_BADGE[s.tier]}`}>
@@ -3924,6 +3932,7 @@ function SubscriptionFormModal({
   const { t } = useTranslation();
   const [name, setName]   = useState(initial?.name ?? '');
   const [tier, setTier]   = useState<'FREE' | 'PREMIUM_INDIVIDUAL' | 'PREMIUM_TEAM'>(initial?.tier ?? 'FREE');
+  const [isDefault, setIsDefault] = useState(initial?.is_default ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
 
@@ -3957,7 +3966,7 @@ function SubscriptionFormModal({
         method: initial ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         credentials: 'include',
-        body: JSON.stringify({ name: name.trim(), tier, expires_at: computeExpiresAt() }),
+        body: JSON.stringify({ name: name.trim(), tier, expires_at: computeExpiresAt(), is_default: isDefault }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -4002,6 +4011,14 @@ function SubscriptionFormModal({
                 </label>
               ))}
             </div>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
+              <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
+                className="accent-brand-500" />
+              {t('adminPage.subscriptionDefaultCheckbox')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1 pl-6">{t('adminPage.subscriptionDefaultHint')}</p>
           </div>
           <div>
             <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-2">
@@ -4170,6 +4187,11 @@ function SubscriptionDetailModal({
               <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TIER_BADGE[subscription.tier]}`}>
                 {TIER_LABEL[subscription.tier]}
               </span>
+              {subscription.is_default && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-700">
+                  {t('adminPage.defaultForAllUsers')}
+                </span>
+              )}
               {subscription.expires_at && (
                 <span className={`text-xs ${subscription.is_expired ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                   {subscription.is_expired ? `${t('adminPage.expiredWord')} ` : `${t('adminPage.expiresWord')} `}
@@ -4238,6 +4260,11 @@ function SubscriptionDetailModal({
 
             {/* ── Members section ── */}
             <section>
+              {subscription.is_default && (
+                <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-3">
+                  {t('adminPage.subscriptionDefaultMembersHint')}
+                </p>
+              )}
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.membersCountHeading', { count: subMembers.length })}</h3>
                 {!addMemberOpen && (

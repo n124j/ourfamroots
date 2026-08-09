@@ -47,7 +47,7 @@ def send_expiry_reminders() -> dict:
 
     with engine.connect() as conn:
         subs = conn.execute(text("""
-            SELECT id, name, expires_at
+            SELECT id, tenant_id, name, expires_at, is_default
             FROM subscriptions
             WHERE expires_at IS NOT NULL
               AND reminder_sent_at IS NULL
@@ -56,13 +56,23 @@ def send_expiry_reminders() -> dict:
         """), {"window_hours": REMINDER_WINDOW_HOURS}).fetchall()
 
         for sub in subs:
-            members = conn.execute(text("""
-                SELECT u.email,
-                       COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS display_name
-                FROM subscription_members sm
-                JOIN users u ON u.id = sm.user_id
-                WHERE sm.subscription_id = :sid
-            """), {"sid": sub.id}).fetchall()
+            # A default subscription entitles every user in the tenant (see
+            # get_my_filters), not just those with an explicit membership row.
+            if sub.is_default:
+                members = conn.execute(text("""
+                    SELECT u.email,
+                           COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS display_name
+                    FROM users u
+                    WHERE u.tenant_id = :tid
+                """), {"tid": sub.tenant_id}).fetchall()
+            else:
+                members = conn.execute(text("""
+                    SELECT u.email,
+                           COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS display_name
+                    FROM subscription_members sm
+                    JOIN users u ON u.id = sm.user_id
+                    WHERE sm.subscription_id = :sid
+                """), {"sid": sub.id}).fetchall()
 
             filter_keys = conn.execute(text(
                 "SELECT filter_key FROM subscription_filters WHERE subscription_id = :sid"

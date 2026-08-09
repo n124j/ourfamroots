@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from pydantic import BaseModel, EmailStr, Field
 
 from src.api.deps import AdminUserDep, CurrentUserDep, EditableTreeDep, NotAuditorDep, UoWDep
+from src.api.v1._roles import TreeAdminDep
 from src.application.collaboration.service import CollaborationService
 from src.domain.collaboration.entities import (
     Action, AppRole, AuditEntityType, AuditEntry, Invitation,
@@ -520,11 +521,13 @@ async def get_shared_tree_graph(
 
     tree_id = tree_row.id
 
+    # Anonymous public visitors have no identity to ever grant a "More details"
+    # exception to (that mechanism is per-user/per-group), so dates & location
+    # are unconditionally left out here — only Notes travels with the public
+    # graph, same as the hidden-by-default rule for VIEWER-role members.
     persons_q = text("""
         SELECT id, tree_id, display_given_name, display_surname,
                sex, is_living, is_deceased, photo_url,
-               birth_date, death_date, birth_year, death_year,
-               born_city, born_country, died_city, died_country,
                notes
         FROM persons
         WHERE tree_id = :tid AND is_deleted = false
@@ -543,14 +546,6 @@ async def get_shared_tree_graph(
             "isLiving": r.is_living,
             "isDeceased": r.is_deceased,
             **({"photoUrl": _presign_photo(r.photo_url)} if r.photo_url else {}),
-            **({"birthDate": r.birth_date.isoformat()} if r.birth_date else {}),
-            **({"deathDate": r.death_date.isoformat()} if r.death_date else {}),
-            **({"birthYear": r.birth_year} if r.birth_year is not None else {}),
-            **({"deathYear": r.death_year} if r.death_year is not None else {}),
-            **({"bornCity": r.born_city} if r.born_city else {}),
-            **({"bornCountry": r.born_country} if r.born_country else {}),
-            **({"diedCity": r.died_city} if r.died_city else {}),
-            **({"diedCountry": r.died_country} if r.died_country else {}),
             **({"notes": r.notes} if r.notes else {}),
         }
         for r in person_rows
@@ -1444,6 +1439,19 @@ async def get_tree_graph(
         for r in person_rows
     ]
 
+    # "More details" (dates & location) defaults to hidden for VIEWER-role
+    # members only — strip it from every person here too, since this graph
+    # payload is what actually renders on the canvas node cards; Notes is
+    # always visible regardless of role and is never touched.
+    from src.api.v1._roles import PERSON_MORE_DETAILS_SECTION, is_section_visible
+    if not await is_section_visible(
+        uow._session, tree_id, current_user, TreeRole(effective_tree_role), PERSON_MORE_DETAILS_SECTION
+    ):
+        _hidden_keys = ("birthDate", "deathDate", "birthYear", "deathYear", "bornCity", "bornCountry", "diedCity", "diedCountry")
+        for p in persons:
+            for k in _hidden_keys:
+                p.pop(k, None)
+
     # Family groups + members
     fg_q = text("""
         SELECT fg.id, fg.tree_id, fg.union_type, fg.custom_label, fg.is_divorced,
@@ -1495,6 +1503,206 @@ async def get_tree_graph(
         "persons":           persons,
         "familyGroups":      list(groups.values()),
     }
+
+
+# ── Section visibility (More-details panel access control) ─────────────────────
+
+class SectionInfo(BaseModel):
+    key: str
+    label: str
+
+
+class SectionVisibilityRuleResponse(BaseModel):
+    id: uuid.UUID
+    section_key: str
+    subject_type: str
+    subject_id: uuid.UUID
+    subject_label: str
+    is_visible: bool
+
+
+class SectionVisibilityResponse(BaseModel):
+    available_sections: list[SectionInfo]
+    rules: list[SectionVisibilityRuleResponse]
+
+
+class UpsertSectionVisibilityRuleRequest(BaseModel):
+    section_key: str
+    subject_type: str = Field(..., pattern=r"^(USER|USER_GROUP)$")
+    subject_id: uuid.UUID
+    is_visible: bool
+
+
+@router.get(
+    "/trees/{tree_id}/section-visibility",
+    response_model=SectionVisibilityResponse,
+    summary="List section-visibility overrides for a tree",
+)
+async def list_section_visibility_rules(
+    tree_id: uuid.UUID,
+    current_user: TreeAdminDep,
+    uow: UoWDep,
+) -> SectionVisibilityResponse:
+    from sqlalchemy import text
+    from src.api.v1._roles import AVAILABLE_SECTIONS
+
+    rows = (await uow._session.execute(text("""
+        SELECT
+            v.id, v.section_key, v.subject_type, v.subject_id, v.is_visible,
+            CASE WHEN v.subject_type = 'USER'
+                 THEN COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email)
+                 ELSE ug.name
+            END AS subject_label
+        FROM section_visibility_rules v
+        LEFT JOIN users u ON v.subject_type = 'USER' AND u.id = v.subject_id
+        LEFT JOIN user_groups ug ON v.subject_type = 'USER_GROUP' AND ug.id = v.subject_id
+        WHERE v.tree_id = :tid
+        ORDER BY v.created_at
+    """), {"tid": tree_id})).fetchall()
+
+    return SectionVisibilityResponse(
+        available_sections=[SectionInfo(**s) for s in AVAILABLE_SECTIONS],
+        rules=[
+            SectionVisibilityRuleResponse(
+                id=r.id,
+                section_key=r.section_key,
+                subject_type=r.subject_type,
+                subject_id=r.subject_id,
+                subject_label=r.subject_label or "Unknown",
+                is_visible=r.is_visible,
+            )
+            for r in rows
+        ],
+    )
+
+
+@router.put(
+    "/trees/{tree_id}/section-visibility",
+    response_model=SectionVisibilityRuleResponse,
+    summary="Grant or revoke a user/user-group's visibility into a tree section",
+)
+async def upsert_section_visibility_rule(
+    tree_id: uuid.UUID,
+    body: UpsertSectionVisibilityRuleRequest,
+    current_user: TreeAdminDep,
+    uow: UoWDep,
+) -> SectionVisibilityRuleResponse:
+    from sqlalchemy import text
+    from src.api.v1._roles import AVAILABLE_SECTIONS
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+
+    valid_keys = {s["key"] for s in AVAILABLE_SECTIONS}
+    if body.section_key not in valid_keys:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown section_key: {body.section_key}")
+
+    if body.subject_type == "USER":
+        subject_exists = (await uow._session.execute(
+            text("SELECT 1 FROM users WHERE id = :sid AND tenant_id = :tid LIMIT 1"),
+            {"sid": body.subject_id, "tid": current_user.tenant_id},
+        )).first()
+    else:
+        subject_exists = (await uow._session.execute(
+            text("SELECT 1 FROM user_groups WHERE id = :sid AND tenant_id = :tid LIMIT 1"),
+            {"sid": body.subject_id, "tid": current_user.tenant_id},
+        )).first()
+    if subject_exists is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+
+    row = (await uow._session.execute(text("""
+        INSERT INTO section_visibility_rules (tree_id, section_key, subject_type, subject_id, is_visible, created_by)
+        VALUES (:tid, :sk, :st, :sid, :vis, :cb)
+        ON CONFLICT (tree_id, section_key, subject_type, subject_id)
+        DO UPDATE SET is_visible = EXCLUDED.is_visible, updated_at = now()
+        RETURNING id
+    """), {
+        "tid": tree_id, "sk": body.section_key, "st": body.subject_type,
+        "sid": body.subject_id, "vis": body.is_visible, "cb": current_user.id,
+    })).first()
+    rule_id = row.id
+
+    if body.subject_type == "USER":
+        label_row = (await uow._session.execute(text("""
+            SELECT COALESCE(NULLIF(TRIM(CONCAT(given_name, ' ', family_name)), ''), email) AS label
+            FROM users WHERE id = :sid
+        """), {"sid": body.subject_id})).first()
+    else:
+        label_row = (await uow._session.execute(
+            text("SELECT name AS label FROM user_groups WHERE id = :sid"),
+            {"sid": body.subject_id},
+        )).first()
+    subject_label = label_row.label if label_row else "Unknown"
+
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_name,
+            action=Action.MANAGE_SECTION_VISIBILITY,
+            entity_type=AuditEntityType.SECTION_VISIBILITY_RULE,
+            entity_id=rule_id,
+            after={
+                "section_key": body.section_key,
+                "subject_type": body.subject_type,
+                "subject_id": str(body.subject_id),
+                "is_visible": body.is_visible,
+            },
+        )
+    )
+    await uow._session.commit()
+
+    return SectionVisibilityRuleResponse(
+        id=rule_id,
+        section_key=body.section_key,
+        subject_type=body.subject_type,
+        subject_id=body.subject_id,
+        subject_label=subject_label,
+        is_visible=body.is_visible,
+    )
+
+
+@router.delete(
+    "/trees/{tree_id}/section-visibility/{rule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    response_class=Response,
+    summary="Remove a section-visibility override (revert to the section's default)",
+)
+async def delete_section_visibility_rule(
+    tree_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    current_user: TreeAdminDep,
+    uow: UoWDep,
+) -> None:
+    from sqlalchemy import text
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+
+    row = (await uow._session.execute(
+        text("SELECT id FROM section_visibility_rules WHERE id = :rid AND tree_id = :tid LIMIT 1"),
+        {"rid": rule_id, "tid": tree_id},
+    )).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Rule not found")
+
+    await uow._session.execute(
+        text("DELETE FROM section_visibility_rules WHERE id = :rid"),
+        {"rid": rule_id},
+    )
+
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_name,
+            action=Action.MANAGE_SECTION_VISIBILITY,
+            entity_type=AuditEntityType.SECTION_VISIBILITY_RULE,
+            entity_id=rule_id,
+        )
+    )
+    await uow._session.commit()
 
 
 # ── Import tree (.ofr) ─────────────────────────────────────────────────────────

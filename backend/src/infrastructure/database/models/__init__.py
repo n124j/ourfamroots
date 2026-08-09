@@ -32,6 +32,7 @@ from src.infrastructure.database.models.subscription import (
     SubscriptionFilterModel,
     SubscriptionMemberModel,
 )
+from src.infrastructure.database.models.section_visibility import SectionVisibilityRuleModel
 
 __all__ = [
     "TenantModel",
@@ -57,4 +58,5 @@ __all__ = [
     "SubscriptionModel",
     "SubscriptionFilterModel",
     "SubscriptionMemberModel",
+    "SectionVisibilityRuleModel",
 ]

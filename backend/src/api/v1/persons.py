@@ -33,6 +33,43 @@ def _svc(session: SessionDep) -> FamilyTreeApplicationService:
     return FamilyTreeApplicationService(session)
 
 
+# ── Orphaned family-group cleanup ────────────────────────────────
+#
+# A family group with no children is only meaningful as a standalone couple
+# (2 PARENT members — created e.g. by add_spouse to represent a childless
+# marriage). Anything short of that — a single known parent, or none at all —
+# exists solely to hold its children, so once its last child is re-linked
+# elsewhere it has no purpose and is deleted as an orphan. Re-linking a child
+# to a new union (force=true) can empty a group out this way, so it needs
+# the same cleanup collaboration.py's remove_family_group_member already
+# does for one-at-a-time member removal, or the old union is left behind
+# as an orphan node with nothing attached.
+
+async def _delete_orphaned_family_groups(session, family_group_ids: list[uuid.UUID]) -> None:
+    from sqlalchemy import text as sa_text
+
+    for fg_id in family_group_ids:
+        parent_count, child_count = (await session.execute(
+            sa_text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE role = 'PARENT'),
+                    COUNT(*) FILTER (WHERE role = 'CHILD')
+                FROM family_group_members
+                WHERE family_group_id = :fgid
+            """),
+            {"fgid": fg_id},
+        )).one()
+        if child_count == 0 and parent_count < 2:
+            await session.execute(
+                sa_text("DELETE FROM family_group_members WHERE family_group_id = :fgid"),
+                {"fgid": fg_id},
+            )
+            await session.execute(
+                sa_text("DELETE FROM family_groups WHERE id = :fgid"),
+                {"fgid": fg_id},
+            )
+
+
 # ── Audit helper ──────────────────────────────────────────────────
 
 async def _audit(
@@ -157,8 +194,29 @@ async def get_person(
     user: VerifiedUserDep,
     session: SessionDep,
 ) -> PersonDetailResponse:
+    from src.api.v1._roles import PERSON_MORE_DETAILS_SECTION, is_section_visible, resolve_effective_tree_role
+
+    role = await resolve_effective_tree_role(session, tree_id, user)
+    if role is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this tree")
+
     svc = _svc(session)
-    return await svc.get_person(tree_id, user.tenant_id, person_id)
+    detail = await svc.get_person(tree_id, user.tenant_id, person_id)
+
+    # "More details" (dates & location) defaults to hidden for VIEWER-role
+    # members only (OWNER/ADMIN/EDITOR always see it); Notes is always
+    # visible regardless of role — never filtered here.
+    if not await is_section_visible(session, tree_id, user, role, PERSON_MORE_DETAILS_SECTION):
+        detail.birth_date = None
+        detail.death_date = None
+        detail.birth_year = None
+        detail.death_year = None
+        detail.born_city = None
+        detail.born_country = None
+        detail.died_city = None
+        detail.died_country = None
+
+    return detail
 
 
 # ── Update person ────────────────────────────────────────────────
@@ -621,6 +679,19 @@ async def add_both_parents(
 
     # Always remove any existing parent-family-group membership for this child
     # so the user's explicit choice of both parents replaces the old ones.
+    affected_fg_ids = [
+        row[0] for row in (await session.execute(
+            sa_text("""
+                SELECT family_group_id FROM family_group_members
+                WHERE person_id = :pid
+                  AND role = 'CHILD'
+                  AND family_group_id IN (
+                      SELECT id FROM family_groups WHERE tree_id = :tid
+                  )
+            """),
+            {"pid": person_id, "tid": tree_id},
+        )).all()
+    ]
     await session.execute(
         sa_text("""
             DELETE FROM family_group_members
@@ -632,6 +703,7 @@ async def add_both_parents(
         """),
         {"pid": person_id, "tid": tree_id},
     )
+    await _delete_orphaned_family_groups(session, affected_fg_ids)
 
     svc = _svc(session)
     await svc.add_both_parents(tree_id, user.tenant_id, person_id, req)
@@ -663,6 +735,19 @@ async def add_child(
     if force:
         # Remove the child's existing parent-family-group membership so the
         # validator in the domain service won't reject the operation.
+        affected_fg_ids = [
+            row[0] for row in (await session.execute(
+                sa_text("""
+                    SELECT family_group_id FROM family_group_members
+                    WHERE person_id = :pid
+                      AND role = 'CHILD'
+                      AND family_group_id IN (
+                          SELECT id FROM family_groups WHERE tree_id = :tid
+                      )
+                """),
+                {"pid": req.child_id, "tid": tree_id},
+            )).all()
+        ]
         await session.execute(
             sa_text("""
                 DELETE FROM family_group_members
@@ -674,6 +759,7 @@ async def add_child(
             """),
             {"pid": req.child_id, "tid": tree_id},
         )
+        await _delete_orphaned_family_groups(session, affected_fg_ids)
 
     from src.domain.collaboration.entities import Action, AuditEntityType
     svc = _svc(session)

@@ -83,6 +83,9 @@ class SubscriptionCreate(BaseModel):
     # NULL/omitted = never expires. When set, this becomes a "promotional"
     # time-limited subscription — members lose entitlement once it passes.
     expires_at: Optional[datetime] = None
+    # When true, every user in the tenant is entitled automatically —
+    # no need to add members one by one, and it covers future signups too.
+    is_default: bool = False
 
 
 class SubscriptionUpdate(BaseModel):
@@ -91,6 +94,7 @@ class SubscriptionUpdate(BaseModel):
     # Distinguish "field omitted" (leave unchanged) from "explicitly null"
     # (clear the expiration) via `model_fields_set` at the call site.
     expires_at: Optional[datetime] = None
+    is_default: Optional[bool] = None
 
 
 class SubscriptionResponse(BaseModel):
@@ -99,6 +103,7 @@ class SubscriptionResponse(BaseModel):
     tier: str
     expires_at: Optional[str]
     is_expired: bool
+    is_default: bool
     filter_count: int
     member_count: int
     member_preview: list[str] = []
@@ -177,6 +182,7 @@ def _to_response(sub: SubscriptionModel, filter_count: int, member_count: int) -
         tier=sub.tier,
         expires_at=sub.expires_at.isoformat() if sub.expires_at else None,
         is_expired=_is_expired(sub.expires_at),
+        is_default=sub.is_default,
         filter_count=filter_count,
         member_count=member_count,
         created_by=sub.created_by,
@@ -196,7 +202,7 @@ async def list_subscriptions(
     rows = (await session.execute(
         text("""
             SELECT
-                s.id, s.name, s.tier, s.expires_at, s.created_by, s.created_at, s.updated_at,
+                s.id, s.name, s.tier, s.expires_at, s.is_default, s.created_by, s.created_at, s.updated_at,
                 COUNT(DISTINCT sf.id) AS filter_count,
                 COUNT(DISTINCT sm.id) AS member_count
             FROM subscriptions s
@@ -216,6 +222,7 @@ async def list_subscriptions(
             id=r.id, name=r.name, tier=r.tier,
             expires_at=r.expires_at.isoformat() if r.expires_at else None,
             is_expired=_is_expired(r.expires_at),
+            is_default=r.is_default,
             filter_count=r.filter_count, member_count=r.member_count,
             member_preview=previews.get(r.id, []),
             created_by=r.created_by,
@@ -255,6 +262,7 @@ async def create_subscription(
         name=body.name,
         tier=body.tier,
         expires_at=body.expires_at,
+        is_default=body.is_default,
         created_by=current_user.id,
     )
     session.add(sub)
@@ -281,6 +289,8 @@ async def update_subscription(
         sub.name = body.name
     if body.tier is not None:
         sub.tier = body.tier
+    if body.is_default is not None:
+        sub.is_default = body.is_default
     # "expires_at" being present in the request body at all (even as null,
     # to clear it) is what triggers a change — re-arms the reminder task
     # whenever the expiry actually moves.
@@ -559,11 +569,16 @@ async def get_my_filters(
         text("""
             SELECT DISTINCT sf.filter_key
             FROM subscription_filters sf
-            JOIN subscription_members sm ON sm.subscription_id = sf.subscription_id
             JOIN subscriptions s ON s.id = sf.subscription_id
-            WHERE sm.user_id = :uid
-              AND (s.expires_at IS NULL OR s.expires_at > now())
+            WHERE (s.expires_at IS NULL OR s.expires_at > now())
+              AND (
+                s.is_default AND s.tenant_id = :tid
+                OR EXISTS (
+                    SELECT 1 FROM subscription_members sm
+                    WHERE sm.subscription_id = s.id AND sm.user_id = :uid
+                )
+              )
         """),
-        {"uid": current_user.id},
+        {"uid": current_user.id, "tid": current_user.tenant_id},
     )).fetchall()
     return MyFiltersResponse(filterKeys=[r.filter_key for r in rows])

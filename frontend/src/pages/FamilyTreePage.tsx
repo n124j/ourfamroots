@@ -15,7 +15,7 @@ import { AVATAR_PRESETS, isPreset, presetDataUri } from '@features/tree/avatarPr
 import { useCanvasStore, type SelectedEdge } from '@store/canvas.store';
 import { useAuthStore } from '@store/auth.store';
 import { queryKeys } from '@queries/keys';
-import { apiClient, get, post, patch, del } from '@api/client';
+import { apiClient, get, post, put, patch, del } from '@api/client';
 import axios from 'axios';
 import type { ApiTreeGraph } from '@features/tree/types';
 import { AuditLogModal } from '@features/audit/AuditLogModal';
@@ -920,7 +920,7 @@ interface AddChildToUnionModalProps {
   token: string | null;
   candidates: CandidatePerson[]; // existing persons that can be linked
   onClose: () => void;
-  onAdded: () => void;
+  onAdded: (childId?: string) => void;
   onRemoved: () => void;
 }
 
@@ -996,7 +996,7 @@ function AddChildToUnionModal({
     setError('');
     try {
       await linkChild(selectedId, candidate?.hasParents ?? false);
-      onAdded();
+      onAdded(selectedId);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -2744,8 +2744,114 @@ function MembersModal({
               )}
             </div>
           ))}
+
+          {!loading && canRemove && (
+            <SectionVisibilitySettings treeId={treeId} members={members} />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Section visibility settings (More-details panel access control) ───────
+
+const MORE_DETAILS_SECTION = 'person_more_details';
+
+interface SectionRule {
+  id: string;
+  section_key: string;
+  subject_type: 'USER' | 'USER_GROUP';
+  subject_id: string;
+  subject_label: string;
+  is_visible: boolean;
+}
+
+interface SectionVisibilityData {
+  available_sections: { key: string; label: string }[];
+  rules: SectionRule[];
+}
+
+function SectionVisibilitySettings({ treeId, members }: { treeId: string; members: Member[] }) {
+  const [data,    setData]    = useState<SectionVisibilityData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
+  const [saving,  setSaving]  = useState<string | null>(null);
+
+  useEffect(() => {
+    get<SectionVisibilityData>(`/trees/${treeId}/section-visibility`)
+      .then(setData)
+      .catch(() => setError('Failed to load visibility settings'))
+      .finally(() => setLoading(false));
+  }, [treeId]);
+
+  const ruleFor = (userId: string) =>
+    data?.rules.find((r) => r.section_key === MORE_DETAILS_SECTION && r.subject_type === 'USER' && r.subject_id === userId);
+
+  async function toggle(userId: string, nextVisible: boolean) {
+    setSaving(userId);
+    setError('');
+    try {
+      if (nextVisible) {
+        const rule = await put<SectionRule>(`/trees/${treeId}/section-visibility`, {
+          section_key: MORE_DETAILS_SECTION,
+          subject_type: 'USER',
+          subject_id: userId,
+          is_visible: true,
+        });
+        setData((d) => d && {
+          ...d,
+          rules: [
+            ...d.rules.filter((r) => !(r.section_key === MORE_DETAILS_SECTION && r.subject_type === 'USER' && r.subject_id === userId)),
+            rule,
+          ],
+        });
+      } else {
+        const existing = ruleFor(userId);
+        if (existing) {
+          await del(`/trees/${treeId}/section-visibility/${existing.id}`);
+          setData((d) => d && { ...d, rules: d.rules.filter((r) => r.id !== existing.id) });
+        }
+      }
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to update visibility'));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const viewerMembers = members.filter((m) => m.role === 'VIEWER');
+
+  return (
+    <div className="border-t border-gray-100 mt-2 pt-3">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-2 mb-1">Section visibility</p>
+      <p className="text-[11px] text-slate-400 px-2 mb-2 leading-snug">
+        By default, Owner/Admin/Editor members see a person&rsquo;s extra details (dates, location) &mdash; only
+        Viewer-role members are hidden by default. Notes always stays visible to everyone. Grant an exception below.
+      </p>
+      {loading && <div className="px-2 py-2 text-xs text-slate-400">Loading&hellip;</div>}
+      {error && <p className="text-xs text-red-600 px-2 pb-1">{error}</p>}
+      {!loading && viewerMembers.map((m) => {
+        const rule = ruleFor(m.user_id);
+        const visible = rule?.is_visible ?? false;
+        return (
+          <div key={m.user_id} className="flex items-center gap-3 px-2 py-1.5">
+            <span className="text-xs text-slate-700 flex-1 truncate">{m.display_name}</span>
+            <button
+              type="button"
+              onClick={() => toggle(m.user_id, !visible)}
+              disabled={saving === m.user_id}
+              className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 ${visible ? 'bg-brand-500' : 'bg-slate-200'}`}
+              title={visible ? 'Visible — click to hide' : 'Hidden — click to show'}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${visible ? 'translate-x-4' : ''}`} />
+            </button>
+          </div>
+        );
+      })}
+      {!loading && viewerMembers.length === 0 && (
+        <p className="px-2 py-2 text-xs text-slate-400">No Viewer-role members yet.</p>
+      )}
     </div>
   );
 }
@@ -3492,13 +3598,18 @@ export default function FamilyTreePage() {
     useCanvasStore.getState().setSelectedPersonId(null);
   }, []);
 
-  const handleAdded = useCallback(async () => {
+  const handleAdded = useCallback(async (focusIds?: string | string[]) => {
     const result = await refetch();
     if (result.data) {
       const { expandedNodeIds, setExpandedNodeIds } = useCanvasStore.getState();
       const next = new Set(expandedNodeIds);
       for (const p of result.data.persons) next.add(p.id);
       setExpandedNodeIds(next);
+    }
+    if (focusIds) {
+      // Let the canvas re-render the refetched graph before fitting the view
+      // to the new node(s) — scrollToNode needs them present in React Flow's state.
+      setTimeout(() => canvasRef.current?.scrollToNode(focusIds), 80);
     }
   }, [refetch]);
 
@@ -3936,7 +4047,10 @@ export default function FamilyTreePage() {
             token={accessToken}
             candidates={candidates}
             onClose={() => setUnionChildFgId(null)}
-            onAdded={() => { setUnionChildFgId(null); handleAdded(); }}
+            onAdded={(childId) => {
+              setUnionChildFgId(null);
+              handleAdded(childId ? [p1Id, ...(p2Id ? [p2Id] : []), childId] : undefined);
+            }}
             onRemoved={() => { setUnionChildFgId(null); handleAdded(); }}
           />
         );

@@ -82,6 +82,8 @@ class Action(str, Enum):
     APPROVE_CHANGE      = "APPROVE_CHANGE"
     DENY_CHANGE         = "DENY_CHANGE"
     REVERT_CHANGE       = "REVERT_CHANGE"
+    # Section visibility (which "More details" sections a user/group can see)
+    MANAGE_SECTION_VISIBILITY = "MANAGE_SECTION_VISIBILITY"
 
 
 class InvitationStatus(str, Enum):
@@ -104,6 +106,7 @@ class AuditEntityType(str, Enum):
     ACCESS_REQUEST  = "ACCESS_REQUEST"
     MERGE_REQUEST   = "MERGE_REQUEST"
     CHANGE_REQUEST  = "CHANGE_REQUEST"
+    SECTION_VISIBILITY_RULE = "SECTION_VISIBILITY_RULE"
 
 
 # ── Permission matrix ─────────────────────────────────────────────────────────
@@ -128,6 +131,7 @@ ACTION_MIN_ROLE: dict[Action, TreeRole] = {
     Action.UPDATE_TREE:         TreeRole.ADMIN,
     Action.VIEW_AUDIT_LOG:      TreeRole.ADMIN,
     Action.RESTORE_VERSION:     TreeRole.ADMIN,
+    Action.MANAGE_SECTION_VISIBILITY: TreeRole.ADMIN,
     # Editor+
     Action.CREATE_PERSON:       TreeRole.EDITOR,
     Action.UPDATE_PERSON:       TreeRole.EDITOR,

@@ -1595,7 +1595,7 @@ components:
         Team) that entitles its members to a set of gated tree view "filters".
         Pure access-control metadata — not real billing, and membership has no
         side effects on tree_members (unlike Permission Groups).
-      required: [id, name, tier, is_expired, filter_count, member_count, created_at, updated_at]
+      required: [id, name, tier, is_expired, is_default, filter_count, member_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string, minLength: 1, maxLength: 100 }
@@ -1608,6 +1608,12 @@ components:
           nullable: true
           description: Null/omitted = never expires. When set, this is a time-limited "promotional" subscription.
         is_expired: { type: boolean }
+        is_default:
+          type: boolean
+          description: >
+            When true, every user in the tenant is entitled to this subscription's
+            filters automatically — no subscription_members row needed, and it
+            covers users who sign up afterward too.
         filter_count: { type: integer }
         member_count: { type: integer }
         member_preview:
@@ -6265,6 +6271,12 @@ paths:
                   format: date-time
                   nullable: true
                   description: Null/omitted = never expires.
+                is_default:
+                  type: boolean
+                  default: false
+                  description: >
+                    When true, every user in the tenant is entitled to this
+                    subscription's filters automatically, including future signups.
       responses:
         "201":
           description: Subscription created
@@ -6339,6 +6351,8 @@ paths:
                   type: string
                   format: date-time
                   nullable: true
+                is_default:
+                  type: boolean
       responses:
         "200":
           description: Updated subscription

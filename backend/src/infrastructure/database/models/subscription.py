@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,6 +37,10 @@ class SubscriptionModel(Base, TimestampMixin):
     # Set once the expiry-reminder email has gone out, so the periodic task
     # doesn't re-send it every tick. Reset to NULL whenever expires_at changes.
     reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When true, every user in the tenant is entitled to this subscription's
+    # filters automatically — no subscription_members row needed, and it
+    # covers users who sign up afterward too. See get_my_filters.
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_subscriptions_tenant_name"),

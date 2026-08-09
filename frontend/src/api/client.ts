@@ -164,6 +164,11 @@ export async function patch<T>(url: string, body?: unknown): Promise<T> {
   return res.data;
 }
 
+export async function put<T>(url: string, body?: unknown): Promise<T> {
+  const res = await apiClient.put<T>(url, body);
+  return res.data;
+}
+
 export async function del(url: string): Promise<void> {
   await apiClient.delete(url);
 }
