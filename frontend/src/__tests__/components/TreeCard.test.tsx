@@ -88,4 +88,26 @@ describe('TreeCard', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
     expect(screen.getByText('member')).toBeInTheDocument();
   });
+
+  it('shows the full tree name as a tooltip (title attribute), for when it is truncated', () => {
+    const longName = 'The Extraordinarily Long Multi-Generational Family Dynasty Tree';
+    renderCard({ name: longName });
+
+    expect(screen.getByText(longName)).toHaveAttribute('title', longName);
+  });
+
+  it('shows the full description as a tooltip (title attribute), for when it is clamped', () => {
+    const longDescription = 'A very long description that spans well beyond two lines and would otherwise be clipped by line-clamp-2 without a way to read the rest of it.';
+    renderCard({ description: longDescription });
+
+    expect(screen.getByText(longDescription)).toHaveAttribute('title', longDescription);
+  });
+
+  it('renders no description tooltip element when the tree has no description', () => {
+    renderCard({ description: null });
+
+    // The <p> element for description is conditionally rendered entirely.
+    const card = screen.getByText('The Test Family').closest('.group');
+    expect(card?.querySelector('p[title]')).not.toBeInTheDocument();
+  });
 });

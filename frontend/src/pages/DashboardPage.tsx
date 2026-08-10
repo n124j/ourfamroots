@@ -170,11 +170,11 @@ export function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide 
           </div>
         </div>
 
-        <h2 className="font-semibold group-hover:text-brand-600 transition-colors truncate" style={{ color: 'var(--portal-text-primary)' }}>
+        <h2 title={tree.name} className="font-semibold group-hover:text-brand-600 transition-colors truncate" style={{ color: 'var(--portal-text-primary)' }}>
           {tree.name}
         </h2>
         {tree.description && (
-          <p className="text-sm text-gray-500 mt-1 line-clamp-2">{tree.description}</p>
+          <p title={tree.description} className="text-sm text-gray-500 mt-1 line-clamp-2">{tree.description}</p>
         )}
 
         <div className="flex gap-4 mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
