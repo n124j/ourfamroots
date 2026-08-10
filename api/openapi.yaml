@@ -2457,6 +2457,82 @@ paths:
         "404":
           $ref: "#/components/responses/404NotFound"
 
+  /trees/{treeId}/hide:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    post:
+      tags: [Trees]
+      operationId: hideTreeFromDashboard
+      summary: Hide a tree from the caller's Dashboard
+      description: |
+        Hides this tree from the current user's own Dashboard list only — it
+        has no effect on the tree itself, its membership, or what other
+        users see. Undo with `DELETE /trees/{treeId}/hide`, or from
+        Settings → Hidden Trees.
+
+        Any tree the caller is a member of can be hidden, not only
+        globally-shared ones. A `SUPER_ADMIN` or `AUDITOR` app-role bypasses
+        the membership check and can hide any tree. Calling this twice for
+        the same tree is a no-op (idempotent upsert).
+      responses:
+        "204":
+          description: Tree hidden — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          description: Caller is not a member of this tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      tags: [Trees]
+      operationId: unhideTreeFromDashboard
+      summary: Unhide a tree, restoring it to the caller's Dashboard
+      responses:
+        "204":
+          description: Tree unhidden — no body
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
+  /trees/hidden:
+    get:
+      tags: [Trees]
+      operationId: listHiddenTrees
+      summary: List trees the current user has hidden from their Dashboard
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        "200":
+          description: Paginated list of hidden trees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_pages: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        cover_emoji: { type: string, nullable: true }
+                        cover_image_url: { type: string, nullable: true }
+                        hidden_at: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+
   /trees/{treeId}/collaborators:
     parameters:
       - $ref: "#/components/parameters/treeId"

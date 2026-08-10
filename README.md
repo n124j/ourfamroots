@@ -429,8 +429,12 @@ are re-created with new UUIDs and the importing user becomes the tree owner.
 
 #### Propose Changes to a Shared Tree
 
-On a **globally-shared** tree, Editor-level members can't edit the live tree directly — they
-propose changes for the owner to review instead:
+On a **globally-shared** tree, Editor-level members can't edit the live tree directly — the
+change-request workflow lets them propose changes for the owner to review instead. **The
+"Propose changes" entry point button is currently hidden from the tree toolbar**, so Editors
+have no in-app way to start step 1 below; the backend endpoints and the rest of the workflow
+(review, approve/deny) are unchanged and still function for any draft created directly via the
+API (`POST /trees/{tree_id}/change-requests/draft`).
 
 1. **Propose changes** — clones the tree into a private draft only you can see. Edit it with
    the normal person/relationship tools; nothing touches the live tree yet.
@@ -449,10 +453,11 @@ propose changes for the owner to review instead:
 
 **Reverting an approval (Super Admin only):** every approval captures a full snapshot of the
 tree immediately beforehand. If a Super Admin needs to undo one — e.g. a bad merge — they can
-click **Revert** on that approval's entry in the tree's **History** log. This restores persons
-and family groups to exactly their pre-approval state; note that it necessarily undoes *any*
-edits made after the approval too, not just that one change, since it's a full snapshot
-restore rather than a surgical undo.
+open **Activity** on the tree toolbar (visible only to Super Admins; hidden for everyone else)
+and click **Revert** on that approval's entry. This restores persons and family groups to
+exactly their pre-approval state; note that it necessarily undoes *any* edits made after the
+approval too, not just that one change, since it's a full snapshot restore rather than a
+surgical undo.
 
 #### Admin Dashboard
 

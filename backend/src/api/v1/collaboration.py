@@ -1439,7 +1439,7 @@ class HiddenTreesResponse(BaseModel):
 
 
 @router.post("/trees/{tree_id}/hide", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
-             response_class=Response, summary="Hide a globally-shared tree from the Dashboard")
+             response_class=Response, summary="Hide a tree from the Dashboard")
 async def hide_tree(
     tree_id: uuid.UUID,
     current_user: CurrentUserDep,
@@ -1454,18 +1454,6 @@ async def hide_tree(
         )).first()
         if not member_row:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not a member of this tree")
-
-    is_global_row = (await uow._session.execute(
-        text("""
-            SELECT 1 FROM permission_group_trees pgt
-            JOIN permission_groups pg ON pg.id = pgt.group_id
-            WHERE pgt.tree_id = :tid AND pg.is_global = true
-            LIMIT 1
-        """),
-        {"tid": tree_id},
-    )).first()
-    if not is_global_row:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a globally-shared tree can be hidden")
 
     await uow._session.execute(text("""
         INSERT INTO tree_hides (tree_id, user_id, tenant_id)

@@ -2858,7 +2858,7 @@ function SectionVisibilitySettings({ treeId, members }: { treeId: string; member
 
 // ── Top bar ────────────────────────────────────────────────────────────────
 
-function TreeTopBar({
+export function TreeTopBar({
   treeName,
   treeDescription,
   personCount,
@@ -2901,6 +2901,7 @@ function TreeTopBar({
   const isDraft = !!graph?.draftOfTreeId;
   const isGloballyShared = !!graph?.isGloballyShared;
   const isReviewMode = !!graph?.reviewChangeRequestId;
+  const isSuperAdmin = useAuthStore((s) => s.user)?.appRole === 'SUPER_ADMIN';
 
   const [exportOpen,    setExportOpen]    = React.useState(false);
   const [moreOpen,      setMoreOpen]      = React.useState(false);
@@ -3147,13 +3148,6 @@ function TreeTopBar({
         <div className="w-px h-4 bg-slate-200 hidden md:block" />
 
         <button
-          onClick={onLayouts}
-          title={t('treePage.saveLayout')}
-          className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-        >
-          {t('treePage.layouts')}
-        </button>
-        <button
           onClick={onTheme}
           title={t('treePage.customizeTheme')}
           className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
@@ -3169,17 +3163,19 @@ function TreeTopBar({
           </button>
         )}
 
-        <button
-          onClick={onShowActivity}
-          title={t('treePage.showActivity')}
-          className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="6" cy="6" r="5" />
-            <path d="M6 3.2v3l2 1.3" />
-          </svg>
-          {t('treePage.activity')}
-        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={onShowActivity}
+            title={t('treePage.showActivity')}
+            className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="6" cy="6" r="5" />
+              <path d="M6 3.2v3l2 1.3" />
+            </svg>
+            {t('treePage.activity')}
+          </button>
+        )}
 
         {isDraft && userRole === 'OWNER' && (
           <button
@@ -3188,16 +3184,6 @@ function TreeTopBar({
             className="hidden md:inline-flex px-3 py-1.5 text-xs font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors"
           >
             {t('treePage.post')}
-          </button>
-        )}
-
-        {!isDraft && isGloballyShared && userRole === 'EDITOR' && (
-          <button
-            type="button"
-            onClick={onProposeChanges}
-            className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-brand-600 border border-brand-300 rounded-lg hover:bg-brand-50 transition-colors"
-          >
-            {t('treePage.proposeChanges')}
           </button>
         )}
 
@@ -3228,10 +3214,6 @@ function TreeTopBar({
           {moreOpen && (
             <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden">
               <div className="py-1">
-                <button onClick={() => { setMoreOpen(false); onLayouts(); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
-                  {t('treePage.layouts')}
-                </button>
                 <button onClick={() => { setMoreOpen(false); onTheme(); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
                   {`🎨 ${t('treePage.theme')}`}
@@ -3242,20 +3224,16 @@ function TreeTopBar({
                     {t('treePage.members')}
                   </button>
                 )}
-                <button onClick={() => { setMoreOpen(false); onShowActivity(); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
-                  {t('treePage.activity')}
-                </button>
+                {isSuperAdmin && (
+                  <button onClick={() => { setMoreOpen(false); onShowActivity(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
+                    {t('treePage.activity')}
+                  </button>
+                )}
                 {isDraft && userRole === 'OWNER' && (
                   <button onClick={() => { setMoreOpen(false); onOpenPost(); }}
                     className="w-full text-left px-4 py-2.5 text-sm font-medium text-brand-600 hover:bg-slate-50">
                     {t('treePage.post')}
-                  </button>
-                )}
-                {!isDraft && isGloballyShared && userRole === 'EDITOR' && (
-                  <button onClick={() => { setMoreOpen(false); onProposeChanges(); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-brand-600 hover:bg-slate-50">
-                    {t('treePage.proposeChanges')}
                   </button>
                 )}
                 {!isDraft && isGloballyShared && userRole === 'OWNER' && pendingChangeCount > 0 && (

@@ -110,7 +110,7 @@ const en = {
 
     // Hidden trees tab
     hiddenTrees: {
-      desc: 'Global trees you’ve hidden from your Dashboard. Unhide one to bring it back.',
+      desc: 'Trees you’ve hidden from your Dashboard. Unhide one to bring it back.',
       empty: 'No hidden trees.',
       hiddenOn: 'Hidden on {{date}}',
       unhide: 'Unhide',

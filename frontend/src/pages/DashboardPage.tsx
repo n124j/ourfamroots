@@ -8,7 +8,7 @@ import { SearchableCombobox } from '@shared/components/SearchableCombobox';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
-interface TreeSummary {
+export interface TreeSummary {
   id: string;
   name: string;
   description: string | null;
@@ -76,7 +76,7 @@ const MEMBER_ROLE_BADGE: Record<string, string> = {
 
 // ── Tree card ──────────────────────────────────────────────────────────────
 
-interface TreeCardProps {
+export interface TreeCardProps {
   tree: TreeSummary;
   onEdit: (tree: TreeSummary) => void;
   onDelete: (tree: TreeSummary) => void;
@@ -99,7 +99,7 @@ const HideIcon = () => (
   </svg>
 );
 
-function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide }: TreeCardProps) {
+export function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide }: TreeCardProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -132,15 +132,13 @@ function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide }: Tree
       >
         <PinIcon filled={tree.is_pinned} />
       </button>
-      {tree.is_globally_shared && (
-        <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onHide(tree); }}
-          title="Hide from Dashboard"
-          className="absolute top-2 right-2 z-10 w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 transition-colors"
-        >
-          <HideIcon />
-        </button>
-      )}
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onHide(tree); }}
+        title="Hide from Dashboard"
+        className="absolute top-2 right-2 z-10 w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 transition-colors"
+      >
+        <HideIcon />
+      </button>
       <Link to={`/trees/${tree.id}`} className="block p-6">
         <div className="flex items-start justify-between mb-4">
           {tree.cover_image_url ? (
@@ -181,7 +179,9 @@ function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide }: Tree
 
         <div className="flex gap-4 mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
           <span><span className="font-semibold text-gray-700">{tree.person_count}</span> {t('common.people')}</span>
-          <span><span className="font-semibold text-gray-700">{tree.member_count}</span> {tree.member_count === 1 ? t('common.member') : t('common.members')}</span>
+          {!tree.is_globally_shared && (
+            <span><span className="font-semibold text-gray-700">{tree.member_count}</span> {tree.member_count === 1 ? t('common.member') : t('common.members')}</span>
+          )}
         </div>
       </Link>
 
