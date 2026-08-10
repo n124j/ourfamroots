@@ -142,11 +142,14 @@ async def list_namespaces(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, max_length=200),
+    is_active: Optional[bool] = Query(None),
 ) -> NamespacesResponse:
     base = select(TenantModel)
     if search:
         pattern = f"%{search}%"
         base = base.where(TenantModel.name.ilike(pattern) | TenantModel.slug.ilike(pattern))
+    if is_active is not None:
+        base = base.where(TenantModel.is_active == is_active)
 
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
 
@@ -196,6 +199,37 @@ async def update_namespace(
     await session.refresh(tenant)
     counts = await _user_counts(session, [tenant.id])
     return _serialize(tenant, counts.get(tenant.id, 0))
+
+
+@router.delete("/{namespace_id}", status_code=status.HTTP_204_NO_CONTENT,
+               summary="Delete a namespace (Super Admin only)")
+async def delete_namespace(
+    namespace_id: uuid.UUID,
+    request: Request,
+    current_user: SuperAdminDep,
+    session: SessionDep,
+) -> Response:
+    tenant = await session.get(TenantModel, namespace_id)
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Namespace not found")
+
+    if tenant.is_global:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The Global namespace cannot be deleted")
+
+    counts = await _user_counts(session, [tenant.id])
+    if counts.get(tenant.id, 0) > 0:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This namespace still has users assigned to it. Move or remove them before deleting it.",
+        )
+
+    await log_admin_action(
+        session, current_user.tenant_id, current_user.id,
+        current_user.full_name, "NS_DELETE", f"{tenant.name} ({tenant.slug})", _admin_ip(request),
+    )
+    await session.delete(tenant)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{namespace_id}/users", summary="List users in any namespace (Super Admin only)")

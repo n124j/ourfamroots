@@ -118,6 +118,8 @@ async def create_person(
 ) -> PersonResponse:
     from sqlalchemy import text as sa_text
     import uuid as _uuid
+    from src.api.v1._roles import resolve_tree_tenant_id
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     person_id = _uuid.uuid4()
     await session.execute(
         sa_text("""
@@ -137,7 +139,7 @@ async def create_person(
         """),
         {
             "id": person_id,
-            "tenant_id": user.tenant_id,
+            "tenant_id": tree_tenant_id,
             "tree_id": tree_id,
             "sex": req.sex.value,
             "given": req.given_name,
@@ -194,14 +196,20 @@ async def get_person(
     user: VerifiedUserDep,
     session: SessionDep,
 ) -> PersonDetailResponse:
-    from src.api.v1._roles import PERSON_MORE_DETAILS_SECTION, is_section_visible, resolve_effective_tree_role
+    from src.api.v1._roles import (
+        PERSON_MORE_DETAILS_SECTION,
+        is_section_visible,
+        resolve_effective_tree_role,
+        resolve_tree_tenant_id,
+    )
 
     role = await resolve_effective_tree_role(session, tree_id, user)
     if role is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this tree")
 
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    detail = await svc.get_person(tree_id, user.tenant_id, person_id)
+    detail = await svc.get_person(tree_id, tree_tenant_id, person_id)
 
     # "More details" (dates & location) defaults to hidden for VIEWER-role
     # members only (OWNER/ADMIN/EDITOR always see it); Notes is always
@@ -235,7 +243,10 @@ async def update_person(
 ) -> PersonResponse:
     from sqlalchemy import text as sa_text
     from fastapi import HTTPException
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.domain.collaboration.entities import Action, AuditEntityType
+
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
     # Capture before state
     before_row = (await session.execute(
@@ -288,7 +299,7 @@ async def update_person(
             "notes":           req.notes,
             "pid":             person_id,
             "tid":             tree_id,
-            "tenant":          user.tenant_id,
+            "tenant":          tree_tenant_id,
         },
     )
     row = result.first()
@@ -342,9 +353,11 @@ async def upload_person_photo(
     import boto3
     from botocore.config import Config as BotoCfg
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.config import get_settings
 
     settings = get_settings()
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
     if file.content_type not in ALLOWED_PHOTO_TYPES:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only JPEG, PNG, WEBP or GIF images are allowed")
@@ -374,7 +387,7 @@ async def upload_person_photo(
             WHERE id = :pid AND tree_id = :tid AND tenant_id = :tenant AND is_deleted = false
             RETURNING id
         """),
-        {"url": key, "pid": person_id, "tid": tree_id, "tenant": user.tenant_id},
+        {"url": key, "pid": person_id, "tid": tree_id, "tenant": tree_tenant_id},
     )
     if result.first() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
@@ -403,14 +416,16 @@ async def remove_person_photo(
     session: SessionDep,
 ):
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
 
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     result = await session.execute(
         sa_text("""
             UPDATE persons SET photo_url = NULL
             WHERE id = :pid AND tree_id = :tid AND tenant_id = :tenant AND is_deleted = false
             RETURNING id
         """),
-        {"pid": person_id, "tid": tree_id, "tenant": user.tenant_id},
+        {"pid": person_id, "tid": tree_id, "tenant": tree_tenant_id},
     )
     if result.first() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
@@ -437,8 +452,10 @@ async def list_gallery_photos(
     session: SessionDep,
 ):
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.api.v1._s3 import presign_photo
 
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     rows = (await session.execute(
         sa_text("""
             SELECT id, photo_url, caption, position
@@ -446,7 +463,7 @@ async def list_gallery_photos(
             WHERE person_id = :pid AND tree_id = :tid AND tenant_id = :tenant
             ORDER BY position
         """),
-        {"pid": person_id, "tid": tree_id, "tenant": user.tenant_id},
+        {"pid": person_id, "tid": tree_id, "tenant": tree_tenant_id},
     )).fetchall()
 
     return [
@@ -476,9 +493,11 @@ async def upload_gallery_photo(
     import boto3
     from botocore.config import Config as BotoCfg
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.config import get_settings
 
     settings = get_settings()
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
     count_row = (await session.execute(
         sa_text("SELECT count(*) AS cnt FROM person_gallery_photos WHERE person_id = :pid AND tree_id = :tid"),
@@ -518,12 +537,15 @@ async def upload_gallery_photo(
             "id": photo_id,
             "pid": person_id,
             "tid": tree_id,
-            "tenant": user.tenant_id,
+            "tenant": tree_tenant_id,
             "url": key,
             "caption": caption.strip() or None,
             "pos": count_row.cnt,
         },
     )
+    from src.domain.collaboration.entities import Action, AuditEntityType
+    await _audit(session, tree_id, user, Action.UPLOAD_MEDIA, AuditEntityType.MEDIA,
+                 entity_id=photo_id, after={"caption": caption.strip() or None})
     await session.commit()
 
     from src.api.v1._s3 import presign_photo
@@ -543,17 +565,22 @@ async def update_gallery_photo(
     caption: str = Query(default="", max_length=200),
 ):
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
 
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     result = await session.execute(
         sa_text("""
             UPDATE person_gallery_photos SET caption = :caption
             WHERE id = :gid AND person_id = :pid AND tree_id = :tid AND tenant_id = :tenant
             RETURNING id
         """),
-        {"caption": caption.strip() or None, "gid": photo_id, "pid": person_id, "tid": tree_id, "tenant": user.tenant_id},
+        {"caption": caption.strip() or None, "gid": photo_id, "pid": person_id, "tid": tree_id, "tenant": tree_tenant_id},
     )
     if result.first() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Gallery photo not found")
+    from src.domain.collaboration.entities import Action, AuditEntityType
+    await _audit(session, tree_id, user, Action.UPDATE_PHOTO, AuditEntityType.MEDIA,
+                 entity_id=photo_id, after={"caption": caption.strip() or None})
     await session.commit()
     return {"ok": True}
 
@@ -573,17 +600,22 @@ async def delete_gallery_photo(
     session: SessionDep,
 ):
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
 
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     result = await session.execute(
         sa_text("""
             DELETE FROM person_gallery_photos
             WHERE id = :gid AND person_id = :pid AND tree_id = :tid AND tenant_id = :tenant
             RETURNING id
         """),
-        {"gid": photo_id, "pid": person_id, "tid": tree_id, "tenant": user.tenant_id},
+        {"gid": photo_id, "pid": person_id, "tid": tree_id, "tenant": tree_tenant_id},
     )
     if result.first() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Gallery photo not found")
+    from src.domain.collaboration.entities import Action, AuditEntityType
+    await _audit(session, tree_id, user, Action.DELETE_MEDIA, AuditEntityType.MEDIA,
+                 entity_id=photo_id)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -605,6 +637,9 @@ async def delete_person(
 ) -> None:
     from sqlalchemy import text as sa_text
     from datetime import datetime, timezone
+    from src.api.v1._roles import resolve_tree_tenant_id
+
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
     # Grab name before soft-delete
     name_row = (await session.execute(
@@ -622,7 +657,7 @@ async def delete_person(
         {
             "pid": person_id,
             "tid": tree_id,
-            "tenant": user.tenant_id,
+            "tenant": tree_tenant_id,
             "now": datetime.now(timezone.utc),
         },
     )
@@ -649,9 +684,11 @@ async def add_parent(
     user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.domain.collaboration.entities import Action, AuditEntityType
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    await svc.add_parent(tree_id, user.tenant_id, person_id, req)
+    await svc.add_parent(tree_id, tree_tenant_id, person_id, req)
     await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
                  entity_id=person_id,
                  after={"type": "parent", "parent_id": str(req.parent_id), "parentage": req.parentage_type.value})
@@ -675,7 +712,10 @@ async def add_both_parents(
     session: SessionDep,
 ) -> None:
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.domain.collaboration.entities import Action, AuditEntityType
+
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
     # Always remove any existing parent-family-group membership for this child
     # so the user's explicit choice of both parents replaces the old ones.
@@ -706,7 +746,7 @@ async def add_both_parents(
     await _delete_orphaned_family_groups(session, affected_fg_ids)
 
     svc = _svc(session)
-    await svc.add_both_parents(tree_id, user.tenant_id, person_id, req)
+    await svc.add_both_parents(tree_id, tree_tenant_id, person_id, req)
     await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
                  entity_id=person_id,
                  after={"type": "both_parents", "father_id": str(req.father_id), "mother_id": str(req.mother_id)})
@@ -731,6 +771,9 @@ async def add_child(
     force: bool = Query(default=False, description="Remove existing parent group before linking"),
 ) -> None:
     from sqlalchemy import text as sa_text
+    from src.api.v1._roles import resolve_tree_tenant_id
+
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
     if force:
         # Remove the child's existing parent-family-group membership so the
@@ -763,7 +806,7 @@ async def add_child(
 
     from src.domain.collaboration.entities import Action, AuditEntityType
     svc = _svc(session)
-    await svc.add_child(tree_id, user.tenant_id, person_id, req)
+    await svc.add_child(tree_id, tree_tenant_id, person_id, req)
     await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
                  entity_id=person_id,
                  after={"type": "child", "child_id": str(req.child_id), "parentage": req.parentage_type.value})
@@ -786,9 +829,11 @@ async def add_spouse(
     user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.domain.collaboration.entities import Action, AuditEntityType
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    await svc.add_spouse(tree_id, user.tenant_id, person_id, req)
+    await svc.add_spouse(tree_id, tree_tenant_id, person_id, req)
     await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
                  entity_id=person_id,
                  after={"type": "spouse", "spouse_id": str(req.spouse_id), "union_type": req.union_type.value})
@@ -811,9 +856,11 @@ async def add_sibling(
     user: EditableTreeDep,
     session: SessionDep,
 ) -> None:
+    from src.api.v1._roles import resolve_tree_tenant_id
     from src.domain.collaboration.entities import Action, AuditEntityType
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    await svc.add_sibling(tree_id, user.tenant_id, person_id, req)
+    await svc.add_sibling(tree_id, tree_tenant_id, person_id, req)
     await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
                  entity_id=person_id,
                  after={"type": "sibling", "sibling_id": str(req.sibling_id), "parentage": req.parentage_type.value})
@@ -834,8 +881,10 @@ async def get_ancestors(
     session: SessionDep,
     max_depth: int = Query(default=100, ge=1, le=100),
 ) -> AncestorsByGenerationResponse:
+    from src.api.v1._roles import resolve_tree_tenant_id
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    return await svc.get_ancestors(tree_id, user.tenant_id, person_id, max_depth)
+    return await svc.get_ancestors(tree_id, tree_tenant_id, person_id, max_depth)
 
 
 @router.get(
@@ -850,8 +899,10 @@ async def get_descendants(
     session: SessionDep,
     max_depth: int = Query(default=100, ge=1, le=100),
 ) -> AncestorsByGenerationResponse:
+    from src.api.v1._roles import resolve_tree_tenant_id
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    return await svc.get_descendants(tree_id, user.tenant_id, person_id, max_depth)
+    return await svc.get_descendants(tree_id, tree_tenant_id, person_id, max_depth)
 
 
 @router.get(
@@ -866,8 +917,10 @@ async def get_kinship(
     user: VerifiedUserDep,
     session: SessionDep,
 ) -> KinshipResponse:
+    from src.api.v1._roles import resolve_tree_tenant_id
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
-    return await svc.get_kinship(tree_id, user.tenant_id, person_id, other_person_id)
+    return await svc.get_kinship(tree_id, tree_tenant_id, person_id, other_person_id)
 
 
 @router.get(
@@ -882,7 +935,9 @@ async def get_lineage_paths(
     user: VerifiedUserDep,
     session: SessionDep,
 ) -> list[LineagePathResponse]:
+    from src.api.v1._roles import resolve_tree_tenant_id
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     svc = _svc(session)
     return await svc.get_lineage_paths(
-        tree_id, user.tenant_id, person_id, other_person_id
+        tree_id, tree_tenant_id, person_id, other_person_id
     )

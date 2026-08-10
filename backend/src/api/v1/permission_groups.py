@@ -13,9 +13,10 @@ Removing either side revokes the corresponding tree_members rows (unless
 the user has OWNER or ADMIN role, which is never granted via groups).
 
 A group can also be flagged is_global (Super Admin only, via PATCH
-.../global). A global group's trees are granted to every tenant user —
-present and future — instead of just its explicit members; see
-_get_group_recipient_ids and grant_global_tree_access.
+.../global). A global group's trees are granted to every user on the
+platform — present and future, across every namespace/tenant — instead of
+just its explicit members; see _get_group_recipient_ids and
+grant_global_tree_access.
 """
 from __future__ import annotations
 
@@ -164,6 +165,8 @@ class AddUserGroupBody(BaseModel):
 class TenantTreeResponse(BaseModel):
     id: uuid.UUID
     name: str
+    namespace_id: uuid.UUID
+    namespace_name: str
 
     model_config = {"from_attributes": True}
 
@@ -255,9 +258,31 @@ async def _get_tenant_id(session, group_id: uuid.UUID) -> uuid.UUID:
     return row
 
 
+async def _get_group_for_admin(
+    session, group_id: uuid.UUID, current_user: UserModel
+) -> PermissionGroupModel | None:
+    """Fetch a permission group, scoped to the caller's own tenant — except a
+    Super Admin, who can reach any tenant's group. This is what lets a Super
+    Admin manage a global group's trees even when the group (or the tree
+    being attached) belongs to a different namespace."""
+    query = select(PermissionGroupModel).where(PermissionGroupModel.id == group_id)
+    if current_user.app_role != AppRole.SUPER_ADMIN:
+        query = query.where(PermissionGroupModel.tenant_id == current_user.tenant_id)
+    return (await session.execute(query)).scalars().first()
+
+
 async def _get_tenant_user_ids(session, tenant_id: uuid.UUID) -> list[uuid.UUID]:
     rows = (await session.execute(
         select(UserModel.id).where(UserModel.tenant_id == tenant_id)
+    )).scalars().all()
+    return list(rows)
+
+
+async def _get_all_user_ids(session) -> list[uuid.UUID]:
+    """Every active user on the platform, across every namespace — used for
+    is_global groups, which apply platform-wide rather than to one tenant."""
+    rows = (await session.execute(
+        select(UserModel.id).where(UserModel.is_active.is_(True))
     )).scalars().all()
     return list(rows)
 
@@ -274,15 +299,15 @@ async def _get_user_group_member_ids_for_permission_group(session, group_id: uui
 
 
 async def _get_group_recipient_ids(
-    session, group_id: uuid.UUID, tenant_id: uuid.UUID, is_global: bool
+    session, group_id: uuid.UUID, is_global: bool
 ) -> list[uuid.UUID]:
     """Who should be granted/revoked access when a tree is added/removed from this group.
 
-    Global groups apply to every tenant user; regular groups apply to explicit
-    members plus everyone in any linked user group.
+    Global groups apply to every user on the platform; regular groups apply to
+    explicit members plus everyone in any linked user group.
     """
     if is_global:
-        return await _get_tenant_user_ids(session, tenant_id)
+        return await _get_all_user_ids(session)
     direct = await _get_group_user_ids(session, group_id)
     via_user_groups = await _get_user_group_member_ids_for_permission_group(session, group_id)
     return list(set(direct) | set(via_user_groups))
@@ -471,19 +496,18 @@ async def update_permission_group(
     if body.permission_level is not None and body.permission_level != group.permission_level:
         new_role = _LEVEL_TO_TREE_ROLE.get(body.permission_level)
         if new_role and group.is_global:
-            # Propagate role change to every tenant user for this group's trees
+            # Propagate role change to every platform user for this group's trees
             await session.execute(
                 text("""
                     UPDATE tree_members tm
                     SET role = :role
                     FROM users u
                     JOIN permission_group_trees pgt ON pgt.group_id = :gid
-                    WHERE u.tenant_id = :tenant_id
-                      AND tm.tree_id = pgt.tree_id
+                    WHERE tm.tree_id = pgt.tree_id
                       AND tm.user_id = u.id
                       AND tm.role NOT IN ('OWNER', 'ADMIN')
                 """),
-                {"role": new_role, "gid": group_id, "tenant_id": current_user.tenant_id},
+                {"role": new_role, "gid": group_id},
             )
         elif new_role:
             # Propagate role change to all existing (member, tree) pairs in this group
@@ -594,30 +618,27 @@ async def set_permission_group_global(
     session: SessionDep,
     request: Request,
 ) -> PermissionGroupResponse:
-    group = (await session.execute(
-        select(PermissionGroupModel).where(
-            PermissionGroupModel.id == group_id,
-            PermissionGroupModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    group = await _get_group_for_admin(session, group_id, current_user)
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
 
     if body.is_global != group.is_global:
         tree_role = _LEVEL_TO_TREE_ROLE.get(group.permission_level)
         if tree_role and body.is_global:
-            # Turning on: insert missing tree_members rows for every (tree, tenant user) pair,
-            # then upgrade existing VIEWER rows to EDITOR if this group grants EDITOR (never downgrade).
+            # Turning on: insert missing tree_members rows for every (tree, platform user)
+            # pair, stamped with each tree's own tenant (not the user's), then upgrade
+            # existing VIEWER rows to EDITOR if this group grants EDITOR (never downgrade).
             await session.execute(
                 text("""
                     INSERT INTO tree_members (tree_id, user_id, tenant_id, role, invited_by_id, joined_at)
-                    SELECT pgt.tree_id, u.id, u.tenant_id, :role, NULL, now()
+                    SELECT pgt.tree_id, u.id, ft.tenant_id, :role, NULL, now()
                     FROM permission_group_trees pgt
-                    JOIN users u ON u.tenant_id = :tenant_id
+                    JOIN family_trees ft ON ft.id = pgt.tree_id
+                    JOIN users u ON u.is_active = true
                     WHERE pgt.group_id = :gid
                     ON CONFLICT (tree_id, user_id) DO NOTHING
                 """),
-                {"gid": group_id, "tenant_id": current_user.tenant_id, "role": tree_role},
+                {"gid": group_id, "role": tree_role},
             )
             if tree_role == "EDITOR":
                 await session.execute(
@@ -626,22 +647,21 @@ async def set_permission_group_global(
                         SET role = 'EDITOR'
                         FROM permission_group_trees pgt, users u
                         WHERE pgt.group_id = :gid
-                          AND u.tenant_id = :tenant_id
+                          AND u.is_active = true
                           AND tm.tree_id = pgt.tree_id
                           AND tm.user_id = u.id
                           AND tm.role = 'VIEWER'
                     """),
-                    {"gid": group_id, "tenant_id": current_user.tenant_id},
+                    {"gid": group_id},
                 )
         elif tree_role:
-            # Turning off: revoke for tenant users who aren't explicit members of this group
-            # (explicit members keep their access, same as any other permission group).
+            # Turning off: revoke for platform users who aren't explicit members of this
+            # group (explicit members keep their access, same as any other permission group).
             await session.execute(
                 text("""
                     DELETE FROM tree_members tm
                     USING permission_group_trees pgt, users u
                     WHERE pgt.group_id = :gid
-                      AND u.tenant_id = :tenant_id
                       AND tm.tree_id = pgt.tree_id
                       AND tm.user_id = u.id
                       AND tm.role IN ('VIEWER', 'EDITOR')
@@ -650,7 +670,7 @@ async def set_permission_group_global(
                           WHERE pgm.group_id = :gid AND pgm.user_id = u.id
                       )
                 """),
-                {"gid": group_id, "tenant_id": current_user.tenant_id},
+                {"gid": group_id},
             )
         group.is_global = body.is_global
 
@@ -693,12 +713,7 @@ async def list_group_trees(
     current_user: AdminUserDep,
     session: SessionDep,
 ) -> list[GroupTreeResponse]:
-    group = (await session.execute(
-        select(PermissionGroupModel).where(
-            PermissionGroupModel.id == group_id,
-            PermissionGroupModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    group = await _get_group_for_admin(session, group_id, current_user)
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
 
@@ -736,23 +751,26 @@ async def add_group_tree(
     session: SessionDep,
     request: Request,
 ) -> GroupTreeResponse:
-    group = (await session.execute(
-        select(PermissionGroupModel).where(
-            PermissionGroupModel.id == group_id,
-            PermissionGroupModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    group = await _get_group_for_admin(session, group_id, current_user)
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
 
-    # Verify tree exists and admin has access to it
-    tree_row = (await session.execute(
-        text("SELECT id, name FROM family_trees WHERE id = :tid AND tenant_id = :tenant AND is_deleted = false LIMIT 1"),
-        {"tid": body.tree_id, "tenant": current_user.tenant_id},
-    )).first()
+    # Verify tree exists. A Super Admin can attach a tree from any namespace
+    # (needed to build a platform-wide global group); a regular tenant Admin
+    # is still limited to their own tenant's trees.
+    if current_user.app_role == AppRole.SUPER_ADMIN:
+        tree_row = (await session.execute(
+            text("SELECT id, name, tenant_id FROM family_trees WHERE id = :tid AND is_deleted = false LIMIT 1"),
+            {"tid": body.tree_id},
+        )).first()
+    else:
+        tree_row = (await session.execute(
+            text("SELECT id, name, tenant_id FROM family_trees WHERE id = :tid AND tenant_id = :tenant AND is_deleted = false LIMIT 1"),
+            {"tid": body.tree_id, "tenant": current_user.tenant_id},
+        )).first()
     if tree_row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tree not found")
-    if current_user.app_role != AppRole.AUDITOR:
+    if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
         member_check = (await session.execute(
             text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
             {"tid": body.tree_id, "uid": current_user.id},
@@ -777,16 +795,16 @@ async def add_group_tree(
     )
     session.add(entry)
 
-    # Grant access to all existing recipients (tenant-wide if the group is global)
+    # Grant access to all existing recipients (platform-wide if the group is global)
     tree_role = _LEVEL_TO_TREE_ROLE.get(group.permission_level)
     if tree_role:
-        user_ids = await _get_group_recipient_ids(session, group_id, current_user.tenant_id, group.is_global)
+        user_ids = await _get_group_recipient_ids(session, group_id, group.is_global)
         for uid in user_ids:
             await _grant_tree_access(
                 session,
                 tree_id=body.tree_id,
                 user_id=uid,
-                tenant_id=current_user.tenant_id,
+                tenant_id=tree_row.tenant_id,
                 role=tree_role,
                 granted_by=current_user.id,
             )
@@ -818,12 +836,7 @@ async def remove_group_tree(
     session: SessionDep,
     request: Request,
 ) -> None:
-    group = (await session.execute(
-        select(PermissionGroupModel).where(
-            PermissionGroupModel.id == group_id,
-            PermissionGroupModel.tenant_id == current_user.tenant_id,
-        )
-    )).scalars().first()
+    group = await _get_group_for_admin(session, group_id, current_user)
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Permission group not found")
 
@@ -843,8 +856,8 @@ async def remove_group_tree(
 
     await session.delete(entry)
 
-    # Revoke access for all recipients on this tree (tenant-wide if the group is global)
-    user_ids = await _get_group_recipient_ids(session, group_id, current_user.tenant_id, group.is_global)
+    # Revoke access for all recipients on this tree (platform-wide if the group is global)
+    user_ids = await _get_group_recipient_ids(session, group_id, group.is_global)
     for uid in user_ids:
         await _revoke_tree_access(session, tree_id=tree_id, user_id=uid)
 
@@ -1214,27 +1227,52 @@ async def remove_group_user_group(
 # ── Helper endpoint — list trees in tenant (for assignment modal) ──────────────
 
 @router.get("/trees", response_model=TenantTreesResponse,
-            summary="List trees in the tenant, paginated and searchable (for assignment dropdowns)")
+            summary="List trees, paginated and searchable (for assignment dropdowns)")
 async def list_tenant_trees(
     current_user: AdminUserDep,
     session: SessionDep,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None, max_length=200),
+    all_namespaces: bool = Query(False, description="Super Admin only: list trees across every namespace, not just the caller's own tenant"),
 ) -> TenantTreesResponse:
     search_clause = "AND ft.name ILIKE :pattern" if search else ""
     params: dict = {"tid": current_user.tenant_id}
     if search:
         params["pattern"] = f"%{search}%"
 
-    if current_user.app_role == AppRole.AUDITOR:
+    if all_namespaces and current_user.app_role == AppRole.SUPER_ADMIN:
+        # Cross-namespace picker for the Global Trees admin panel — every
+        # tree on the platform, labeled by its owning namespace, so a Super
+        # Admin can tell trees from different organisations apart.
+        count_row = (await session.execute(
+            text(f"SELECT COUNT(*) FROM family_trees ft WHERE ft.is_deleted = false {search_clause}"),
+            params,
+        )).scalar_one()
+        rows = (await session.execute(
+            text(f"""
+                SELECT ft.id, ft.name, t.id AS namespace_id, t.name AS namespace_name
+                FROM family_trees ft
+                JOIN tenants t ON t.id = ft.tenant_id
+                WHERE ft.is_deleted = false {search_clause}
+                ORDER BY t.name, ft.name
+                LIMIT :limit OFFSET :offset
+            """),
+            {**params, "limit": page_size, "offset": (page - 1) * page_size},
+        )).fetchall()
+    elif current_user.app_role in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
+        # Auditor and Super Admin need the full tenant catalog — not just trees
+        # they personally belong to — since this list backs tenant-wide admin
+        # actions (assigning trees to permission groups, marking a tree global).
         count_row = (await session.execute(
             text(f"SELECT COUNT(*) FROM family_trees ft WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}"),
             params,
         )).scalar_one()
         rows = (await session.execute(
             text(f"""
-                SELECT ft.id, ft.name FROM family_trees ft
+                SELECT ft.id, ft.name, t.id AS namespace_id, t.name AS namespace_name
+                FROM family_trees ft
+                JOIN tenants t ON t.id = ft.tenant_id
                 WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}
                 ORDER BY ft.name
                 LIMIT :limit OFFSET :offset
@@ -1254,8 +1292,10 @@ async def list_tenant_trees(
         )).scalar_one()
         rows = (await session.execute(
             text(f"""
-                SELECT ft.id, ft.name FROM family_trees ft
+                SELECT ft.id, ft.name, t.id AS namespace_id, t.name AS namespace_name
+                FROM family_trees ft
                 JOIN tree_members tm ON tm.tree_id = ft.id AND tm.user_id = :user_id
+                JOIN tenants t ON t.id = ft.tenant_id
                 WHERE ft.tenant_id = :tid AND ft.is_deleted = false {search_clause}
                 ORDER BY ft.name
                 LIMIT :limit OFFSET :offset
@@ -1266,7 +1306,10 @@ async def list_tenant_trees(
     import math
     return TenantTreesResponse(
         total=count_row,
-        items=[TenantTreeResponse(id=r.id, name=r.name) for r in rows],
+        items=[
+            TenantTreeResponse(id=r.id, name=r.name, namespace_id=r.namespace_id, namespace_name=r.namespace_name)
+            for r in rows
+        ],
         page=page,
         page_size=page_size,
         total_pages=max(1, math.ceil(count_row / page_size)),

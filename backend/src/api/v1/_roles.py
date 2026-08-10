@@ -17,6 +17,28 @@ from src.api.deps import SessionDep, VerifiedUserDep
 from src.domain.collaboration.entities import AppRole, TreeRole
 from src.infrastructure.database.models.user import UserModel
 
+
+async def resolve_tree_tenant_id(session: AsyncSession, tree_id: uuid.UUID) -> uuid.UUID:
+    """The tree's own owning tenant — use this (not current_user.tenant_id) to
+    scope any tenant_id-filtered query once tree_id/membership access is
+    already established. The two coincide for a same-tenant member; for a
+    cross-tenant member of a globally-shared tree they differ, and the
+    tree's own tenant is always the correct one to stamp/filter data with
+    (see discovery.py's existing cross-tenant tree_members precedent, and
+    global_access.py's grant_global_tree_access). Call this once per request
+    and thread the result through — it's a cheap indexed PK lookup, but
+    there's no reason to repeat it within one endpoint.
+    """
+    from sqlalchemy import text
+
+    row = (await session.execute(
+        text("SELECT tenant_id FROM family_trees WHERE id = :tid AND is_deleted = false"),
+        {"tid": tree_id},
+    )).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tree not found")
+    return row.tenant_id
+
 # Registry of sections with a visibility-rule dimension. Only one exists
 # today; a future section (Relationships, Gallery, ...) just needs a new
 # key here and a check at its call site — no schema change required.

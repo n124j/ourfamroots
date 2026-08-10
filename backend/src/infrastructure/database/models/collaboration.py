@@ -140,6 +140,42 @@ class TreePinModel(Base):
         return f"<TreePinModel user={self.user_id} tree={self.tree_id}>"
 
 
+class TreeHideModel(Base):
+    """A globally-shared tree hidden from the Dashboard by a specific user."""
+
+    __tablename__ = "tree_hides"
+    __table_args__ = (
+        UniqueConstraint("user_id", "tree_id", name="uq_tree_hide_user_tree"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tree_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("family_trees.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    hidden_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    def __repr__(self) -> str:
+        return f"<TreeHideModel user={self.user_id} tree={self.tree_id}>"
+
+
 class InvitationModel(Base, TimestampMixin):
     """A pending invitation email to join a family tree."""
 

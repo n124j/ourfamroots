@@ -60,6 +60,7 @@ const ACTION_OPTIONS = [
   { value: 'ADMIN_DEACTIVATE', label: 'Admin: deactivate user' },
   { value: 'ADMIN_ACTIVATE', label: 'Admin: activate user' },
   { value: 'ADMIN_UPDATE', label: 'Admin: update user' },
+  { value: 'ADMIN_ROLE_CHANGE', label: 'Admin: change user role' },
   { value: 'ADMIN_DELETE', label: 'Admin: delete user permanently' },
   // Admin — permission groups
   { value: 'PG_CREATE', label: 'Permission group: create' },
@@ -85,10 +86,12 @@ const ACTION_OPTIONS = [
   // Namespace management
   { value: 'NS_CREATE', label: 'Namespace: create' },
   { value: 'NS_UPDATE', label: 'Namespace: update' },
+  { value: 'NS_DELETE', label: 'Namespace: delete' },
   { value: 'NS_INVITE', label: 'Namespace: invite user' },
   { value: 'NS_INVITE_ACCEPT', label: 'Namespace: invite accepted' },
   { value: 'NS_INVITE_REVOKE', label: 'Namespace: invite revoked' },
   // Tree content
+  { value: 'CREATE_TREE', label: 'Create tree' },
   { value: 'CREATE_PERSON', label: 'Create person' },
   { value: 'UPDATE_PERSON', label: 'Update person' },
   { value: 'DELETE_PERSON', label: 'Delete person' },
@@ -96,6 +99,7 @@ const ACTION_OPTIONS = [
   { value: 'REMOVE_RELATIONSHIP', label: 'Remove relationship' },
   { value: 'INVITE_MEMBER', label: 'Invite member' },
   { value: 'REMOVE_MEMBER', label: 'Remove member' },
+  { value: 'REVOKE_INVITATION', label: 'Revoke invitation' },
   { value: 'UPDATE_TREE', label: 'Update tree' },
   { value: 'DELETE_TREE', label: 'Delete tree' },
   { value: 'UPLOAD_MEDIA', label: 'Upload media' },
@@ -122,6 +126,7 @@ const ADMIN_ACTION_LABELS: Record<string, string> = {
   ADMIN_DEACTIVATE: 'Deactivated user',
   ADMIN_ACTIVATE:   'Activated user',
   ADMIN_UPDATE:     'Updated user',
+  ADMIN_ROLE_CHANGE: 'Changed user role',
   ADMIN_DELETE:     'Permanently deleted user',
   PG_CREATE:        'Created permission group',
   PG_UPDATE:        'Updated permission group',
@@ -141,6 +146,9 @@ const ADMIN_ACTION_LABELS: Record<string, string> = {
   SUB_REMOVE_MEMBER: 'Removed member from subscription',
   BROADCAST_SEND:   'Sent broadcast email',
   BROADCAST_DEL:    'Deleted broadcast log',
+  NS_CREATE:        'Created namespace',
+  NS_UPDATE:        'Updated namespace',
+  NS_DELETE:        'Deleted namespace',
 };
 
 function actionBadge(action: string): string {

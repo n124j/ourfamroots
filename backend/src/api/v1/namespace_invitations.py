@@ -283,7 +283,7 @@ async def accept_namespace_invitation(
             TreeMemberModel.tenant_id == old_tenant_id,
         )
     )
-    await grant_global_tree_access(session, invitation.tenant_id, current_user.id)
+    await grant_global_tree_access(session, current_user.id)
 
     invitation.status = InvitationStatus.ACCEPTED.value
     invitation.accepted_at = datetime.now(timezone.utc)

@@ -56,15 +56,15 @@ def send_expiry_reminders() -> dict:
         """), {"window_hours": REMINDER_WINDOW_HOURS}).fetchall()
 
         for sub in subs:
-            # A default subscription entitles every user in the tenant (see
-            # get_my_filters), not just those with an explicit membership row.
+            # A default subscription entitles every user on the platform, across
+            # every namespace (see get_my_filters), not just those with an
+            # explicit membership row.
             if sub.is_default:
                 members = conn.execute(text("""
                     SELECT u.email,
                            COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS display_name
                     FROM users u
-                    WHERE u.tenant_id = :tid
-                """), {"tid": sub.tenant_id}).fetchall()
+                """)).fetchall()
             else:
                 members = conn.execute(text("""
                     SELECT u.email,

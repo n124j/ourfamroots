@@ -139,6 +139,7 @@ def _build_query(
     limit: int,
     offset: int,
     count_only: bool = False,
+    hide_super_admin: bool = False,
 ) -> tuple[str, dict]:
     params: dict = {}
 
@@ -149,6 +150,11 @@ def _build_query(
         params["tenant_id"] = tenant_id
         audit_where += " AND al.tenant_id = :tenant_id"
         login_where += " AND le.tenant_id = :tenant_id"
+
+    if hide_super_admin:
+        # IS DISTINCT FROM (not !=) keeps rows whose actor join is NULL (e.g. deleted user)
+        audit_where += " AND au.app_role IS DISTINCT FROM 'SUPER_ADMIN'"
+        login_where += " AND au.app_role IS DISTINCT FROM 'SUPER_ADMIN'"
 
     if search:
         params["search"] = f"%{search}%"
@@ -226,14 +232,15 @@ async def list_activity(
     is_global = _is_global(current_user)
     tenant_filter = (namespace_id if is_global else current_user.tenant_id)
     viewer_is_super_admin = current_user.app_role == AppRole.SUPER_ADMIN
+    hide_super_admin = current_user.app_role == AppRole.ADMIN
 
     offset = (page - 1) * page_size
 
-    count_sql, count_params = _build_query(tenant_filter, search, action, entity_type, sort, page_size, offset, count_only=True)
+    count_sql, count_params = _build_query(tenant_filter, search, action, entity_type, sort, page_size, offset, count_only=True, hide_super_admin=hide_super_admin)
     total_row = (await session.execute(text(count_sql), count_params)).first()
     total = int(total_row.total) if total_row else 0
 
-    data_sql, data_params = _build_query(tenant_filter, search, action, entity_type, sort, page_size, offset)
+    data_sql, data_params = _build_query(tenant_filter, search, action, entity_type, sort, page_size, offset, hide_super_admin=hide_super_admin)
     rows = (await session.execute(text(data_sql), data_params)).fetchall()
 
     items = []
@@ -281,8 +288,9 @@ async def export_activity(
     is_global = _is_global(current_user)
     tenant_filter = (namespace_id if is_global else current_user.tenant_id)
     viewer_is_super_admin = current_user.app_role == AppRole.SUPER_ADMIN
+    hide_super_admin = current_user.app_role == AppRole.ADMIN
 
-    data_sql, data_params = _build_query(tenant_filter, search, action, entity_type, sort, limit=10000, offset=0)
+    data_sql, data_params = _build_query(tenant_filter, search, action, entity_type, sort, limit=10000, offset=0, hide_super_admin=hide_super_admin)
     rows = (await session.execute(text(data_sql), data_params)).fetchall()
 
     output = io.StringIO()

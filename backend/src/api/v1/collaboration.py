@@ -179,6 +179,21 @@ async def create_tree(
         VALUES (:id, :tree_id, :user_id, :tenant_id, 'OWNER', NOW())
     """), {"id": uuid.uuid4(), "tree_id": tree_id, "user_id": current_user.id, "tenant_id": current_user.tenant_id})
 
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_name,
+            action=Action.CREATE_TREE,
+            entity_type=AuditEntityType.TREE,
+            entity_id=tree_id,
+            entity_display_name=body.name,
+        )
+    )
+
     return TreeSummaryResponse(
         id=tree_id,
         name=body.name,
@@ -398,6 +413,20 @@ async def upload_tree_photo(
     if result.first() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tree not found")
 
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_name,
+            action=Action.UPDATE_PHOTO,
+            entity_type=AuditEntityType.TREE,
+            entity_id=tree_id,
+        )
+    )
+
     await uow._session.commit()
     return {"cover_image_url": photo_url}
 
@@ -429,6 +458,21 @@ async def delete_tree_photo(
         text("UPDATE family_trees SET cover_image_url = NULL WHERE id = :tid AND tenant_id = :tenant AND is_deleted = false"),
         {"tid": tree_id, "tenant": current_user.tenant_id},
     )
+
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_name,
+            action=Action.DELETE_MEDIA,
+            entity_type=AuditEntityType.TREE,
+            entity_id=tree_id,
+        )
+    )
+
     await uow._session.commit()
 
 
@@ -452,7 +496,13 @@ async def update_link_sharing(
     from sqlalchemy import text
 
     member_row = (await uow._session.execute(
-        text("SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
+        text("""
+            SELECT tm.role, ft.link_sharing
+            FROM tree_members tm
+            JOIN family_trees ft ON ft.id = tm.tree_id
+            WHERE tm.tree_id = :tid AND tm.user_id = :uid
+            LIMIT 1
+        """),
         {"tid": tree_id, "uid": current_user.id},
     )).first()
     if member_row is None:
@@ -483,6 +533,24 @@ async def update_link_sharing(
     )).first()
 
     effective_role = TreeRole(member_row.role)
+
+    if body.link_sharing != member_row.link_sharing:
+        from src.infrastructure.repositories.collaboration import AuditLogRepository
+        actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+        await AuditLogRepository(uow._session).append(
+            AuditEntry.create(
+                tree_id=tree_id,
+                tenant_id=current_user.tenant_id,
+                actor_id=current_user.id,
+                actor_display_name=actor_name,
+                action=Action.UPDATE_TREE,
+                entity_type=AuditEntityType.TREE,
+                entity_id=tree_id,
+                entity_display_name=row.name,
+                before={"link_sharing": member_row.link_sharing},
+                after={"link_sharing": body.link_sharing},
+            )
+        )
 
     await uow._session.commit()
     return TreeSummaryResponse(
@@ -1231,7 +1299,9 @@ async def list_my_trees(
                 ) AS is_globally_shared
             FROM family_trees ft
             LEFT JOIN tree_pins tp ON tp.tree_id = ft.id AND tp.user_id = :user_id
+            LEFT JOIN tree_hides th ON th.tree_id = ft.id AND th.user_id = :user_id
             WHERE ft.is_deleted = false
+              AND th.id IS NULL
             ORDER BY ft.created_at DESC
         """)
         result = await uow._session.execute(q, {"user_id": current_user.id})
@@ -1278,8 +1348,10 @@ async def list_my_trees(
         FROM family_trees ft
         JOIN tree_members tm ON tm.tree_id = ft.id
         LEFT JOIN tree_pins tp ON tp.tree_id = ft.id AND tp.user_id = :user_id
+        LEFT JOIN tree_hides th ON th.tree_id = ft.id AND th.user_id = :user_id
         WHERE tm.user_id = :user_id
           AND ft.is_deleted = false
+          AND th.id IS NULL
         ORDER BY ft.created_at DESC
     """)
     result = await uow._session.execute(q, {"user_id": current_user.id})
@@ -1346,6 +1418,119 @@ async def unpin_tree(
     """), {"tid": tree_id, "uid": current_user.id})
     await uow.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Hidden global trees (per-user Dashboard declutter) ──────────────────────────
+
+class HiddenTreeResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    cover_emoji: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    hidden_at: str
+
+
+class HiddenTreesResponse(BaseModel):
+    total: int
+    items: list[HiddenTreeResponse]
+    page: int
+    page_size: int
+    total_pages: int
+
+
+@router.post("/trees/{tree_id}/hide", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
+             response_class=Response, summary="Hide a globally-shared tree from the Dashboard")
+async def hide_tree(
+    tree_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    uow: UoWDep,
+) -> Response:
+    from sqlalchemy import text
+
+    if current_user.app_role != AppRole.AUDITOR:
+        member_row = (await uow._session.execute(
+            text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
+            {"tid": tree_id, "uid": current_user.id},
+        )).first()
+        if not member_row:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not a member of this tree")
+
+    is_global_row = (await uow._session.execute(
+        text("""
+            SELECT 1 FROM permission_group_trees pgt
+            JOIN permission_groups pg ON pg.id = pgt.group_id
+            WHERE pgt.tree_id = :tid AND pg.is_global = true
+            LIMIT 1
+        """),
+        {"tid": tree_id},
+    )).first()
+    if not is_global_row:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a globally-shared tree can be hidden")
+
+    await uow._session.execute(text("""
+        INSERT INTO tree_hides (tree_id, user_id, tenant_id)
+        VALUES (:tid, :uid, :tenant)
+        ON CONFLICT (user_id, tree_id) DO NOTHING
+    """), {"tid": tree_id, "uid": current_user.id, "tenant": current_user.tenant_id})
+    await uow.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/trees/{tree_id}/hide", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
+               response_class=Response, summary="Unhide a tree, restoring it to the Dashboard")
+async def unhide_tree(
+    tree_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    uow: UoWDep,
+) -> Response:
+    from sqlalchemy import text
+
+    await uow._session.execute(text("""
+        DELETE FROM tree_hides WHERE tree_id = :tid AND user_id = :uid
+    """), {"tid": tree_id, "uid": current_user.id})
+    await uow.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/trees/hidden", response_model=HiddenTreesResponse,
+            summary="List trees the current user has hidden from their Dashboard")
+async def list_hidden_trees(
+    current_user: CurrentUserDep,
+    uow: UoWDep,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> HiddenTreesResponse:
+    from sqlalchemy import text
+    import math
+
+    total = (await uow._session.execute(
+        text("SELECT COUNT(*) FROM tree_hides th JOIN family_trees ft ON ft.id = th.tree_id WHERE th.user_id = :uid AND ft.is_deleted = false"),
+        {"uid": current_user.id},
+    )).scalar_one()
+
+    rows = (await uow._session.execute(
+        text("""
+            SELECT ft.id, ft.name, ft.cover_emoji, ft.cover_image_url, th.hidden_at
+            FROM tree_hides th
+            JOIN family_trees ft ON ft.id = th.tree_id
+            WHERE th.user_id = :uid AND ft.is_deleted = false
+            ORDER BY th.hidden_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"uid": current_user.id, "limit": page_size, "offset": (page - 1) * page_size},
+    )).fetchall()
+
+    return HiddenTreesResponse(
+        total=total,
+        items=[
+            HiddenTreeResponse(
+                id=r.id, name=r.name, cover_emoji=r.cover_emoji, cover_image_url=r.cover_image_url,
+                hidden_at=r.hidden_at.isoformat(),
+            )
+            for r in rows
+        ],
+        page=page, page_size=page_size, total_pages=max(1, math.ceil(total / page_size)),
+    )
 
 
 # ── Tree graph ─────────────────────────────────────────────────────────────────
@@ -2215,7 +2400,7 @@ async def auto_merge_trees(
         )).first()
         if row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Tree {tree_id} not found")
-        if current_user.app_role != AppRole.AUDITOR:
+        if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
             member_row = (await uow._session.execute(
                 text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
                 {"tid": tree_id, "uid": current_user.id},
@@ -2591,7 +2776,7 @@ async def merge_trees(
         )).first()
         if tree_row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Tree {src.tree_id} not found")
-        if current_user.app_role != AppRole.AUDITOR:
+        if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
             member_row = (await uow._session.execute(
                 text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
                 {"tid": src.tree_id, "uid": current_user.id},
@@ -2765,6 +2950,21 @@ async def add_member_direct(
     actor_display = (
         SUPER_ADMIN_DISPLAY_LABEL if current_user.app_role == AppRole.SUPER_ADMIN
         else f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    )
+
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_display,
+            action=Action.INVITE_MEMBER,
+            entity_type=AuditEntityType.MEMBER,
+            entity_id=body.user_id,
+            entity_display_name=display_name,
+            after={"role": body.role.value},
+        )
     )
 
     # Create in-app notification for the added user
@@ -3049,6 +3249,7 @@ async def accept_invitation(
     membership = await svc.accept_invitation(
         token=body.token,
         accepting_user_id=current_user.id,
+        actor_name=f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email,
         ip_address=request.client.host if request.client else None,
     )
     return MemberResponse.from_domain(membership)

@@ -77,5 +77,5 @@ class SqlAlchemyUserRepository(
         return await self._first(stmt)
 
     async def grant_global_tree_access(self, user: UserModel) -> None:
-        """Grant tree_members access for every tree under the tenant's global permission groups."""
-        await grant_global_tree_access(self._session, user.tenant_id, user.id)
+        """Grant tree_members access for every tree under a platform-wide global permission group."""
+        await grant_global_tree_access(self._session, user.id)

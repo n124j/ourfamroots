@@ -21,6 +21,7 @@ interface TreeSummary {
   share_token: string | null;
   is_pinned: boolean;
   is_searchable: boolean;
+  is_globally_shared: boolean;
 }
 
 const TREE_COVER_PRESETS = ['🌳','🌲','🌴','🌿','🌸','🏡','📜','⛩️','🎋','🧬','🗺️','📖'];
@@ -81,6 +82,7 @@ interface TreeCardProps {
   onDelete: (tree: TreeSummary) => void;
   onShare: (tree: TreeSummary) => void;
   onTogglePin: (tree: TreeSummary) => void;
+  onHide: (tree: TreeSummary) => void;
 }
 
 const PinIcon = ({ filled }: { filled: boolean }) => (
@@ -89,7 +91,15 @@ const PinIcon = ({ filled }: { filled: boolean }) => (
   </svg>
 );
 
-function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin }: TreeCardProps) {
+const HideIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z" />
+    <circle cx="8" cy="8" r="1.8" />
+    <line x1="2" y1="14" x2="14" y2="2" />
+  </svg>
+);
+
+function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide }: TreeCardProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -122,6 +132,15 @@ function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin }: TreeCardProp
       >
         <PinIcon filled={tree.is_pinned} />
       </button>
+      {tree.is_globally_shared && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onHide(tree); }}
+          title="Hide from Dashboard"
+          className="absolute top-2 right-2 z-10 w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 transition-colors"
+        >
+          <HideIcon />
+        </button>
+      )}
       <Link to={`/trees/${tree.id}`} className="block p-6">
         <div className="flex items-start justify-between mb-4">
           {tree.cover_image_url ? (
@@ -481,6 +500,21 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleHideTree(tree: TreeSummary) {
+    const prevTrees = trees;
+    setTrees((prev) => prev.filter((t) => t.id !== tree.id));
+    try {
+      const res = await fetch(`${API_BASE}/trees/${tree.id}/hide`, {
+        method: 'POST',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to hide tree');
+    } catch {
+      setTrees(prevTrees);
+    }
+  }
+
   async function handleDeleteTree() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -610,7 +644,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
         {visibleTrees.map((tree) => (
-          <TreeCard key={tree.id} tree={tree} onEdit={openEdit} onDelete={setDeleteTarget} onShare={setShareTarget} onTogglePin={handleTogglePin} />
+          <TreeCard key={tree.id} tree={tree} onEdit={openEdit} onDelete={setDeleteTarget} onShare={setShareTarget} onTogglePin={handleTogglePin} onHide={handleHideTree} />
         ))}
       </div>
 

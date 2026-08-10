@@ -19,6 +19,7 @@ backend/celerybeat-schedule
 certbot/
 .env.stg
 *.csv
+*.txt
 *.docx
 *.sql
 FamilyRoots_FrontendArchitecture_v1.0.md

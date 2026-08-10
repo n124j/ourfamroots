@@ -222,6 +222,7 @@ class CollaborationService:
         self,
         token: str,
         accepting_user_id: uuid.UUID,
+        actor_name: str = "",
         ip_address: Optional[str] = None,
     ) -> TreeMembership:
         inv = await self._invitations.get_by_token(token)
@@ -257,7 +258,7 @@ class CollaborationService:
                 tree_id=inv.tree_id,
                 tenant_id=inv.tenant_id,
                 actor_id=accepting_user_id,
-                actor_display_name="",   # caller should fill this
+                actor_display_name=actor_name,
                 action=Action.INVITE_MEMBER,
                 entity_type=AuditEntityType.MEMBER,
                 entity_id=accepting_user_id,
@@ -283,6 +284,19 @@ class CollaborationService:
         if inv.status != InvitationStatus.PENDING:
             raise InvitationAlreadyUsedError(inv.status.value)
         await self._invitations.update_status(inv.id, InvitationStatus.REVOKED)
+
+        await self._audit.append(
+            AuditEntry.create(
+                tree_id=tree_id,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                actor_display_name=actor_name,
+                action=Action.REVOKE_INVITATION,
+                entity_type=AuditEntityType.INVITATION,
+                entity_id=inv.id,
+                entity_display_name=inv.invitee_email,
+            )
+        )
 
     # ── Audit log ──────────────────────────────────────────────────────────────
 

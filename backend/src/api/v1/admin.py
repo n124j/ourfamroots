@@ -161,7 +161,7 @@ async def create_user(
     await session.commit()  # commit before returning so fetchUsers sees the row immediately
     await session.refresh(user)
 
-    await grant_global_tree_access(session, target_tenant_id, user.id)
+    await grant_global_tree_access(session, user.id)
     await session.commit()
 
     # Send activation email
@@ -196,6 +196,7 @@ async def list_users(
     app_role: Optional[str] = Query(None),
     verified: Optional[bool] = Query(None),
     namespace_id: Optional[uuid.UUID] = Query(None, description="Super Admin only: filter to one namespace"),
+    exclude_super_admin: bool = Query(False, description="Omit the Super Admin account — used by 'pick a user to add' pickers, since Super Admin already has full access everywhere and shouldn't be granted membership anywhere"),
     sort: str = Query("created_at_desc", pattern="^(created_at_desc|created_at_asc|name_asc|email_asc|last_login_desc)$"),
 ) -> AdminUsersResponse:
     import math
@@ -211,6 +212,8 @@ async def list_users(
         base = base.where(UserModel.app_role != AppRole.SUPER_ADMIN.value)
     elif namespace_id is not None:
         base = base.where(UserModel.tenant_id == namespace_id)
+    if exclude_super_admin and is_super_admin:
+        base = base.where(UserModel.app_role != AppRole.SUPER_ADMIN.value)
 
     if search:
         pattern = f"%{search}%"
@@ -284,6 +287,8 @@ async def update_user(
     if body.app_role == "SUPER_ADMIN" and current_user.app_role != AppRole.SUPER_ADMIN:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Super Administrator can grant Super Admin access")
 
+    old_role = user.app_role
+
     if body.given_name is not None:
         user.given_name = body.given_name or None
     if body.family_name is not None:
@@ -292,6 +297,8 @@ async def update_user(
         user.app_role = body.app_role
     if body.is_active is not None:
         user.is_active = body.is_active
+
+    role_changed = body.app_role is not None and body.app_role != old_role
 
     verification_changed: bool | None = None  # True=verified, False=unverified
     if body.email_verified is not None and body.email_verified != user.email_verified:
@@ -319,7 +326,12 @@ async def update_user(
         event = "ADMIN_ACTIVATE" if body.is_active else "ADMIN_DEACTIVATE"
         await log_admin_action(session, user.tenant_id, current_user.id,
                                 current_user.full_name, event, user_email, _admin_ip(request))
-    if verification_changed is None and body.is_active is None:
+    if role_changed:
+        await log_admin_action(session, user.tenant_id, current_user.id,
+                                current_user.full_name, "ADMIN_ROLE_CHANGE",
+                                f"{user_email}: {_role_label(old_role)} → {_role_label(user.app_role)}",
+                                _admin_ip(request))
+    if verification_changed is None and body.is_active is None and not role_changed:
         await log_admin_action(session, user.tenant_id, current_user.id,
                                 current_user.full_name, "ADMIN_UPDATE", user_email, _admin_ip(request))
 
@@ -441,6 +453,10 @@ def _admin_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def _role_label(role: str) -> str:
+    return role.replace("_", " ").title()
+
+
 async def _send_account_deactivated_email(email: str, display_name: str) -> None:
     try:
         from src.infrastructure.email.service import account_deactivated_email, send_email
@@ -482,19 +498,21 @@ async def list_tree_persons_admin(
     session: SessionDep,
 ) -> list[dict]:
     from sqlalchemy import text
-    if current_user.app_role != AppRole.AUDITOR:
+    from src.api.v1._roles import resolve_tree_tenant_id
+    if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
         member_row = (await session.execute(
             text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
             {"tid": tree_id, "uid": current_user.id},
         )).first()
         if not member_row:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not a member of this tree")
+    tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
     rows = (await session.execute(text("""
         SELECT id, display_given_name, display_surname, photo_url, birth_year, sex
         FROM persons
         WHERE tree_id = :tid AND tenant_id = :tenant AND is_deleted = false
         ORDER BY display_surname, display_given_name
-    """), {"tid": tree_id, "tenant": current_user.tenant_id})).fetchall()
+    """), {"tid": tree_id, "tenant": tree_tenant_id})).fetchall()
     from src.api.v1._s3 import presign_photo
     return [
         {

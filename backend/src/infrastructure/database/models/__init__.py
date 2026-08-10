@@ -7,6 +7,7 @@ from src.infrastructure.database.models.collaboration import (
     FamilyTreeModel,
     TreeMemberModel,
     TreePinModel,
+    TreeHideModel,
 )
 from src.infrastructure.database.models.person import (
     PersonModel,
@@ -42,6 +43,7 @@ __all__ = [
     "FamilyTreeModel",
     "TreeMemberModel",
     "TreePinModel",
+    "TreeHideModel",
     "PersonModel",
     "FamilyGroupModel",
     "FamilyGroupMemberModel",

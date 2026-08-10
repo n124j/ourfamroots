@@ -37,9 +37,10 @@ class SubscriptionModel(Base, TimestampMixin):
     # Set once the expiry-reminder email has gone out, so the periodic task
     # doesn't re-send it every tick. Reset to NULL whenever expires_at changes.
     reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # When true, every user in the tenant is entitled to this subscription's
-    # filters automatically — no subscription_members row needed, and it
-    # covers users who sign up afterward too. See get_my_filters.
+    # When true, every user on the platform — across every namespace, not
+    # just this subscription's own tenant — is entitled to this
+    # subscription's filters automatically. No subscription_members row
+    # needed, and it covers users who sign up afterward too. See get_my_filters.
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     __table_args__ = (

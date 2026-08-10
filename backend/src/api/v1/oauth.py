@@ -121,7 +121,7 @@ async def oauth_callback(
             # must immediately see every tree attached to an is_global permission
             # group, same as email/password and admin-created signups.
             if is_new_user:
-                await grant_global_tree_access(uow._session, user.tenant_id, user.id)
+                await grant_global_tree_access(uow._session, user.id)
 
             # 2. Upsert OAuth connection record
             result = await uow._session.execute(

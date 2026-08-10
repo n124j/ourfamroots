@@ -12,6 +12,7 @@ LOGIN_EVENT_TYPES = frozenset({
     # User management
     "ADMIN_CREATE", "ADMIN_VERIFY", "ADMIN_UNVERIFY",
     "ADMIN_DEACTIVATE", "ADMIN_ACTIVATE", "ADMIN_UPDATE", "ADMIN_DELETE",
+    "ADMIN_ROLE_CHANGE",
     # Permission group management
     "PG_CREATE", "PG_UPDATE", "PG_DELETE",
     "PG_ADD_TREE", "PG_REMOVE_TREE",
@@ -28,7 +29,7 @@ LOGIN_EVENT_TYPES = frozenset({
     # Broadcast
     "BROADCAST_SEND", "BROADCAST_DEL",
     # Namespace management
-    "NS_CREATE", "NS_UPDATE",
+    "NS_CREATE", "NS_UPDATE", "NS_DELETE",
     "NS_INVITE", "NS_INVITE_ACCEPT", "NS_INVITE_REVOKE",
 })
 

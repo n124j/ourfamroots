@@ -104,7 +104,17 @@ const en = {
       security: 'Security',
       appearance: 'Appearance',
       notifications: 'Notifications',
+      hiddenTrees: 'Hidden Trees',
       language: 'Language',
+    },
+
+    // Hidden trees tab
+    hiddenTrees: {
+      desc: 'Global trees you’ve hidden from your Dashboard. Unhide one to bring it back.',
+      empty: 'No hidden trees.',
+      hiddenOn: 'Hidden on {{date}}',
+      unhide: 'Unhide',
+      unhiding: 'Unhiding…',
     },
 
     // Profile tab
@@ -998,6 +1008,10 @@ const en = {
     membersLabel: 'Members',
     addTree: 'Add tree',
     addMember: 'Add member',
+    addAllUsers: 'Add all users',
+    addingAllUsers: 'Adding…',
+    confirm: 'Confirm',
+    confirmAddAllUsers: 'Add every user who isn’t already a member of this group?',
     // Merge
     mergeTreesTitle: 'Merge Trees',
     sourceTree: 'Source tree',
@@ -1055,7 +1069,7 @@ const en = {
     // Permission groups
     permGroupsDesc: 'Define access templates and assign them to users for specific trees.',
     // Global trees
-    globalTreesDesc: 'Make trees visible to every member of the organisation — current members get access immediately, and every future signup is enrolled automatically.',
+    globalTreesDesc: 'Make trees visible to every user on the platform, across every namespace — current users get access immediately, and every future signup is enrolled automatically.',
     selectTreesGlobal: 'Select trees to make global',
     selectPermissionGroup: 'Permission group',
     selectGroup: 'Select a group…',
@@ -1116,7 +1130,7 @@ const en = {
     subscriptionNamePlaceholder: 'e.g. Premium Family Plan…',
     defaultForAllUsers: 'Default for all users',
     subscriptionDefaultCheckbox: 'Make this the default for all users',
-    subscriptionDefaultHint: 'Every user gets this subscription’s filters automatically, including anyone who signs up later. No need to add members individually.',
+    subscriptionDefaultHint: 'Every user on the platform gets this subscription’s filters automatically, across every namespace, including anyone who signs up later. No need to add members individually.',
     subscriptionDefaultMembersHint: 'This subscription is default for all users — its filters already apply to everyone. Members added below get no additional access.',
     subscriptionExpiresCheckbox: 'This subscription expires (promotional / time-limited)',
     onSpecificDate: 'On a specific date',

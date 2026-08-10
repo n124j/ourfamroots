@@ -12,6 +12,7 @@ import { MemberChips } from '@shared/components/MemberChips';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const PAGE_SIZE = 25;
+const NAMESPACES_PAGE_SIZE = 20;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,14 @@ interface UsersResponse {
   total_pages: number;
 }
 
+interface NamespacesResponse {
+  total: number;
+  items: Namespace[];
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 /** Minimal shape used by user-picker comboboxes (add member to a group/subscription). */
 interface PickableUser {
   id: string;
@@ -62,6 +71,7 @@ interface PickableUser {
 }
 
 const ROLE_OPTIONS = ['ADMIN', 'STANDARD', 'AUDITOR'] as const;
+const MEMBERS_PAGE_SIZE = 10;
 
 const ROLE_BADGE: Record<string, string> = {
   SUPER_ADMIN: 'bg-red-100 text-red-700',
@@ -103,7 +113,7 @@ interface GroupMember {
   added_at: string;
 }
 
-interface TenantTree { id: string; name: string; }
+interface TenantTree { id: string; name: string; namespace_id: string; namespace_name: string; }
 
 // ── User Group types ───────────────────────────────────────────────────────────
 
@@ -123,6 +133,7 @@ interface UserGroupMember {
   user_id: string;
   user_email: string;
   user_display_name: string;
+  app_role: string;
   added_by: string | null;
   added_at: string;
 }
@@ -239,7 +250,13 @@ function formatDateTime(iso: string | null) {
 function fetchPickableUsersPage(token: string | null) {
   return async (page: number, pageSize: number, search: string) => {
     if (!token) return { items: [] as PickableUser[], total_pages: 1 };
-    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), ...(search ? { search } : {}) });
+    // exclude_super_admin: Super Admin already has full access everywhere and
+    // should never be explicitly added to a permission group / user group /
+    // subscription, so keep them out of every "pick a user to add" picker.
+    const params = new URLSearchParams({
+      page: String(page), page_size: String(pageSize), exclude_super_admin: 'true',
+      ...(search ? { search } : {}),
+    });
     const res = await fetch(`${API_BASE}/admin/users?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
       credentials: 'include',
@@ -1761,7 +1778,10 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
       // is for single-item pickers where hundreds of options is unusable in
       // a <select>; a multi-select checklist already scrolls fine.
       const [treesRes, groupsRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/trees?page_size=200`, { headers: authHeader, credentials: 'include' }),
+        // all_namespaces=true: this panel is Super-Admin-only, and global trees
+        // are platform-wide, so the picker must offer trees from every
+        // namespace, not just the Super Admin's own tenant.
+        fetch(`${API_BASE}/admin/trees?page_size=200&all_namespaces=true`, { headers: authHeader, credentials: 'include' }),
         fetch(`${API_BASE}/admin/permission-groups?page_size=200`, { headers: authHeader, credentials: 'include' }),
       ]);
       if (treesRes.ok) setAllTrees((await treesRes.json()).items);
@@ -1895,6 +1915,7 @@ function GlobalTreesPanel({ token }: { token: string | null }) {
                   className="rounded border-gray-300 text-brand-500"
                 />
                 <span className="text-sm text-gray-800">{tree.name}</span>
+                <span className="text-xs text-gray-400">{tree.namespace_name}</span>
               </label>
             ))}
           </div>
@@ -2069,6 +2090,75 @@ function CreateNamespaceModal({
   );
 }
 
+function EditNamespaceModal({
+  namespace,
+  token,
+  onClose,
+  onSaved,
+}: {
+  namespace: Namespace;
+  token: string | null;
+  onClose: () => void;
+  onSaved: (updated: Namespace) => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(namespace.name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces/${namespace.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to update namespace');
+      }
+      onSaved(await res.json());
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Edit namespace</h2>
+        <p className="text-xs text-gray-500 mb-4">/{namespace.slug}</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.name')} <span className="text-red-500">*</span></label>
+            <input type="text" value={name} required autoFocus maxLength={255}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose} disabled={saving}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+              {t('adminPage.cancel')}
+            </button>
+            <button type="submit" disabled={saving || !name.trim()}
+              className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+              {saving ? t('adminPage.saving') : t('common.save')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function InviteToNamespaceModal({
   namespace,
   token,
@@ -2149,33 +2239,52 @@ function InviteToNamespaceModal({
 }
 
 function NamespacesPanel({ token }: { token: string | null }) {
+  const { t } = useTranslation();
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-  const [namespaces, setNamespaces] = useState<Namespace[]>([]);
+  const [data, setData] = useState<NamespacesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebounced] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Namespace | null>(null);
   const [inviteTarget, setInviteTarget] = useState<Namespace | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Namespace | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => { setDebounced(search); setPage(1); }, 350);
+    return () => clearTimeout(debounceRef.current);
+  }, [search]);
 
   const fetchNamespaces = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError('');
     try {
-      // page_size=100: this panel lists the full table (not yet paginated in
-      // the UI) — /admin/namespaces itself supports paging/search, used by
-      // NamespaceCombobox for the searchable pickers elsewhere on this page.
-      const res = await fetch(`${API_BASE}/admin/namespaces?page_size=100`, { headers: authHeader, credentials: 'include' });
+      const params = new URLSearchParams({
+        page: String(page), page_size: String(NAMESPACES_PAGE_SIZE),
+        ...(debouncedSearch ? { search: debouncedSearch } : {}),
+        ...(statusFilter !== '' ? { is_active: statusFilter } : {}),
+      });
+      const res = await fetch(`${API_BASE}/admin/namespaces?${params}`, { headers: authHeader, credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load namespaces');
-      const data = await res.json();
-      setNamespaces(data.items);
+      setData(await res.json());
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, page, debouncedSearch, statusFilter]);
 
   useEffect(() => { fetchNamespaces(); }, [fetchNamespaces]);
 
@@ -2194,14 +2303,30 @@ function NamespacesPanel({ token }: { token: string | null }) {
     }
   }
 
-  if (loading) return (
-    <div className="flex justify-center py-16">
-      <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
+  async function handleDelete(ns: Namespace) {
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces/${ns.id}`, {
+        method: 'DELETE',
+        headers: authHeader,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to delete namespace');
+      }
+      setDeleteTarget(null);
+      await fetchNamespaces();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">
           Every member belongs to exactly one namespace. Namespaces are fully isolated from each
@@ -2215,58 +2340,133 @@ function NamespacesPanel({ token }: { token: string | null }) {
         </button>
       </div>
 
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="relative flex-1 min-w-48">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+            fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('adminPage.searchNamespacesPlaceholder')}
+            className="w-full h-9 pl-9 pr-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+            style={{ background: 'var(--portal-card-bg)', color: 'var(--portal-text-primary)' }} />
+        </div>
+        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          className="h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+          style={{ background: 'var(--portal-card-bg)', color: 'var(--portal-text-primary)' }}>
+          <option value="">{t('adminPage.status')}</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
+      </div>
+
+      {data && (
+        <p className="text-xs text-gray-500 mb-3">
+          {data.total} namespace{data.total === 1 ? '' : 's'}
+          {' · '}{t('adminPage.pageOf', { page: data.page, total: data.total_pages })}
+        </p>
+      )}
+
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
       )}
 
-      <div className="space-y-3">
-        {namespaces.map((ns) => (
-          <div key={ns.id} className="rounded-xl border p-4" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-gray-900">{ns.name}</span>
-                <span className="text-xs text-gray-400">/{ns.slug}</span>
-                {ns.is_global && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                    Global
-                  </span>
-                )}
-                {!ns.is_active && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                    Inactive
-                  </span>
-                )}
-                <MemberChips names={ns.user_preview} total={ns.user_count} emptyLabel="No users" />
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {!ns.is_global && (
+      {loading && !data ? (
+        <div className="flex justify-center py-16">
+          <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : data?.items.length === 0 ? (
+        <div className="text-center py-16 text-sm" style={{ color: 'var(--portal-text-muted)' }}>{t('adminPage.noNamespacesFound')}</div>
+      ) : (
+        <div className={`space-y-3 ${loading ? 'opacity-50' : ''}`}>
+          {data?.items.map((ns) => (
+            <div key={ns.id} className="rounded-xl border p-4" style={{ background: 'var(--portal-card-bg)', borderColor: 'var(--portal-border)' }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-gray-900">{ns.name}</span>
+                  <span className="text-xs text-gray-400">/{ns.slug}</span>
+                  {ns.is_global && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                      Global
+                    </span>
+                  )}
+                  {!ns.is_active && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                      Inactive
+                    </span>
+                  )}
+                  <MemberChips names={ns.user_preview} total={ns.user_count} emptyLabel="No users" />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!ns.is_global && (
+                    <button
+                      onClick={() => setInviteTarget(ns)}
+                      className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
+                    >
+                      Invite user
+                    </button>
+                  )}
                   <button
-                    onClick={() => setInviteTarget(ns)}
-                    className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
+                    onClick={() => setEditTarget(ns)}
+                    className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    Invite user
+                    {t('common.edit')}
                   </button>
-                )}
-                {!ns.is_global && (
-                  <button
-                    onClick={() => handleToggleActive(ns)}
-                    disabled={togglingId === ns.id}
-                    className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                  >
-                    {togglingId === ns.id ? '…' : ns.is_active ? 'Deactivate' : 'Activate'}
-                  </button>
-                )}
+                  {!ns.is_global && (
+                    <button
+                      onClick={() => handleToggleActive(ns)}
+                      disabled={togglingId === ns.id}
+                      className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      {togglingId === ns.id ? '…' : ns.is_active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  )}
+                  {!ns.is_global && (
+                    <button
+                      onClick={() => { setDeleteError(''); setDeleteTarget(ns); }}
+                      title={ns.user_count > 0 ? 'Namespace still has users — move or remove them first' : undefined}
+                      className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      {t('common.delete')}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {data && data.total_pages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1 || loading}
+            className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
+            ← Previous
+          </button>
+          <span className="text-sm text-gray-500">{t('adminPage.pageOf', { page, total: data.total_pages })}</span>
+          <button onClick={() => setPage((p) => Math.min(data.total_pages, p + 1))} disabled={page === data.total_pages || loading}
+            className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
+            Next →
+          </button>
+        </div>
+      )}
 
       {createOpen && (
         <CreateNamespaceModal
           token={token}
           onClose={() => setCreateOpen(false)}
           onCreated={() => { setCreateOpen(false); fetchNamespaces(); }}
+        />
+      )}
+      {editTarget && (
+        <EditNamespaceModal
+          namespace={editTarget}
+          token={token}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); fetchNamespaces(); }}
         />
       )}
       {inviteTarget && (
@@ -2276,6 +2476,37 @@ function NamespacesPanel({ token }: { token: string | null }) {
           onClose={() => setInviteTarget(null)}
           onInvited={() => setInviteTarget(null)}
         />
+      )}
+
+      {/* Delete confirmation */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDeleteTarget(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Delete namespace?</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              <span className="font-medium text-gray-800">{deleteTarget.name}</span> will be permanently
+              deleted. This cannot be undone.
+              {deleteTarget.user_count > 0 && (
+                <span className="block mt-2 text-amber-700">
+                  This namespace still has {deleteTarget.user_count} user{deleteTarget.user_count === 1 ? '' : 's'} — move or remove them first.
+                </span>
+              )}
+            </p>
+            {deleteError && <p className="text-sm text-red-600 mb-3">{deleteError}</p>}
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 transition-colors">
+                {t('adminPage.cancel')}
+              </button>
+              <button onClick={() => handleDelete(deleteTarget)}
+                disabled={deleting || deleteTarget.user_count > 0}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {deleting ? t('adminPage.saving') : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3561,7 +3792,10 @@ function UserGroupDetailModal({
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [selUser, setSelUser] = useState<PickableUser | null>(null);
   const [saving, setSaving] = useState(false);
+  const [addingAll, setAddingAll] = useState(false);
+  const [confirmAddAll, setConfirmAddAll] = useState(false);
   const [error, setError] = useState('');
+  const [membersPage, setMembersPage] = useState(1);
 
   const [bulkRole, setBulkRole] = useState<'ADMIN' | 'STANDARD' | 'AUDITOR'>('STANDARD');
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -3603,6 +3837,24 @@ function UserGroupDetailModal({
     finally { setSaving(false); }
   }
 
+  async function handleAddAll() {
+    setAddingAll(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/user-groups/${group.id}/members/add-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? t('adminPage.failedAddMember'));
+      }
+      setAddMemberOpen(false); setSelUser(null);
+      fetchMembers();
+    } catch (e) { setError((e as Error).message); }
+    finally { setAddingAll(false); }
+  }
+
   async function handleRemoveMember(memberId: string) {
     await fetch(`${API_BASE}/admin/user-groups/${group.id}/members/${memberId}`, {
       method: 'DELETE', headers: authHeader, credentials: 'include',
@@ -3625,12 +3877,16 @@ function UserGroupDetailModal({
       }
       const data = await res.json();
       setBulkResult(t('adminPage.updatedMembersToRole', { count: data.updated_count, role: bulkRole }));
+      await fetchMembers();
     } catch (e) {
       setBulkResult((e as Error).message);
     } finally {
       setBulkSaving(false);
     }
   }
+
+  const membersTotalPages = Math.max(1, Math.ceil(members.length / MEMBERS_PAGE_SIZE));
+  const clampedMembersPage = Math.min(membersPage, membersTotalPages);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -3658,11 +3914,33 @@ function UserGroupDetailModal({
             <section>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-gray-700">{t('adminPage.membersCountHeading', { count: members.length })}</h3>
-                {!addMemberOpen && (
-                  <button onClick={() => { setAddMemberOpen(true); setError(''); }}
-                    className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addMember')}</button>
+                {!addMemberOpen && !confirmAddAll && (
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setConfirmAddAll(true)}
+                      className="text-xs text-brand-600 font-medium hover:text-brand-700">
+                      {t('adminPage.addAllUsers')}
+                    </button>
+                    <button onClick={() => { setAddMemberOpen(true); setError(''); }}
+                      className="text-xs text-brand-600 font-medium hover:text-brand-700">+ {t('adminPage.addMember')}</button>
+                  </div>
                 )}
               </div>
+
+              {confirmAddAll && (
+                <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">{t('adminPage.confirmAddAllUsers')}</p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => setConfirmAddAll(false)} disabled={addingAll}
+                      className="px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50">
+                      {t('adminPage.cancel')}
+                    </button>
+                    <button onClick={() => { setConfirmAddAll(false); handleAddAll(); }} disabled={addingAll}
+                      className="px-2.5 py-1 bg-brand-500 text-white text-xs font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                      {addingAll ? t('adminPage.addingAllUsers') : t('adminPage.confirm')}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {addMemberOpen && (
                 <form onSubmit={handleAddMember} className="flex gap-2 mb-3">
@@ -3693,18 +3971,40 @@ function UserGroupDetailModal({
                   {t('adminPage.noMembersYet')}
                 </p>
               ) : (
-                <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
-                  {members.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
-                      <div>
-                        <div className="text-sm font-medium text-gray-800">{m.user_display_name}</div>
-                        <div className="text-xs text-gray-400">{m.user_email}</div>
-                      </div>
-                      <button onClick={() => handleRemoveMember(m.id)}
-                        className="text-xs text-red-500 hover:text-red-700">{t('adminPage.remove')}</button>
+                <>
+                  <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                    {members
+                      .slice((clampedMembersPage - 1) * MEMBERS_PAGE_SIZE, clampedMembersPage * MEMBERS_PAGE_SIZE)
+                      .map((m) => (
+                        <div key={m.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <div className="text-sm font-medium text-gray-800">{m.user_display_name}</div>
+                              <div className="text-xs text-gray-400">{m.user_email}</div>
+                            </div>
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${ROLE_BADGE[m.app_role] ?? 'bg-gray-100 text-gray-600'}`}>
+                              {m.app_role.charAt(0) + m.app_role.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+                          <button onClick={() => handleRemoveMember(m.id)}
+                            className="text-xs text-red-500 hover:text-red-700">{t('adminPage.remove')}</button>
+                        </div>
+                      ))}
+                  </div>
+                  {membersTotalPages > 1 && (
+                    <div className="flex items-center justify-between mt-2">
+                      <button onClick={() => setMembersPage((p) => Math.max(1, p - 1))} disabled={clampedMembersPage === 1}
+                        className="h-7 px-2.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
+                        ← Previous
+                      </button>
+                      <span className="text-xs text-gray-500">{t('adminPage.pageOf', { page: clampedMembersPage, total: membersTotalPages })}</span>
+                      <button onClick={() => setMembersPage((p) => Math.min(membersTotalPages, p + 1))} disabled={clampedMembersPage === membersTotalPages}
+                        className="h-7 px-2.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
+                        Next →
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </section>
 

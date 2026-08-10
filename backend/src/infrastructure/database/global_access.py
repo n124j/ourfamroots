@@ -1,8 +1,13 @@
-"""Grants tree_members access for a user based on the tenant's global permission groups.
+"""Grants tree_members access for a user based on platform-wide global permission groups.
 
-Shared by user registration (AuthService) and admin-created users (POST /admin/users)
-so a newly created user immediately sees every tree attached to a group with
-is_global=true, at that group's permission level.
+Shared by user registration (AuthService), admin-created users (POST /admin/users),
+OAuth auto-provisioning, and namespace-invitation acceptance, so a user immediately
+sees every tree attached to a group with is_global=true, at that group's permission
+level — regardless of which tenant (namespace) the user or the tree belongs to.
+The resulting tree_members row is stamped with the TREE's own tenant_id, not the
+user's, so a user's own tenant_id and their tree_members.tenant_id can legitimately
+differ for global trees (see the discovery.py access-request flow for the existing
+precedent of this pattern).
 """
 from __future__ import annotations
 
@@ -30,17 +35,16 @@ async def get_global_tenant_id(session: AsyncSession) -> uuid.UUID | None:
 
 async def grant_global_tree_access(
     session: AsyncSession,
-    tenant_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> None:
     rows = (await session.execute(
         text("""
-            SELECT pgt.tree_id, pg.permission_level
+            SELECT pgt.tree_id, pg.permission_level, ft.tenant_id AS tree_tenant_id
             FROM permission_groups pg
             JOIN permission_group_trees pgt ON pgt.group_id = pg.id
-            WHERE pg.tenant_id = :tid AND pg.is_global = true
+            JOIN family_trees ft ON ft.id = pgt.tree_id
+            WHERE pg.is_global = true AND ft.is_deleted = false
         """),
-        {"tid": tenant_id},
     )).fetchall()
 
     for row in rows:
@@ -53,5 +57,5 @@ async def grant_global_tree_access(
                 VALUES (:tid, :uid, :tenant, :role, NULL, now())
                 ON CONFLICT (tree_id, user_id) DO NOTHING
             """),
-            {"tid": row.tree_id, "uid": user_id, "tenant": tenant_id, "role": role},
+            {"tid": row.tree_id, "uid": user_id, "tenant": row.tree_tenant_id, "role": role},
         )

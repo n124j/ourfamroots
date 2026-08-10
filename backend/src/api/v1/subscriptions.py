@@ -83,8 +83,9 @@ class SubscriptionCreate(BaseModel):
     # NULL/omitted = never expires. When set, this becomes a "promotional"
     # time-limited subscription — members lose entitlement once it passes.
     expires_at: Optional[datetime] = None
-    # When true, every user in the tenant is entitled automatically —
-    # no need to add members one by one, and it covers future signups too.
+    # When true, every user on the platform is entitled automatically —
+    # across every namespace, not just this subscription's own tenant — no
+    # need to add members one by one, and it covers future signups too.
     is_default: bool = False
 
 
@@ -565,6 +566,9 @@ async def get_my_filters(
     if current_user.app_role == AppRole.SUPER_ADMIN:
         return MyFiltersResponse(filterKeys=[f["key"] for f in AVAILABLE_FILTERS])
 
+    # is_default is platform-wide (like permission_groups.is_global) — it
+    # entitles every user on the platform, not just users in the subscription's
+    # own (creating) tenant.
     rows = (await session.execute(
         text("""
             SELECT DISTINCT sf.filter_key
@@ -572,13 +576,13 @@ async def get_my_filters(
             JOIN subscriptions s ON s.id = sf.subscription_id
             WHERE (s.expires_at IS NULL OR s.expires_at > now())
               AND (
-                s.is_default AND s.tenant_id = :tid
+                s.is_default
                 OR EXISTS (
                     SELECT 1 FROM subscription_members sm
                     WHERE sm.subscription_id = s.id AND sm.user_id = :uid
                 )
               )
         """),
-        {"uid": current_user.id, "tid": current_user.tenant_id},
+        {"uid": current_user.id},
     )).fetchall()
     return MyFiltersResponse(filterKeys=[r.filter_key for r in rows])

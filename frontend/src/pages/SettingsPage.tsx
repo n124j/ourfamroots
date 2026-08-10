@@ -9,7 +9,7 @@ import { changeLanguage, getCurrentLanguage } from '../i18n';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
-type Tab = 'profile' | 'security' | 'appearance' | 'notifications' | 'language';
+type Tab = 'profile' | 'security' | 'appearance' | 'notifications' | 'hiddenTrees' | 'language';
 
 interface UserProfile {
   given_name: string | null;
@@ -756,6 +756,142 @@ function NotificationsTab({ accessToken }: { accessToken: string | null }) {
   );
 }
 
+// ── Hidden Trees Tab ───────────────────────────────────────────────────────────
+
+interface HiddenTree {
+  id: string;
+  name: string;
+  cover_emoji: string | null;
+  cover_image_url: string | null;
+  hidden_at: string;
+}
+
+interface HiddenTreesResponse {
+  total: number;
+  items: HiddenTree[];
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+const HIDDEN_TREES_PAGE_SIZE = 15;
+
+function HiddenTreesTab({ accessToken }: { accessToken: string | null }) {
+  const { t } = useTranslation();
+  const [data, setData] = useState<HiddenTreesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [unhiding, setUnhiding] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    setLoading(true);
+    fetch(`${API_BASE}/trees/hidden?page=${page}&page_size=${HIDDEN_TREES_PAGE_SIZE}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentials: 'include',
+    })
+      .then((r) => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, [accessToken, page]);
+
+  async function unhide(tree: HiddenTree) {
+    setUnhiding(tree.id);
+    try {
+      await fetch(`${API_BASE}/trees/${tree.id}/hide`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        credentials: 'include',
+      });
+      setData((prev) => prev ? { ...prev, items: prev.items.filter((x) => x.id !== tree.id), total: prev.total - 1 } : prev);
+    } finally {
+      setUnhiding(null);
+    }
+  }
+
+  if (loading && !data) {
+    return (
+      <div className="flex justify-center py-16">
+        <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  const items = data?.items ?? [];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-500">{t('settings.hiddenTrees.desc')}</p>
+
+      {items.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9ca3af" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 11s4-7 9-7 9 7 9 7-4 7-9 7-9-7-9-7z" />
+              <circle cx="11" cy="11" r="2.5" />
+              <line x1="4" y1="18" x2="18" y2="4" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-gray-500">{t('settings.hiddenTrees.empty')}</p>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden">
+            {items.map((tree) => (
+              <div key={tree.id} className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  {tree.cover_image_url ? (
+                    <img src={tree.cover_image_url} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="text-2xl">{tree.cover_emoji || '🌳'}</div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{tree.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {t('settings.hiddenTrees.hiddenOn', { date: new Date(tree.hidden_at).toLocaleDateString() })}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => unhide(tree)}
+                  disabled={unhiding === tree.id}
+                  className="px-3 py-1 text-xs font-medium bg-brand-500 text-white rounded-md hover:bg-brand-600 disabled:opacity-50 transition-colors shrink-0"
+                >
+                  {unhiding === tree.id ? t('settings.hiddenTrees.unhiding') : t('settings.hiddenTrees.unhide')}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {data && data.total_pages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-gray-400">
+                {(data.page - 1) * data.page_size + 1}–{Math.min(data.page * data.page_size, data.total)} {t('common.of')} {data.total}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t('common.previous')}
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(data.total_pages, p + 1))}
+                  disabled={page >= data.total_pages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t('common.next')}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Language Tab ───────────────────────────────────────────────────────────────
 
 function LanguageTab() {
@@ -888,6 +1024,7 @@ export default function SettingsPage() {
     tab === 'security' ? 'security' :
     tab === 'appearance' ? 'appearance' :
     tab === 'notifications' ? 'notifications' :
+    tab === 'hiddenTrees' ? 'hiddenTrees' :
     tab === 'language' ? 'language' :
     'profile';
 
@@ -1055,12 +1192,15 @@ export default function SettingsPage() {
         <TabLink tab="security"      active={activeTab === 'security'}      label={t('settings.tabs.security')} />
         <TabLink tab="appearance"    active={activeTab === 'appearance'}    label={t('settings.tabs.appearance')} />
         <TabLink tab="notifications" active={activeTab === 'notifications'} label={t('settings.tabs.notifications')} />
+        <TabLink tab="hiddenTrees"   active={activeTab === 'hiddenTrees'}   label={t('settings.tabs.hiddenTrees')} />
         <TabLink tab="language"      active={activeTab === 'language'}      label={t('settings.tabs.language')} />
       </div>
 
       {activeTab === 'appearance' && <AppearanceTab />}
 
       {activeTab === 'notifications' && <NotificationsTab accessToken={accessToken} />}
+
+      {activeTab === 'hiddenTrees' && <HiddenTreesTab accessToken={accessToken} />}
 
       {activeTab === 'language' && <LanguageTab />}
 

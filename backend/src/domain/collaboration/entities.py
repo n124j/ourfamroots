@@ -32,12 +32,14 @@ class TreeRole(str, Enum):
 class Action(str, Enum):
     """All operations that can be authorised and audited."""
     # Tree-level
+    CREATE_TREE         = "CREATE_TREE"
     DELETE_TREE         = "DELETE_TREE"
     TRANSFER_OWNERSHIP  = "TRANSFER_OWNERSHIP"
     UPDATE_TREE         = "UPDATE_TREE"
     # Member management
     INVITE_MEMBER       = "INVITE_MEMBER"
     REMOVE_MEMBER       = "REMOVE_MEMBER"
+    REVOKE_INVITATION   = "REVOKE_INVITATION"
     CHANGE_MEMBER_ROLE  = "CHANGE_MEMBER_ROLE"
     VIEW_MEMBERS        = "VIEW_MEMBERS"
     # Audit
@@ -127,6 +129,7 @@ ACTION_MIN_ROLE: dict[Action, TreeRole] = {
     # Admin+
     Action.INVITE_MEMBER:       TreeRole.ADMIN,
     Action.REMOVE_MEMBER:       TreeRole.ADMIN,
+    Action.REVOKE_INVITATION:   TreeRole.ADMIN,
     Action.CHANGE_MEMBER_ROLE:  TreeRole.ADMIN,
     Action.UPDATE_TREE:         TreeRole.ADMIN,
     Action.VIEW_AUDIT_LOG:      TreeRole.ADMIN,
@@ -156,6 +159,10 @@ ACTION_MIN_ROLE: dict[Action, TreeRole] = {
     Action.UPDATE_PHOTO:        TreeRole.EDITOR,
     # App-admin only — mapped to OWNER so is_permitted() returns False for all tree roles
     Action.MERGE_TREES:         TreeRole.OWNER,
+    # Not actually gated by a TreeRole — a brand-new tree has no existing tree
+    # context to check a role against; any authenticated user may create one.
+    # Mapped to the lowest tier purely so every Action has a min-role entry.
+    Action.CREATE_TREE:         TreeRole.VIEWER,
     # Access / merge requests
     Action.REQUEST_ACCESS:      TreeRole.VIEWER,
     Action.APPROVE_ACCESS:      TreeRole.OWNER,

@@ -63,8 +63,13 @@ class UserGroupMemberResponse(BaseModel):
     user_id: uuid.UUID
     user_email: str
     user_display_name: str
+    app_role: str
     added_by: Optional[uuid.UUID]
     added_at: str
+
+
+class AddAllMembersResponse(BaseModel):
+    added_count: int
 
 
 class AddUserGroupMemberRequest(BaseModel):
@@ -293,7 +298,7 @@ async def list_user_group_members(
             SELECT
                 ugm.id, ugm.user_id, u.email AS user_email,
                 COALESCE(NULLIF(TRIM(CONCAT(u.given_name, ' ', u.family_name)), ''), u.email) AS user_display_name,
-                ugm.added_by, ugm.added_at
+                u.app_role, ugm.added_by, ugm.added_at
             FROM user_group_members ugm
             JOIN users u ON u.id = ugm.user_id
             WHERE ugm.group_id = :gid
@@ -305,7 +310,7 @@ async def list_user_group_members(
     return [
         UserGroupMemberResponse(
             id=r.id, user_id=r.user_id, user_email=r.user_email, user_display_name=r.user_display_name,
-            added_by=r.added_by, added_at=r.added_at.isoformat(),
+            app_role=r.app_role, added_by=r.added_by, added_at=r.added_at.isoformat(),
         )
         for r in rows
     ]
@@ -366,8 +371,61 @@ async def add_user_group_member(
 
     return UserGroupMemberResponse(
         id=entry.id, user_id=entry.user_id, user_email=user.email, user_display_name=user_display,
-        added_by=entry.added_by, added_at=entry.added_at.isoformat(),
+        app_role=user.app_role, added_by=entry.added_by, added_at=entry.added_at.isoformat(),
     )
+
+
+@router.post("/{group_id}/members/add-all", response_model=AddAllMembersResponse,
+             summary="Add every tenant user who isn't already a member of this group")
+async def add_all_user_group_members(
+    group_id: uuid.UUID,
+    request: Request,
+    current_user: AdminUserDep,
+    session: SessionDep,
+) -> AddAllMembersResponse:
+    group = (await session.execute(
+        select(UserGroupModel).where(
+            UserGroupModel.id == group_id, UserGroupModel.tenant_id == current_user.tenant_id,
+        )
+    )).scalars().first()
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User group not found")
+
+    existing_ids = set((await session.execute(
+        select(UserGroupMemberModel.user_id).where(UserGroupMemberModel.group_id == group_id)
+    )).scalars().all())
+
+    candidates = (await session.execute(
+        select(UserModel).where(
+            UserModel.tenant_id == current_user.tenant_id,
+            UserModel.is_active.is_(True),
+            UserModel.app_role != AppRole.SUPER_ADMIN.value,
+        )
+    )).scalars().all()
+    to_add = [u for u in candidates if u.id not in existing_ids]
+    if not to_add:
+        return AddAllMembersResponse(added_count=0)
+
+    for u in to_add:
+        session.add(UserGroupMemberModel(group_id=group_id, user_id=u.id, added_by=current_user.id))
+
+    # Grant access implied by every permission group this user group is linked to,
+    # same as the single-member add path.
+    tree_pairs = await _get_linked_permission_group_trees(session, group_id)
+    for u in to_add:
+        for tid, role in tree_pairs:
+            await _grant_tree_access(
+                session, tree_id=tid, user_id=u.id,
+                tenant_id=current_user.tenant_id, role=role, granted_by=current_user.id,
+            )
+
+    await session.commit()
+    await log_admin_action(session, current_user.tenant_id, current_user.id,
+                           current_user.full_name, "UG_ADD_MEMBER",
+                           f"{group.name} → {len(to_add)} users (add all)", _ip(request))
+    await session.commit()
+
+    return AddAllMembersResponse(added_count=len(to_add))
 
 
 @router.delete("/{group_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None,

@@ -40,7 +40,13 @@ async def update_searchable(
     uow: UoWDep,
 ) -> dict:
     member_row = (await uow._session.execute(
-        _sql("SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
+        _sql("""
+            SELECT tm.role, ft.is_searchable
+            FROM tree_members tm
+            JOIN family_trees ft ON ft.id = tm.tree_id
+            WHERE tm.tree_id = :tid AND tm.user_id = :uid
+            LIMIT 1
+        """),
         {"tid": tree_id, "uid": current_user.id},
     )).first()
     if member_row is None:
@@ -52,6 +58,22 @@ async def update_searchable(
         _sql("UPDATE family_trees SET is_searchable = :val, updated_at = NOW() WHERE id = :tid"),
         {"val": body.is_searchable, "tid": tree_id},
     )
+
+    if body.is_searchable != member_row.is_searchable:
+        await AuditLogRepository(uow._session).append(
+            AuditEntry.create(
+                tree_id=tree_id,
+                tenant_id=current_user.tenant_id,
+                actor_id=current_user.id,
+                actor_display_name=_actor_name(current_user),
+                action=Action.UPDATE_TREE,
+                entity_type=AuditEntityType.TREE,
+                entity_id=tree_id,
+                before={"is_searchable": member_row.is_searchable},
+                after={"is_searchable": body.is_searchable},
+            )
+        )
+
     await uow._session.commit()
     return {"is_searchable": body.is_searchable}
 
@@ -486,6 +508,20 @@ async def submit_access_request(
             },
         )
 
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=tree_row.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=requester_name,
+            action=Action.REQUEST_ACCESS,
+            entity_type=AuditEntityType.ACCESS_REQUEST,
+            entity_id=request_id,
+            entity_display_name=tree_row.name,
+            after={"requested_role": body.requested_role},
+        )
+    )
+
     await uow._session.commit()
     return {"id": str(request_id), "status": "PENDING"}
 
@@ -753,6 +789,19 @@ async def submit_merge_request(
                 "data": notif_data,
             },
         )
+
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=tree_id,
+            tenant_id=target_tree.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=requester_name,
+            action=Action.REQUEST_MERGE,
+            entity_type=AuditEntityType.MERGE_REQUEST,
+            entity_id=request_id,
+            entity_display_name=f"{source_tree.name} → {target_tree.name}",
+        )
+    )
 
     await uow._session.commit()
     return {"id": str(request_id), "status": "PENDING"}
