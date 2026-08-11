@@ -2947,6 +2947,9 @@ export function TreeTopBar({
   const isGloballyShared = !!graph?.isGloballyShared;
   const isReviewMode = !!graph?.reviewChangeRequestId;
   const isSuperAdmin = useAuthStore((s) => s.user)?.appRole === 'SUPER_ADMIN';
+  // Matches the backend's Action.VIEW_AUDIT_LOG permission (min role ADMIN,
+  // and OWNER outranks ADMIN in the role hierarchy) — see /trees/{id}/audit-log.
+  const canViewActivity = isSuperAdmin || userRole === 'OWNER' || userRole === 'ADMIN';
 
   const [exportOpen,    setExportOpen]    = React.useState(false);
   const [moreOpen,      setMoreOpen]      = React.useState(false);
@@ -3208,7 +3211,7 @@ export function TreeTopBar({
           </button>
         )}
 
-        {isSuperAdmin && (
+        {canViewActivity && (
           <button
             onClick={onShowActivity}
             title={t('treePage.showActivity')}
@@ -3269,7 +3272,7 @@ export function TreeTopBar({
                     {t('treePage.members')}
                   </button>
                 )}
-                {isSuperAdmin && (
+                {canViewActivity && (
                   <button onClick={() => { setMoreOpen(false); onShowActivity(); }}
                     className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
                     {t('treePage.activity')}

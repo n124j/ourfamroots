@@ -298,3 +298,37 @@ async def accept_namespace_invitation(
     await token_store.revoke_all_for_user(current_user.id)
 
     return {"tenant_id": str(invitation.tenant_id), "app_role": invitation.role}
+
+
+@router.post(
+    "/namespace-invitations/{token}/decline",
+    summary="Decline a namespace invitation",
+)
+async def decline_namespace_invitation(
+    token: str,
+    current_user: VerifiedUserDep,
+    session: SessionDep,
+) -> dict:
+    invitation = (await session.execute(
+        select(NamespaceInvitationModel).where(NamespaceInvitationModel.token == token)
+    )).scalars().first()
+
+    if invitation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found")
+    if invitation.status != InvitationStatus.PENDING.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This invitation is no longer pending")
+    if invitation.invitee_user_id != current_user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "This invitation was addressed to a different account",
+        )
+
+    invitation.status = InvitationStatus.DECLINED.value
+
+    await log_admin_action(
+        session, invitation.tenant_id, current_user.id, current_user.full_name,
+        "NS_INVITE_DECLINE", current_user.email, None,
+    )
+    await session.commit()
+
+    return {"status": invitation.status}

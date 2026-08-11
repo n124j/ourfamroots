@@ -2152,6 +2152,30 @@ async def import_tree_zip(
         VALUES (gen_random_uuid(), :tid, :uid, :tenant, 'OWNER')
     """), {"tid": new_tree_id, "uid": current_user.id, "tenant": current_user.tenant_id})
 
+    # 1b. Restore the tree's cover/profile photo, if the archive has one
+    tree_cover_filename = ofr_data.get("tree_cover_photo_filename")
+    if tree_cover_filename and tree_cover_filename in zf.namelist():
+        try:
+            from src.api.v1._s3 import _make_s3_client
+            from src.config import get_settings
+            settings = get_settings()
+            bucket = settings.s3_bucket or "ourfamroots-local"
+            cover_bytes = zf.read(tree_cover_filename)
+            ext = tree_cover_filename.rsplit(".", 1)[-1] if "." in tree_cover_filename else "jpg"
+            content_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                            "png": "image/png", "webp": "image/webp",
+                            "gif": "image/gif"}.get(ext.lower(), "image/jpeg")
+            cover_key = f"tenants/{current_user.tenant_id}/trees/{new_tree_id}/cover/{uuid.uuid4()}.{ext}"
+            s3 = _make_s3_client(settings)
+            s3.put_object(Bucket=bucket, Key=cover_key, Body=cover_bytes, ContentType=content_type)
+            public_base = (settings.s3_public_url or settings.s3_endpoint_url or "").rstrip("/")
+            cover_url = f"{public_base}/{bucket}/{cover_key}" if public_base else f"/{bucket}/{cover_key}"
+            await uow._session.execute(text("""
+                UPDATE family_trees SET cover_image_url = :url WHERE id = :tid
+            """), {"url": cover_url, "tid": new_tree_id})
+        except Exception:
+            pass  # skip cover photo restore failure; tree import should still succeed
+
     # 2. Create persons — old_id → new_id
     old_to_new: dict[str, uuid.UUID] = {}
     photo_filename_map: dict[str, str] = {}  # old_id → photo_filename in ZIP
@@ -2999,6 +3023,117 @@ async def add_member_direct(
         email=user_row.email,
         display_name=display_name,
     )
+
+
+class AddMembersBulkRequest(BaseModel):
+    user_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200)
+    role: TreeRole = TreeRole.VIEWER
+
+
+class AddMembersBulkResponse(BaseModel):
+    added: int
+    skipped: int
+
+
+@router.post("/trees/{tree_id}/members/bulk", response_model=AddMembersBulkResponse,
+             status_code=status.HTTP_201_CREATED,
+             summary="Add multiple existing tenant users as tree members at once (OWNER/ADMIN only)")
+async def add_members_bulk(
+    tree_id: uuid.UUID,
+    body: AddMembersBulkRequest,
+    current_user: NotAuditorDep,
+    uow: UoWDep,
+) -> AddMembersBulkResponse:
+    from sqlalchemy import text
+
+    # Require OWNER or ADMIN tree role
+    caller_row = (await uow._session.execute(
+        text("SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
+        {"tid": tree_id, "uid": current_user.id},
+    )).first()
+    if caller_row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tree not found")
+    if caller_row.role not in ("OWNER", "ADMIN"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only owners and admins can add members directly")
+
+    # Only users who actually belong to this tenant may be added
+    user_rows = (await uow._session.execute(
+        text("SELECT id, email, given_name, family_name FROM users WHERE id = ANY(:ids) AND tenant_id = :tid"),
+        {"ids": list(body.user_ids), "tid": current_user.tenant_id},
+    )).fetchall()
+
+    tree_name_row = (await uow._session.execute(
+        text("SELECT name FROM family_trees WHERE id = :tid AND is_deleted = false LIMIT 1"),
+        {"tid": tree_id},
+    )).first()
+    tree_name = tree_name_row.name if tree_name_row else str(tree_id)
+    actor_display = (
+        SUPER_ADMIN_DISPLAY_LABEL if current_user.app_role == AppRole.SUPER_ADMIN
+        else f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    )
+
+    import asyncio as _asyncio
+    import json as _json
+    from src.api.v1.push import send_push_to_user as _push
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+    audit_repo = AuditLogRepository(uow._session)
+
+    for user_row in user_rows:
+        member_id = uuid.uuid4()
+        await uow._session.execute(
+            text("""
+                INSERT INTO tree_members (id, tree_id, user_id, tenant_id, role, invited_by_id, joined_at)
+                VALUES (:id, :tree_id, :user_id, :tenant_id, :role, :invited_by, now())
+                ON CONFLICT (tree_id, user_id) DO UPDATE SET role = EXCLUDED.role
+            """),
+            {
+                "id": member_id, "tree_id": tree_id, "user_id": user_row.id,
+                "tenant_id": current_user.tenant_id, "role": body.role.value,
+                "invited_by": current_user.id,
+            },
+        )
+        display_name = f"{user_row.given_name or ''} {user_row.family_name or ''}".strip() or user_row.email
+        await audit_repo.append(
+            AuditEntry.create(
+                tree_id=tree_id,
+                tenant_id=current_user.tenant_id,
+                actor_id=current_user.id,
+                actor_display_name=actor_display,
+                action=Action.INVITE_MEMBER,
+                entity_type=AuditEntityType.MEMBER,
+                entity_id=user_row.id,
+                entity_display_name=display_name,
+                after={"role": body.role.value},
+            )
+        )
+        notif_title = f"You've been added to \"{tree_name}\""
+        notif_body = f"{actor_display} shared \"{tree_name}\" with you as {body.role.value.capitalize()}"
+        await uow._session.execute(
+            text("""
+                INSERT INTO notifications (user_id, tenant_id, type, title, body, data)
+                VALUES (:user_id, :tenant_id, 'TREE_SHARED', :title, :nbody, CAST(:data AS jsonb))
+            """),
+            {
+                "user_id": user_row.id,
+                "tenant_id": current_user.tenant_id,
+                "title": notif_title,
+                "nbody": notif_body,
+                "data": _json.dumps({
+                    "tree_id": str(tree_id),
+                    "tree_name": tree_name,
+                    "shared_by_id": str(current_user.id),
+                    "shared_by_name": actor_display,
+                    "role": body.role.value,
+                }),
+            },
+        )
+        _asyncio.create_task(_push(
+            uow._session, user_row.id, notif_title, notif_body,
+            {"type": "TREE_SHARED", "tree_id": str(tree_id), "tree_name": tree_name},
+        ))
+
+    await uow._session.commit()
+    return AddMembersBulkResponse(added=len(user_rows), skipped=len(body.user_ids) - len(user_rows))
 
 
 class TenantUserForShareResponse(BaseModel):

@@ -105,6 +105,44 @@ function NotificationItem({
           {n.type === 'TREE_INVITE' && declined && (
             <p className="text-xs text-gray-400 mt-1">{t('notif.invitationDeclined')}</p>
           )}
+
+          {/* Namespace invite — accepting moves the account & revokes sessions,
+              so Accept hands off to the dedicated flow at /namespace-invitations/:token */}
+          {n.type === 'NAMESPACE_INVITE' && !declined && (
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => {
+                  onUpdate(n.id, { is_read: true });
+                  fetch(`${apiBase}/notifications/${n.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'include' }).catch(() => {});
+                  navigate(`/namespace-invitations/${n.data.token}`);
+                }}
+                className="px-3 py-1 text-xs font-medium bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors"
+              >
+                {t('notif.accept')}
+              </button>
+              <button
+                onClick={async () => {
+                  setDeclined(true);
+                  try {
+                    await fetch(`${apiBase}/namespace-invitations/${n.data.token}/decline`, {
+                      method: 'POST',
+                      headers: { Authorization: `Bearer ${accessToken}` },
+                      credentials: 'include',
+                    });
+                  } finally {
+                    onUpdate(n.id, { is_read: true });
+                    fetch(`${apiBase}/notifications/${n.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'include' }).catch(() => {});
+                  }
+                }}
+                className="px-3 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+              >
+                {t('notif.decline')}
+              </button>
+            </div>
+          )}
+          {n.type === 'NAMESPACE_INVITE' && declined && (
+            <p className="text-xs text-gray-400 mt-1">{t('notif.invitationDeclined')}</p>
+          )}
           {n.type === 'TREE_SHARED' && n.data.tree_id && (
             <button
               onClick={() => navigate(`/trees/${n.data.tree_id}`)}

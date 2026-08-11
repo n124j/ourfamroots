@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@store/auth.store';
 import { SEO } from '@shared/components/SEO';
 import { UserAvatar } from '@shared/components/UserAvatar';
-import { SearchableCombobox } from '@shared/components/SearchableCombobox';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
@@ -912,8 +911,8 @@ function ShareTreeModal({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const appRole    = useAuthStore((s) => s.user?.appRole);
-  const isStandard = appRole === 'STANDARD';
+  const namespace           = useAuthStore((s) => s.user?.namespace);
+  const isNonGlobalNamespace = !!namespace && !namespace.isGlobal;
 
   const [linkSharing,    setLinkSharing]    = useState(tree.link_sharing ?? 'RESTRICTED');
   const [savingSharing,  setSavingSharing]  = useState(false);
@@ -927,12 +926,19 @@ function ShareTreeModal({
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
 
-  const [inviteMode,   setInviteMode]   = useState<'user' | 'email'>(isStandard ? 'email' : 'user');
-  const [selectedUser, setSelectedUser] = useState<TenantUser | null>(null);
+  const [inviteMode,   setInviteMode]   = useState<'user' | 'email'>(isNonGlobalNamespace ? 'user' : 'email');
   const [emailInput,   setEmailInput]   = useState('');
   const [inviteRole,   setInviteRole]   = useState('VIEWER');
   const [inviting,     setInviting]     = useState(false);
   const [inviteError,  setInviteError]  = useState('');
+
+  // Multi-select namespace-user picker — lets an OWNER/ADMIN in a non-default
+  // namespace browse & bulk-add several tenant users at once, searchable by
+  // name or email, instead of inviting one address at a time.
+  const [pickerUsers,      setPickerUsers]      = useState<TenantUser[]>([]);
+  const [pickerSearch,     setPickerSearch]     = useState('');
+  const [pickerLoading,    setPickerLoading]    = useState(false);
+  const [selectedUserIds,  setSelectedUserIds]  = useState<Set<string>>(new Set());
 
   // Pending requests (access + merge) — visible to owner
   const [accessRequests, setAccessRequests] = useState<any[]>([]);
@@ -946,6 +952,38 @@ function ShareTreeModal({
     if (!res.ok) return { items: [], total_pages: 1 };
     return await res.json();
   }, [tree.id, token]);
+
+  const loadPickerUsers = useCallback(async (search: string) => {
+    setPickerLoading(true);
+    try {
+      const data = await fetchTenantUsersPage(1, 200, search);
+      setPickerUsers(data.items ?? []);
+    } finally {
+      setPickerLoading(false);
+    }
+  }, [fetchTenantUsersPage]);
+
+  // Load on entering "select user" mode, then re-query (debounced) as the search box changes
+  useEffect(() => {
+    if (inviteMode !== 'user' || !isNonGlobalNamespace) return;
+    const timer = setTimeout(() => loadPickerUsers(pickerSearch), pickerSearch ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteMode, isNonGlobalNamespace, pickerSearch]);
+
+  function togglePickerUser(id: string) {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function selectAllPickerUsers() {
+    setSelectedUserIds(new Set(pickerUsers.map((u) => u.id)));
+  }
+  function clearPickerSelection() {
+    setSelectedUserIds(new Set());
+  }
 
   async function fetchAll() {
     setLoading(true);
@@ -980,22 +1018,23 @@ function ShareTreeModal({
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
-    if (inviteMode === 'user' && !selectedUser) return;
+    if (inviteMode === 'user' && selectedUserIds.size === 0) return;
     setInviting(true);
     setInviteError('');
     try {
       if (inviteMode === 'user') {
-        const res = await fetch(`${API_BASE}/trees/${tree.id}/members`, {
+        const res = await fetch(`${API_BASE}/trees/${tree.id}/members/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeader },
           credentials: 'include',
-          body: JSON.stringify({ user_id: selectedUser!.id, role: inviteRole }),
+          body: JSON.stringify({ user_ids: Array.from(selectedUserIds), role: inviteRole }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error((err as any).detail ?? 'Failed to add member');
+          throw new Error((err as any).detail ?? 'Failed to add members');
         }
-        setSelectedUser(null);
+        setSelectedUserIds(new Set());
+        loadPickerUsers(pickerSearch);
       } else {
         const email = emailInput.trim();
         if (!email) return;
@@ -1100,14 +1139,14 @@ function ShareTreeModal({
             {/* Add people — OWNER or ADMIN only */}
             {canManage && (
               <div className="px-6 py-4 border-b border-gray-100">
-                {/* Mode toggle — hidden for Standard users who can only invite by email */}
-                {!isStandard && (
+                {/* Mode toggle — the namespace user picker only applies outside the default namespace */}
+                {isNonGlobalNamespace && (
                   <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit mb-3">
                     {(['user', 'email'] as const).map((m) => (
                       <button
                         key={m}
                         type="button"
-                        onClick={() => { setInviteMode(m); setSelectedUser(null); setEmailInput(''); }}
+                        onClick={() => { setInviteMode(m); setSelectedUserIds(new Set()); setEmailInput(''); }}
                         className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                           inviteMode === m ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
                         }`}
@@ -1119,20 +1158,58 @@ function ShareTreeModal({
                 )}
 
                 <form onSubmit={handleInvite}>
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      {inviteMode === 'user' ? (
-                        <SearchableCombobox<TenantUser>
-                          fetchPage={fetchTenantUsersPage}
-                          renderOption={(u) => <>{u.display_name} <span className="text-gray-400">({u.email})</span></>}
-                          getLabel={(u) => u.display_name}
-                          selected={selectedUser}
-                          onSelect={setSelectedUser}
-                          emptyLabel={t('dashboard.selectPerson')}
-                          placeholder={t('dashboard.selectPerson')}
-                          noResultsLabel={t('dashboard.allUsersAreMembers')}
+                  {inviteMode === 'user' && (
+                    <div className="border border-gray-200 rounded-lg mb-2">
+                      <div className="flex items-center gap-2 p-2 border-b border-gray-100">
+                        <input
+                          type="text"
+                          value={pickerSearch}
+                          onChange={(e) => setPickerSearch(e.target.value)}
+                          placeholder={t('dashboard.searchByNameOrEmail')}
+                          className="flex-1 h-8 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
                         />
-                      ) : (
+                        <button type="button" onClick={selectAllPickerUsers}
+                          className="text-xs text-brand-600 hover:text-brand-700 font-medium whitespace-nowrap">
+                          {t('dashboard.selectAllUsers')}
+                        </button>
+                        <button type="button" onClick={clearPickerSelection}
+                          className="text-xs text-gray-500 hover:text-gray-700 font-medium whitespace-nowrap">
+                          {t('dashboard.clearSelection')}
+                        </button>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {pickerLoading ? (
+                          <div className="flex justify-center py-4">
+                            <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        ) : pickerUsers.length === 0 ? (
+                          <p className="px-3 py-4 text-sm text-center text-gray-400">{t('dashboard.allUsersAreMembers')}</p>
+                        ) : (
+                          pickerUsers.map((u) => (
+                            <label key={u.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={selectedUserIds.has(u.id)}
+                                onChange={() => togglePickerUser(u.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                              />
+                              <div className="min-w-0">
+                                <div className="text-sm text-gray-800 truncate">{u.display_name}</div>
+                                <div className="text-xs text-gray-400 truncate">{u.email}</div>
+                              </div>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <div className="px-3 py-1.5 border-t border-gray-100 text-xs text-gray-400">
+                        {t('dashboard.usersSelected', { selected: selectedUserIds.size, total: pickerUsers.length })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    {inviteMode === 'email' && (
+                      <div className="flex-1">
                         <input
                           type="email"
                           value={emailInput}
@@ -1141,8 +1218,8 @@ function ShareTreeModal({
                           required
                           className="w-full h-10 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                         />
-                      )}
-                    </div>
+                      </div>
+                    )}
                     <select
                       value={inviteRole}
                       onChange={(e) => setInviteRole(e.target.value)}
@@ -1154,10 +1231,10 @@ function ShareTreeModal({
                     </select>
                     <button
                       type="submit"
-                      disabled={inviting || (inviteMode === 'user' ? !selectedUser : !emailInput.trim())}
+                      disabled={inviting || (inviteMode === 'user' ? selectedUserIds.size === 0 : !emailInput.trim())}
                       className="h-10 px-4 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition-colors whitespace-nowrap"
                     >
-                      {inviting ? '…' : t('common.share')}
+                      {inviting ? '…' : inviteMode === 'user' ? t('dashboard.addSelected', { count: selectedUserIds.size }) : t('common.share')}
                     </button>
                   </div>
                   {inviteError && <p className="text-xs text-red-600 mt-1.5">{inviteError}</p>}
