@@ -34,6 +34,7 @@ import { PersonNode } from './nodes/PersonNode';
 import { FamilyGroupNode } from './nodes/FamilyGroupNode';
 import { ParentChildEdge } from './edges/ParentChildEdge';
 import { UnionEdge } from './edges/UnionEdge';
+import { RelationshipEdge } from './edges/RelationshipEdge';
 import { TreeControls } from './controls/TreeControls';
 import { getViewPlugin } from '@extensions/views/registry';
 import { useTreeLayout } from './useTreeLayout';
@@ -41,8 +42,9 @@ import { useExpandCollapse } from './useExpandCollapse';
 import { ancestorSubgraphIds } from './algorithms/ancestorChart';
 import { useCanvasStore } from '@store/canvas.store';
 import { useThemeStore } from '@store/theme.store';
-import type { ApiTreeGraph, TreeNode, TreeEdge, PersonNodeData } from '../types';
+import type { ApiTreeGraph, ApiRelationship, TreeNode, TreeEdge, PersonNodeData } from '../types';
 import { DEFAULT_LAYOUT_OPTIONS } from '../types';
+import { relationshipEdgeLabel } from '@features/tree/relationships/labels';
 
 // ── Ctrl+drag helper ───────────────────────────────────────────────────────
 
@@ -94,6 +96,34 @@ export function applyDiffStatusMap(
   );
 }
 
+// ── "Other Relationships" (Godparent/Guardian/Mentor/Custom) overlay ───────
+// Pure so the "never touches layout, only ever shows when both endpoints
+// are visible" contract can be unit-tested without mounting dagre/ReactFlow.
+// IMPORTANT: the caller must never pass this function's output into the
+// layout algorithm (useTreeLayout/dagreLayout) — it's a purely visual
+// overlay merged in after layout has already positioned every node.
+
+export function buildRelationshipEdges(
+  relationships: ApiRelationship[] | undefined,
+  visibleNodeIds: Set<string>,
+  labelFor: (rel: ApiRelationship) => string,
+): TreeEdge[] {
+  if (!relationships || relationships.length === 0) return [];
+  return relationships
+    .filter((r) => visibleNodeIds.has(r.person1_id) && visibleNodeIds.has(r.person2_id))
+    .map((r) => ({
+      id: `rel-${r.id}`,
+      type: 'relationship',
+      source: r.person1_id,
+      target: r.person2_id,
+      data: {
+        kind: 'relationship',
+        relationshipType: r.relationship_type,
+        label: labelFor(r),
+      },
+    })) as TreeEdge[];
+}
+
 // ── Static maps ────────────────────────────────────────────────────────────
 
 // ── Chart legend ──────────────────────────────────────────────────────────
@@ -134,11 +164,15 @@ function ChartLegend({
   graph,
   mode,
   visibleNodeIds,
+  relationships,
+  showOtherRelationships,
 }: {
   graph:          ApiTreeGraph;
   mode:           LayoutMode;
   /** IDs of all nodes currently rendered (persons + family groups). */
   visibleNodeIds: Set<string>;
+  relationships?: ApiRelationship[];
+  showOtherRelationships?: boolean;
 }) {
   const { t } = useTranslation();
   const { stats, unionTypes, parentageTypes } = useMemo(() => {
@@ -176,6 +210,9 @@ function ChartLegend({
 
   const hasUnions = unionTypes.size > 0;
   const hasChildren = parentageTypes.size > 0;
+  const hasOtherRelationships = !!showOtherRelationships && (relationships ?? []).some(
+    (r) => visibleNodeIds.has(r.person1_id) && visibleNodeIds.has(r.person2_id)
+  );
 
   return (
     <div
@@ -208,7 +245,7 @@ function ChartLegend({
         <LegendRow icon="●" label={t('legend.living')}   count={stats.living} color="#22c55e"            textColor={theme.nodeText} />
         <LegendRow icon="✝" label={t('legend.deceased')} count={stats.dead}   color={theme.nodeSubtext}  textColor={theme.nodeText} />
       </div>
-      {mode !== 'ancestry-fan' && (hasUnions || hasChildren) && (
+      {mode !== 'ancestry-fan' && (hasUnions || hasChildren || hasOtherRelationships) && (
         <div className="mt-2.5 pt-2 space-y-1.5" style={{ borderTop: `1px solid ${theme.nodeBorder}` }}>
           <p className="text-[9px] font-semibold uppercase tracking-widest mb-1" style={{ color: theme.nodeSubtext }}>{t('legend.lines')}</p>
           {hasUnions && (
@@ -274,6 +311,12 @@ function ChartLegend({
                 </div>
               )}
             </>
+          )}
+          {hasOtherRelationships && (
+            <div className="flex items-center gap-2 mt-1.5">
+              <svg width="24" height="8" className="shrink-0"><line x1="0" y1="4" x2="24" y2="4" stroke="#8b5cf6" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
+              <span className="text-[10px]" style={{ color: theme.nodeText }}>{t('treeForm.otherRelationships')}</span>
+            </div>
           )}
         </div>
       )}
@@ -372,6 +415,7 @@ const NODE_TYPES: NodeTypes = {
 const EDGE_TYPES: EdgeTypes = {
   'parent-child': ParentChildEdge,
   union: UnionEdge,
+  relationship: RelationshipEdge,
 };
 
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 0.8 };
@@ -439,6 +483,8 @@ interface TreeCanvasInnerProps {
   onFamilyGroupSelect?: (familyGroupId: string) => void;
   /** personId → diff status, applied as a color highlight (change-request review mode). */
   diffStatusMap?: Record<string, 'added' | 'modified'>;
+  /** Non-family-group relationships (Godparent/Guardian/Mentor/Custom), rendered as an optional canvas overlay. */
+  relationships?: ApiRelationship[];
 }
 
 export interface TreeCanvasHandle {
@@ -450,7 +496,7 @@ export interface TreeCanvasHandle {
 }
 
 const TreeCanvasInner = forwardRef<TreeCanvasHandle, TreeCanvasInnerProps>(
-function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect, diffStatusMap }, ref) {
+function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect, diffStatusMap, relationships }, ref) {
   const { t } = useTranslation();
   const { fitView } = useReactFlow();
   const canvasTheme = useThemeStore((s) => s.theme);
@@ -465,6 +511,7 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
   const setPan              = useCanvasStore((s) => s.setPan);
   const layoutResetKey      = useCanvasStore((s) => s.layoutResetKey);
   const isPdfMode           = useCanvasStore((s) => s.isPdfMode);
+  const showOtherRelationships = useCanvasStore((s) => s.showOtherRelationships);
 
   const {
     expandedNodeIds,
@@ -533,8 +580,16 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
         e.id === selectedEdge.id ? { ...e, selected: true } : e
       );
     }
+    // "Other Relationships" (Godparent/Guardian/Mentor/Custom) overlay — a
+    // pure visual addition computed AFTER layout, never fed into dagre/the
+    // layout algorithms (see buildRelationshipEdges's header comment). Only
+    // rendered when both endpoints are currently visible on the canvas.
+    if (showOtherRelationships && relationships && relationships.length > 0) {
+      const visibleIds = new Set(layoutNodes.map((n) => n.id));
+      result = [...result, ...buildRelationshipEdges(relationships, visibleIds, (r) => relationshipEdgeLabel(t, r))];
+    }
     return result;
-  }, [rawEdges, selectedPersonId, selectedEdge, graph]);
+  }, [rawEdges, selectedPersonId, selectedEdge, graph, showOtherRelationships, relationships, layoutNodes, t]);
 
   const [displayNodes, setDisplayNodes] = useState<TreeNode[]>([]);
   const prevLayoutKey = useRef('');
@@ -1076,6 +1131,8 @@ function TreeCanvasInner({ graph, isLoading, onPersonSelect, onFamilyGroupSelect
             graph={graph}
             mode={layoutMode}
             visibleNodeIds={visibleNodeIds}
+            relationships={relationships}
+            showOtherRelationships={showOtherRelationships}
           />
         </DraggableLegend>
       )}
@@ -1091,10 +1148,12 @@ export interface TreeCanvasProps {
   onPersonSelect?: (personId: string) => void;
   onFamilyGroupSelect?: (familyGroupId: string) => void;
   diffStatusMap?: Record<string, 'added' | 'modified'>;
+  /** Non-family-group relationships (Godparent/Guardian/Mentor/Custom), rendered as an optional canvas overlay. */
+  relationships?: ApiRelationship[];
 }
 
 export const TreeCanvas = forwardRef<TreeCanvasHandle, TreeCanvasProps>(
-  function TreeCanvas({ graph, isLoading = false, onPersonSelect, onFamilyGroupSelect, diffStatusMap }, ref) {
+  function TreeCanvas({ graph, isLoading = false, onPersonSelect, onFamilyGroupSelect, diffStatusMap, relationships }, ref) {
   return (
     <ReactFlowProvider>
       <TreeCanvasInner
@@ -1104,6 +1163,7 @@ export const TreeCanvas = forwardRef<TreeCanvasHandle, TreeCanvasProps>(
         onPersonSelect={onPersonSelect}
         onFamilyGroupSelect={onFamilyGroupSelect}
         diffStatusMap={diffStatusMap}
+        relationships={relationships}
       />
     </ReactFlowProvider>
   );

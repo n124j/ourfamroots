@@ -1,6 +1,6 @@
 {
-  "name": "FamilyRoots",
-  "short_name": "FamilyRoots",
+  "name": "OurFamRoots",
+  "short_name": "OurFamRoots",
   "description": "Build, explore, and share your family tree across generations.",
   "start_url": "/",
   "display": "standalone",
@@ -22,7 +22,7 @@
       "src": "/og-image.png",
       "sizes": "1200x630",
       "type": "image/png",
-      "label": "FamilyRoots — Family Tree Platform"
+      "label": "OurFamRoots — Family Tree Platform"
     }
   ]
 }

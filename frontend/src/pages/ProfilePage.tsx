@@ -93,7 +93,7 @@ export default function ProfilePage() {
   const location = useLocation();
   const fromSearch = location.state?.from === 'search';
   const backTo    = fromSearch ? (location.state.searchUrl as string) : `/trees/${treeId}`;
-  const backLabel = fromSearch ? '← Back to results' : t('profilePage.backToTree');
+  const backLabel = fromSearch ? t('profilePage.backToResults') : t('profilePage.backToTree');
 
   const SEX_LABEL: Record<string, string> = {
     MALE: t('profilePage.male'), FEMALE: t('profilePage.female'), OTHER: t('profilePage.other'), UNKNOWN: t('profilePage.unknown'),
@@ -171,7 +171,7 @@ export default function ProfilePage() {
         to={backTo}
         className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors"
       >
-        {t('profilePage.backToTree')}
+        {backLabel}
       </Link>
 
       {/* Header card */}
@@ -189,7 +189,15 @@ export default function ProfilePage() {
         )}
 
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">{fullName}</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">{fullName}</h1>
+          {graph?.treeName && (
+            <Link
+              to={`/trees/${treeId}?focusPerson=${personId}`}
+              className="text-xs text-gray-500 hover:text-brand-600 hover:underline transition-colors inline-block mb-2"
+            >
+              {t('profilePage.treeLink', { name: graph.treeName })}
+            </Link>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${badgeCls}`}>
               {SEX_LABEL[person.sex] ?? person.sex}

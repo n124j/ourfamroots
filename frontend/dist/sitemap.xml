@@ -4,7 +4,7 @@
 
   <!-- Landing / home -->
   <url>
-    <loc>https://familyroots.aipioneerlab.com/</loc>
+    <loc>https://ourfamroots.com/</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
@@ -12,14 +12,14 @@
 
   <!-- Auth pages — indexable, high value for acquisition -->
   <url>
-    <loc>https://familyroots.aipioneerlab.com/login</loc>
+    <loc>https://ourfamroots.com/login</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
 
   <url>
-    <loc>https://familyroots.aipioneerlab.com/register</loc>
+    <loc>https://ourfamroots.com/register</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
@@ -27,28 +27,28 @@
 
   <!-- Public informational pages -->
   <url>
-    <loc>https://familyroots.aipioneerlab.com/help</loc>
+    <loc>https://ourfamroots.com/help</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
 
   <url>
-    <loc>https://familyroots.aipioneerlab.com/contact</loc>
+    <loc>https://ourfamroots.com/contact</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
 
   <url>
-    <loc>https://familyroots.aipioneerlab.com/terms</loc>
+    <loc>https://ourfamroots.com/terms</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
 
   <url>
-    <loc>https://familyroots.aipioneerlab.com/privacy</loc>
+    <loc>https://ourfamroots.com/privacy</loc>
     <lastmod>2026-06-17</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>

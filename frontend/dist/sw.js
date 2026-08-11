@@ -1,18 +1,18 @@
-/* FamilyRoots Service Worker — handles Web Push notifications */
+/* OurFamRoots Service Worker — handles Web Push notifications */
 
 self.addEventListener('push', function (event) {
-  let payload = { title: 'FamilyRoots', body: '', data: {} };
+  let payload = { title: 'OurFamRoots', body: '', data: {} };
   try {
     if (event.data) payload = event.data.json();
   } catch (_) {}
 
-  const title = payload.title || 'FamilyRoots';
+  const title = payload.title || 'OurFamRoots';
   const options = {
     body: payload.body || '',
     icon: '/favicon.svg',
     badge: '/favicon.svg',
     data: payload.data || {},
-    tag: payload.data?.type || 'familyroots',
+    tag: payload.data?.type || 'ourfamroots',
     renotify: true,
   };
 

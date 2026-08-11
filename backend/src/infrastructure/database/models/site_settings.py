@@ -37,3 +37,15 @@ class SiteSettingsModel(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+    # Site-wide announcement banner — independent of maintenance mode (see
+    # 0053_site_banner.py): a non-blocking, time-bounded informational message.
+    banner_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    banner_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    banner_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    banner_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Hex colors (e.g. "#4f46e5"); null means "use the frontend's built-in default".
+    banner_bg_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    banner_text_color: Mapped[str | None] = mapped_column(String(7), nullable=True)

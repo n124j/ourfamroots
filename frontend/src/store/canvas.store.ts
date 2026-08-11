@@ -62,6 +62,9 @@ interface CanvasStore {
   isPdfMode: boolean;
   setIsPdfMode: (v: boolean) => void;
 
+  showOtherRelationships: boolean;
+  setShowOtherRelationships: (v: boolean) => void;
+
   reset: () => void;
 }
 
@@ -78,6 +81,7 @@ const initialState = {
   toggleExpand: null,
   layoutResetKey: 0,
   isPdfMode: false,
+  showOtherRelationships: false,
 };
 
 export const useCanvasStore = create<CanvasStore>()(
@@ -97,6 +101,7 @@ export const useCanvasStore = create<CanvasStore>()(
       setToggleExpand: (fn) => set({ toggleExpand: fn }),
       bumpLayoutReset: () => set((s) => ({ layoutResetKey: s.layoutResetKey + 1 })),
       setIsPdfMode: (v) => set({ isPdfMode: v }),
+      setShowOtherRelationships: (v) => set({ showOtherRelationships: v }),
       setSetSelectedPersonId: (_fn) => {
         // The store itself manages selectedPersonId; this is a no-op stub.
         // PersonNode calls useCanvasStore((s) => s.setSelectedPersonId) directly.

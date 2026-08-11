@@ -466,7 +466,7 @@ function LandingNav({ onSignIn, onSignUp }: { onSignIn: () => void; onSignUp: ()
 
   return (
     <header className={[
-      'fixed top-0 inset-x-0 z-50 transition-all duration-300',
+      'fixed top-[var(--site-banner-height,0px)] inset-x-0 z-50 transition-all duration-300',
       scrolled ? 'bg-white/95 backdrop-blur shadow-sm border-b border-gray-100' : 'bg-transparent',
     ].join(' ')}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">

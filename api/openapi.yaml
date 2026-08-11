@@ -229,7 +229,11 @@ components:
 
     RelationshipType:
       type: string
-      enum: [SPOUSE, PARTNER, GODPARENT, GUARDIAN, MENTOR, CUSTOM]
+      enum: [GODPARENT, GUARDIAN, MENTOR, CUSTOM]
+      description: |
+        Deliberately excludes SPOUSE/PARTNER — those are already modeled by
+        the family-group union graph (see UnionType); a second, disconnected
+        way to record the same fact would be confusing.
 
     EventType:
       type: string
@@ -315,6 +319,37 @@ components:
         message:
           type: string
           example: "Must be one of: MALE, FEMALE, OTHER, UNKNOWN"
+
+    # ── Site Settings ─────────────────────────────────────────
+    BannerConfig:
+      type: object
+      required: [banner_enabled]
+      properties:
+        banner_enabled:
+          type: boolean
+        banner_message:
+          type: string
+          nullable: true
+        banner_starts_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null means no lower bound — active as soon as enabled
+        banner_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null means no upper bound — active until disabled
+        banner_bg_color:
+          type: string
+          nullable: true
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          description: Background color as a 6-digit hex code. Null means use the built-in default.
+        banner_text_color:
+          type: string
+          nullable: true
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          description: Text color as a 6-digit hex code. Null means use the built-in default.
 
     # ── Pagination ──────────────────────────────────────────
     Pagination:
@@ -841,47 +876,58 @@ components:
 
     Relationship:
       type: object
-      required: [id, person1Id, person2Id, relationshipType, confidenceLevel, createdAt]
+      description: |
+        A social relationship between two people, independent of the
+        parent-child/spouse family-group graph — a person can hold one of
+        these alongside biological parents, since it's a separate table
+        (backend src/api/v1/relationships.py).
+      required: [id, person1_id, person2_id, relationship_type, created_at]
       properties:
         id:
           type: string
           format: uuid
-        person1Id:
+        person1_id:
           type: string
           format: uuid
-        person2Id:
+          description: The person holding the role (e.g. the Godparent, Guardian, or Mentor)
+        person2_id:
           type: string
           format: uuid
-        relationshipType:
+          description: The other person (e.g. the Godchild, Ward, or Mentee)
+        relationship_type:
           $ref: "#/components/schemas/RelationshipType"
+        custom_label:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: Required when relationship_type is CUSTOM; ignored otherwise
         notes:
           type: string
           nullable: true
-        confidenceLevel:
-          $ref: "#/components/schemas/ConfidenceLevel"
-        createdAt:
+        created_at:
           type: string
           format: date-time
 
     CreateRelationshipRequest:
       type: object
-      required: [person1Id, person2Id, relationshipType]
+      required: [person1_id, person2_id, relationship_type]
       properties:
-        person1Id:
+        person1_id:
           type: string
           format: uuid
-        person2Id:
+        person2_id:
           type: string
           format: uuid
-        relationshipType:
+        relationship_type:
           $ref: "#/components/schemas/RelationshipType"
+        custom_label:
+          type: string
+          maxLength: 100
+          nullable: true
         notes:
           type: string
           maxLength: 2000
           nullable: true
-        confidenceLevel:
-          $ref: "#/components/schemas/ConfidenceLevel"
-          default: UNVERIFIED
 
     # ── Place ────────────────────────────────────────────────
     Place:
@@ -3561,42 +3607,37 @@ paths:
       tags: [Relationships]
       operationId: listRelationships
       summary: List non-family-group relationships in a tree
+      description: Requires tree membership (any role, including VIEWER).
       parameters:
-        - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/cursor"
-        - name: personId
+        - name: person_id
           in: query
           schema:
             type: string
             format: uuid
-          description: Filter relationships involving this person
-        - name: type
-          in: query
-          schema:
-            $ref: "#/components/schemas/RelationshipType"
+          description: Filter to relationships where this person is person1 or person2
       responses:
         "200":
-          description: List of relationships
+          description: Relationships in the tree (unpaginated — this table stays small per tree)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Relationship"
-                  pagination:
-                    $ref: "#/components/schemas/Pagination"
+                type: array
+                items:
+                  $ref: "#/components/schemas/Relationship"
         "401":
           $ref: "#/components/responses/401Unauthorized"
         "403":
-          $ref: "#/components/responses/403Forbidden"
+          description: Not a member of this tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
     post:
       tags: [Relationships]
       operationId: createRelationship
       summary: Create a non-family-group relationship
+      description: Requires EDITOR role or higher (see ACTION_MIN_ROLE[ADD_RELATIONSHIP]).
       requestBody:
         required: true
         content:
@@ -3611,13 +3652,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/Relationship"
         "400":
-          $ref: "#/components/responses/400BadRequest"
+          description: |
+            person1_id equals person2_id, relationship_type isn't one of the
+            enum values, or relationship_type is CUSTOM with a blank/missing custom_label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/401Unauthorized"
         "403":
-          $ref: "#/components/responses/403Forbidden"
+          description: Not a member of this tree, or role below EDITOR
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: One or both persons were not found in this tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
-          description: This relationship pair already exists
+          description: A relationship with this exact (person1_id, person2_id, relationship_type) already exists
           content:
             application/json:
               schema:
@@ -3636,13 +3693,18 @@ paths:
       tags: [Relationships]
       operationId: deleteRelationship
       summary: Delete a relationship
+      description: Requires EDITOR role or higher (see ACTION_MIN_ROLE[REMOVE_RELATIONSHIP]).
       responses:
         "204":
-          description: Relationship deleted
+          description: Relationship deleted — no body
         "401":
           $ref: "#/components/responses/401Unauthorized"
         "403":
-          $ref: "#/components/responses/403Forbidden"
+          description: Not a member of this tree, or role below EDITOR
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/404NotFound"
 
@@ -4876,6 +4938,101 @@ paths:
                 properties:
                   maintenance_mode:    { type: boolean }
                   maintenance_message: { type: string }
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+# ============================================================
+# Site Settings — Announcement Banner
+# ============================================================
+#
+# Independent of maintenance mode: non-blocking (the site stays fully
+# usable) and optionally time-bounded via banner_starts_at/banner_ends_at.
+# Both live on the same site_settings singleton row but are otherwise
+# unrelated settings.
+
+  /site-settings/banner:
+    get:
+      tags: [Site Settings]
+      operationId: getBannerStatus
+      summary: Get the current announcement banner status
+      description: |
+        Returns whether the announcement banner is currently active — i.e.
+        banner_enabled is true AND the current time (if any bounds are set)
+        falls within [banner_starts_at, banner_ends_at). `message`, `bg_color`
+        and `text_color` are only populated when `active` is true. Public —
+        no authentication required, since logged-out visitors see the banner
+        too. `bg_color`/`text_color` are null when no custom color is
+        configured — the frontend falls back to its own built-in defaults.
+      security: []
+      responses:
+        "200":
+          description: Current banner status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:     { type: boolean }
+                  message:    { type: string, nullable: true }
+                  bg_color:   { type: string, nullable: true, pattern: "^#[0-9A-Fa-f]{6}$" }
+                  text_color: { type: string, nullable: true, pattern: "^#[0-9A-Fa-f]{6}$" }
+
+    put:
+      tags: [Site Settings]
+      operationId: updateBanner
+      summary: Update the announcement banner (Super Admin only)
+      description: |
+        Patch-style update — omitted fields are left unchanged. Set
+        `clear_schedule: true` to reset both banner_starts_at and
+        banner_ends_at to null (unbounded toggle) in one call, since a plain
+        null in those fields is otherwise ambiguous with "leave unchanged".
+        Likewise, set `reset_colors: true` to clear both banner_bg_color and
+        banner_text_color back to null (built-in defaults) in one call.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                banner_enabled:    { type: boolean, nullable: true }
+                banner_message:    { type: string, nullable: true, maxLength: 2000 }
+                banner_starts_at:  { type: string, format: date-time, nullable: true }
+                banner_ends_at:    { type: string, format: date-time, nullable: true }
+                clear_schedule:    { type: boolean, default: false }
+                banner_bg_color:   { type: string, nullable: true, pattern: "^#[0-9A-Fa-f]{6}$" }
+                banner_text_color: { type: string, nullable: true, pattern: "^#[0-9A-Fa-f]{6}$" }
+                reset_colors:      { type: boolean, default: false }
+      responses:
+        "200":
+          description: Updated banner configuration (raw fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BannerConfig"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /site-settings/banner/config:
+    get:
+      tags: [Site Settings]
+      operationId: getBannerConfig
+      summary: Get the raw announcement banner configuration (Super Admin only)
+      description: |
+        Unlike GET /site-settings/banner (which returns the computed
+        "is it active right now" view for display), this returns the raw
+        enabled flag and schedule bounds, for populating the admin edit form.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Raw banner configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BannerConfig"
         "403":
           $ref: "#/components/responses/403Forbidden"
 

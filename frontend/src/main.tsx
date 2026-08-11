@@ -17,6 +17,8 @@ import { HelmetProvider } from 'react-helmet-async';
 import { AppRouter } from './router';
 import { initAuth } from './store/auth.store';
 import { checkMaintenanceStatus } from './store/maintenance.store';
+import { checkBannerStatus } from './store/banner.store';
+import { SiteBanner } from './shared/components/layout/SiteBanner';
 import './i18n';
 import './index.css';
 
@@ -42,13 +44,14 @@ const queryClient = new QueryClient({
 // ── Boot sequence ──────────────────────────────────────────────────────────
 
 async function boot() {
-  // Recover session + check maintenance status before first render
-  await Promise.all([initAuth(), checkMaintenanceStatus()]);
+  // Recover session + check maintenance/banner status before first render
+  await Promise.all([initAuth(), checkMaintenanceStatus(), checkBannerStatus()]);
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <HelmetProvider>
         <QueryClientProvider client={queryClient}>
+          <SiteBanner />
           <AppRouter />
           {import.meta.env.VITE_ENABLE_DEVTOOLS === 'true' && (
             <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />

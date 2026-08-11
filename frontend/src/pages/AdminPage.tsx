@@ -9,6 +9,7 @@ import { SEO } from '@shared/components/SEO';
 import { UserAvatar } from '@shared/components/UserAvatar';
 import { SearchableCombobox } from '@shared/components/SearchableCombobox';
 import { MemberChips } from '@shared/components/MemberChips';
+import { BannerPanel } from '@features/admin/BannerPanel';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const PAGE_SIZE = 25;
@@ -2676,7 +2677,12 @@ export default function AdminPage() {
       {activeTab === 'global' && isSuperAdmin && <GlobalTreesPanel token={accessToken} />}
       {activeTab === 'subscriptions' && isSuperAdmin && <SubscriptionsPanel token={accessToken} />}
       {activeTab === 'broadcast' && isSuperAdmin && <BroadcastPanel token={accessToken} />}
-      {activeTab === 'site' && isSuperAdmin && <MaintenancePanel token={accessToken} />}
+      {activeTab === 'site' && isSuperAdmin && (
+        <>
+          <MaintenancePanel token={accessToken} />
+          <BannerPanel token={accessToken} />
+        </>
+      )}
       {activeTab === 'users' && (<>
 
       {/* Users tab header actions */}

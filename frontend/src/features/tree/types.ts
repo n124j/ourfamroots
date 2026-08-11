@@ -126,6 +126,17 @@ export interface ParentChildEdgeData {
   isHighlighted?: boolean;
 }
 
+/**
+ * Edge between two Persons for a non-family-group relationship
+ * (Godparent/Guardian/Mentor/Custom) — a pure visual overlay computed
+ * after layout, never fed into the layout algorithm (see RelationshipEdge.tsx).
+ */
+export interface RelationshipEdgeData {
+  kind: 'relationship';
+  relationshipType: RelationshipType;
+  label: string;
+}
+
 // ── React Flow node / edge aliases ─────────────────────────────────────────
 
 export type PersonRFNode = Node<PersonNodeData, 'person'>;
@@ -134,7 +145,8 @@ export type TreeNode = PersonRFNode | FamilyGroupRFNode;
 
 export type UnionRFEdge = Edge<UnionEdgeData>;
 export type ParentChildRFEdge = Edge<ParentChildEdgeData>;
-export type TreeEdge = UnionRFEdge | ParentChildRFEdge;
+export type RelationshipRFEdge = Edge<RelationshipEdgeData>;
+export type TreeEdge = UnionRFEdge | ParentChildRFEdge | RelationshipRFEdge;
 
 // ── API response shape (mirrors backend schemas) ───────────────────────────
 
@@ -188,12 +200,34 @@ export interface ApiFamilyGroup {
 
 export interface ApiTreeGraph {
   treeId: string;
+  treeName?: string;
   isGloballyShared?: boolean;
   draftOfTreeId?: string;
   /** Set when viewing someone else's draft as the original tree's owner, mid-review. */
   reviewChangeRequestId?: string;
   persons: ApiPerson[];
   familyGroups: ApiFamilyGroup[];
+}
+
+// ── Non-family-group relationships (Godparent/Guardian/Mentor/Custom) ──────
+//
+// Independent of the parent-child/spouse family-group graph above — a
+// person can hold one of these alongside biological parents, since it's a
+// completely separate table (see backend src/api/v1/relationships.py).
+// Field names are kept snake_case, unlike ApiPerson/ApiFamilyGroup above:
+// this endpoint returns the wire format directly rather than the
+// hand-built camelCase dict /trees/{id}/graph constructs.
+
+export type RelationshipType = 'GODPARENT' | 'GUARDIAN' | 'MENTOR' | 'CUSTOM';
+
+export interface ApiRelationship {
+  id: string;
+  person1_id: string;
+  person2_id: string;
+  relationship_type: RelationshipType;
+  custom_label: string | null;
+  notes: string | null;
+  created_at: string;
 }
 
 // ── Layout algorithm input/output ──────────────────────────────────────────

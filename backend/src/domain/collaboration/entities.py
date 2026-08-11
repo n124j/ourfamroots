@@ -109,6 +109,7 @@ class AuditEntityType(str, Enum):
     MERGE_REQUEST   = "MERGE_REQUEST"
     CHANGE_REQUEST  = "CHANGE_REQUEST"
     SECTION_VISIBILITY_RULE = "SECTION_VISIBILITY_RULE"
+    RELATIONSHIP    = "RELATIONSHIP"
 
 
 # ── Permission matrix ─────────────────────────────────────────────────────────

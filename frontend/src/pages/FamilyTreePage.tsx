@@ -17,9 +17,12 @@ import { useAuthStore } from '@store/auth.store';
 import { queryKeys } from '@queries/keys';
 import { apiClient, get, post, put, patch, del } from '@api/client';
 import axios from 'axios';
-import type { ApiTreeGraph } from '@features/tree/types';
+import type { ApiTreeGraph, ApiRelationship } from '@features/tree/types';
 import { AuditLogModal } from '@features/audit/AuditLogModal';
 import { ChangeRequestReviewModal, type ChangeRequestDiff } from '@features/changeRequests/ChangeRequestReviewModal';
+import { RelationshipSection } from '@features/tree/relationships/RelationshipSection';
+import { AddRelationshipModal } from '@features/tree/relationships/AddRelationshipModal';
+import { fetchRelationships, deleteRelationship } from '@features/tree/relationships/api';
 
 /** Extracts the backend's `detail` message from an axios error, falling back otherwise. */
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -1860,10 +1863,15 @@ interface PersonProfileModalProps {
   treeId: string;
   token: string | null;
   graph: import('@features/tree/types').ApiTreeGraph | null;
+  relationships: import('@features/tree/types').ApiRelationship[];
+  canWrite: boolean;
+  onRelationshipsChanged: () => void;
   onClose: () => void;
 }
 
-function PersonProfileModal({ initialPersonId, treeId, token, graph, onClose }: PersonProfileModalProps) {
+function PersonProfileModal({
+  initialPersonId, treeId, token, graph, relationships, canWrite, onRelationshipsChanged, onClose,
+}: PersonProfileModalProps) {
   const { t } = useTranslation();
   // Navigation history within the modal — allows clicking relatives to browse
   const [history, setHistory] = useState<string[]>([initialPersonId]);
@@ -1874,6 +1882,14 @@ function PersonProfileModal({ initialPersonId, treeId, token, graph, onClose }: 
   const [fetchErr, setFetchErr] = useState('');
   const [profileGallery, setProfileGallery] = useState<GalleryPhoto[]>([]);
   const [profileHoveredGallery, setProfileHoveredGallery] = useState<string | null>(null);
+  const [showAddRelationship, setShowAddRelationship] = useState(false);
+
+  async function handleRemoveRelationship(relationshipId: string) {
+    try {
+      await deleteRelationship(treeId, relationshipId);
+      onRelationshipsChanged();
+    } catch { /* swallow — relationship list simply won't update */ }
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -1901,6 +1917,11 @@ function PersonProfileModal({ initialPersonId, treeId, token, graph, onClose }: 
     graph?.persons.forEach((p) => { m[p.id] = p; });
     return m;
   }, [graph]);
+
+  const relationshipCandidates = useMemo(
+    () => (graph?.persons ?? []).filter((p) => p.id !== personId),
+    [graph, personId],
+  );
 
   const navigateTo  = (id: string) => setHistory((h) => [...h, id]);
   const navigateBack = () => setHistory((h) => h.length > 1 ? h.slice(0, -1) : h);
@@ -1975,6 +1996,7 @@ function PersonProfileModal({ initialPersonId, treeId, token, graph, onClose }: 
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -2140,11 +2162,34 @@ function PersonProfileModal({ initialPersonId, treeId, token, graph, onClose }: 
                 )}
               </div>
 
+              {/* Other relationships — Godparent/Guardian/Mentor/Custom */}
+              <RelationshipSection
+                personId={personId}
+                relationships={relationships}
+                personMap={graphPersonMap}
+                nameMap={nameMap}
+                canWrite={canWrite}
+                onNavigate={navigateTo}
+                onAdd={() => setShowAddRelationship(true)}
+                onRemove={handleRemoveRelationship}
+              />
+
             </div>
           )}
         </div>
       </div>
     </div>
+    {showAddRelationship && (
+      <AddRelationshipModal
+        treeId={treeId}
+        anchorPersonId={personId}
+        anchorName={fullName}
+        candidates={relationshipCandidates}
+        onClose={() => setShowAddRelationship(false)}
+        onAdded={() => { setShowAddRelationship(false); onRelationshipsChanged(); }}
+      />
+    )}
+    </>
   );
 }
 
@@ -3484,6 +3529,13 @@ export default function FamilyTreePage() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: relationships, refetch: refetchRelationships } = useQuery({
+    queryKey: queryKeys.trees.relationships(treeId ?? ''),
+    queryFn:  () => fetchRelationships(treeId ?? ''),
+    enabled:  !!treeId && !!accessToken,
+    staleTime: 60_000,
+  });
+
   const userRole = (graph as any)?.userRole as string | undefined;
   const isGloballyShared = !!graph?.isGloballyShared;
   const isOwner = userRole === 'OWNER';
@@ -3493,6 +3545,20 @@ export default function FamilyTreePage() {
     const cr = searchParams.get('changeRequest');
     if (cr) setReviewRequestId(cr);
   }, [searchParams]);
+
+  // Jump straight to a person (e.g. from ProfilePage's "View in tree" link)
+  // and select/scroll to them once the graph and canvas nodes are ready.
+  useEffect(() => {
+    const focusId = searchParams.get('focusPerson');
+    if (!focusId || !graph?.persons.some((p) => p.id === focusId)) return;
+    useCanvasStore.getState().setSelectedPersonId(focusId);
+    setPanelPersonId(focusId);
+    setTimeout(() => canvasRef.current?.scrollToNode(focusId), 150);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('focusPerson');
+    setSearchParams(next, { replace: true });
+  }, [graph, searchParams, setSearchParams]);
 
   const { data: pendingChangeRequests, refetch: refetchPending } = useQuery({
     queryKey: ['change-requests', treeId, 'PENDING'],
@@ -3611,14 +3677,14 @@ export default function FamilyTreePage() {
     handlePanelClose();
   }
 
-  const treeName        = (graph as any)?.treeName ?? 'Family Tree';
+  const treeName        = graph?.treeName ?? 'Family Tree';
   const treeDescription = (graph as any)?.treeDescription ?? null;
   const personCount     = graph?.persons.length ?? 0;
 
   const canWrite        = userRole !== 'VIEWER' && (!isGloballyShared || isOwner);
 
   return (
-    <div className="fixed inset-0 flex flex-col">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--site-banner-height,0px)] flex flex-col">
       <SEO
         title={treeName}
         description={treeDescription ?? `Explore the ${treeName} family tree — ${personCount} people across multiple generations.`}
@@ -3670,6 +3736,7 @@ export default function FamilyTreePage() {
             setUnionChildFgId(fgId);
           }}
           diffStatusMap={diffStatusMap}
+          relationships={relationships}
         />
 
         {searchOpen && (() => {
@@ -3881,6 +3948,9 @@ export default function FamilyTreePage() {
           treeId={treeId ?? ''}
           token={accessToken}
           graph={graph ?? null}
+          relationships={relationships ?? []}
+          canWrite={canWrite}
+          onRelationshipsChanged={() => refetchRelationships()}
           onClose={() => setShowProfile(false)}
         />
       )}

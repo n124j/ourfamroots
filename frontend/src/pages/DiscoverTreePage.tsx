@@ -99,7 +99,7 @@ export default function DiscoverTreePage() {
   const personCount = ((graph as any).persons || []).length;
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-surface-muted">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--site-banner-height,0px)] flex flex-col bg-surface-muted">
       <SEO title={`${treeName} — Discover`} description={`Explore the ${treeName} family tree on OurFamRoots.`} />
 
       {/* Top bar */}

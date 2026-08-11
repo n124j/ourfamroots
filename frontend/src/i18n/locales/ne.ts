@@ -82,6 +82,11 @@ const ne = {
     siteSettings: 'साइट सेटिङ',
   },
 
+  // ── Site-wide announcement banner (user-facing, independent of maintenance) ──
+  siteBanner: {
+    dismiss: 'यो घोषणा हटाउनुहोस्',
+  },
+
   // ── Notification items ──────────────────────────────────────────────
   notif: {
     accept: 'स्वीकार गर्नुहोस्',
@@ -581,6 +586,8 @@ const ne = {
   // ── Profile page ──
   profilePage: {
     backToTree: '← वंशावलीमा फर्कनुहोस्',
+    backToResults: '← परिणामहरूमा फर्कनुहोस्',
+    treeLink: '{{name}} मा हेर्नुहोस्',
     male: 'पुरुष',
     female: 'महिला',
     other: 'अन्य',
@@ -1034,6 +1041,25 @@ const ne = {
     motd: 'मर्मत सम्भार सन्देश',
     motdPlaceholder: 'मर्मत सम्भार पृष्ठमा देखाइने सन्देश…',
     saveSettings: 'सेटिङ सुरक्षित गर्नुहोस्',
+    banner: 'घोषणा ब्यानर',
+    bannerDesc: 'सबै आगन्तुकहरूका लागि हरेक पृष्ठको माथि हटाउन मिल्ने सन्देश देखाउँछ, वैकल्पिक रूपमा तोकिएको समयावधिमा मात्र। मर्मत सम्भार मोडको विपरीत, साइट पूर्ण रूपमा प्रयोगयोग्य रहन्छ।',
+    bannerMessage: 'ब्यानर सन्देश',
+    bannerMessagePlaceholder: 'जस्तै: शुक्रबार बिहान २-४ बजे UTC मा हामी तोकिएको मर्मत सम्भार गर्नेछौं।',
+    bannerSchedule: 'तालिका (वैकल्पिक)',
+    bannerScheduleDesc: 'सक्षम रहेसम्म ब्यानर देखाउन दुवै खाली छोड्नुहोस्। समयहरू तपाईंको स्थानीय समय क्षेत्रमा देखाइन्छ।',
+    bannerStartsAt: 'सुरु हुने समय',
+    bannerEndsAt: 'समाप्त हुने समय',
+    clearSchedule: 'तालिका खाली गर्नुहोस्',
+    bannerColors: 'रङहरू',
+    bannerBgColor: 'पृष्ठभूमि रङ',
+    bannerTextColor: 'पाठ रङ',
+    resetColors: 'पूर्वनिर्धारितमा रिसेट गर्नुहोस्',
+    bannerStatus: {
+      off: 'बन्द',
+      scheduled: 'तालिकाबद्ध',
+      active: 'अहिले सक्रिय',
+      expired: 'समाप्त',
+    },
     step1Label: '१. नाम र वंशावली छान्नुहोस्',
     step2Label: '२. पिभोट व्यक्ति छान्नुहोस्',
     step3Label: '३. सम्पन्न',
@@ -1686,6 +1712,24 @@ const ne = {
     siblings: 'दाजुभाइ/दिदीबहिनीहरू',
     noRelationshipsYet: 'अहिलेसम्म कुनै सम्बन्ध रेकर्ड गरिएको छैन।',
     failedToLoadProfile: 'प्रोफाइल लोड गर्न असफल',
+    // Other relationships (Godparent/Guardian/Mentor/Custom)
+    otherRelationships: 'अन्य सम्बन्धहरू',
+    addRelationship: 'सम्बन्ध थप्नुहोस्',
+    relationshipType: 'सम्बन्ध',
+    customRelationship: 'अनुकूलित सम्बन्ध',
+    customLabel: 'लेबल',
+    customLabelPlaceholder: 'जस्तै, व्यापार साझेदार',
+    customLabelRequired: 'यो अनुकूलित सम्बन्धको लागि लेबल लेख्नुहोस्',
+    notesOptional: 'टिप्पणी (वैकल्पिक)',
+    removeOtherRelationship: 'सम्बन्ध हटाउनुहोस्',
+    noOtherRelationships: 'अहिलेसम्म कुनै अन्य सम्बन्ध रेकर्ड गरिएको छैन।',
+    failedToAddRelationship: 'सम्बन्ध थप्न असफल',
+    godparentOf: 'को गॉडप्यारेन्ट',
+    godchildOf: 'को गॉडचाइल्ड',
+    guardianOf: 'को अभिभावक',
+    wardOf: 'को वार्ड',
+    mentorOf: 'को मेन्टर',
+    menteeOf: 'को मेन्टी',
     // Edge/relationship panel
     relationshipTitle: 'सम्बन्ध',
     link: 'लिङ्क',

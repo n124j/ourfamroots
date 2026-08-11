@@ -176,6 +176,17 @@ This user automatically receives the `SUPER_ADMIN` role on login and gets:
 - **Full visibility** — can see all trees and all users across every namespace
 - **Namespace management** — can create additional namespaces and invite Global-namespace users into them (Admin Dashboard → Namespaces)
 - **Maintenance mode** — can toggle the site to "Under Construction" with a custom message (Admin Dashboard → Site Settings)
+- **Announcement banner** — a dismissible message shown at the top of every page to every
+  visitor (including logged-out ones), independent of maintenance mode — the site stays fully
+  usable (Admin Dashboard → Site Settings). Optionally scoped to a start/end time window (e.g.
+  "we'll be down 2-4am UTC Friday"); outside that window, or with no schedule set and the
+  toggle off, nothing is shown. The banner re-checks every 60 seconds so it appears/disappears
+  on its own as the scheduled window opens or closes, without requiring a page reload.
+  Dismissing it is a "not right now" for that page load only — it's not remembered anywhere,
+  so it shows again on the visitor's next reload/visit for as long as it's still active.
+  Background and text colors are customizable per-banner (hex color pickers, with a live
+  preview and a one-click reset to the built-in defaults); left unset, it uses the default
+  indigo/white styling.
 - **Broadcast email** — can compose and send emails to all users or selected recipients (Admin Dashboard → Broadcast), with full history tracking
 - Users can unsubscribe from broadcast emails in Settings → Notifications
 
@@ -404,6 +415,37 @@ the dev server. No core files need to change. See `frontend/src/extensions/views
 
 Backend extension hooks (for views needing server-side support) go in
 `backend/extensions/views/`. Currently unused — all views are frontend-only.
+
+#### Other Relationships (Godparent / Guardian / Mentor / Custom)
+
+Independent of the parent-child/spouse family-group graph — which stays exclusive (a
+person can only ever have one set of parents, biological or otherwise) — a person's
+profile has an **Other Relationships** section for social roles that don't fit that
+graph: **Godparent/Godchild**, **Guardian/Ward**, **Mentor/Mentee**, or a free-text
+**Custom** label. These coexist freely with biological parents, adoptive parents, or
+nothing at all, since they're stored in a completely separate table.
+
+- **Add:** from a person's profile, click **+ Add relationship**, pick the other person
+  (search by name) and a role — each role has a forward and reverse direction (e.g.
+  "Godparent of" vs. "Godchild of") so you can record it from either person's side.
+  Custom relationships require a short label (e.g. "Business Partner").
+- **View:** each person's profile shows their relationships from both directions —
+  e.g. if Alice is recorded as Bob's Godparent, Alice's profile shows "Godparent of Bob"
+  and Bob's profile shows "Godchild of Alice".
+- **Remove:** click the × next to a relationship on either person's profile.
+- Requires EDITOR role or higher on the tree; VIEWERs can see relationships but not
+  add or remove them.
+- **On the canvas:** these relationships can also be drawn as a line directly on the
+  tree, alongside the marriage/parent-child lines. Click the two-people-with-a-dashed-line
+  icon in the canvas toolbar to toggle them on — **off by default**, since a large tree
+  can have thousands of people and Godparent/Godchild pairs are often on opposite
+  branches, so the lines can get long and cross the chart. Toggling shows/hides the
+  overlay only — it never changes anyone's position, since these relationships play no
+  part in how the tree is laid out (only blood/marriage relationships do). A line only
+  appears once **both** people are currently visible on the canvas — e.g. it stays
+  hidden if either person is inside a collapsed branch, and the Fan Chart layout shows
+  no lines of any kind by design. The legend picks up a matching "Other Relationships"
+  entry whenever the toggle is on and at least one line is currently showing.
 
 #### Import / Export (.ofr)
 

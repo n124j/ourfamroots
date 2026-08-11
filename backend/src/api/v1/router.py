@@ -18,6 +18,7 @@ from src.api.v1.push import router as push_router
 from src.api.v1.oauth import router as oauth_router
 from src.api.v1.permission_groups import router as permission_groups_router
 from src.api.v1.persons import router as persons_router
+from src.api.v1.relationships import router as relationships_router
 from src.api.v1.search import router as search_router
 from src.api.v1.site_settings import router as site_settings_router
 from src.api.v1.subscriptions import admin_router as subscriptions_admin_router
@@ -32,6 +33,7 @@ v1_router.include_router(oauth_router)
 v1_router.include_router(contact_router)
 v1_router.include_router(users_router)
 v1_router.include_router(persons_router)
+v1_router.include_router(relationships_router)
 v1_router.include_router(collaboration_router)
 v1_router.include_router(change_requests_router)
 v1_router.include_router(discovery_router)

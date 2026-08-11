@@ -97,6 +97,16 @@ const FitIcon = () => (
   </svg>
 );
 
+// Two people connected by a dashed line — toggles "Other Relationships"
+// (Godparent/Guardian/Mentor/Custom) canvas overlay.
+const OtherRelationshipsIcon = () => (
+  <svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+    <circle cx="2.5" cy="5" r="2" />
+    <circle cx="13.5" cy="5" r="2" />
+    <line x1="4.5" y1="5" x2="11.5" y2="5" strokeDasharray="2 1.5" />
+  </svg>
+);
+
 // ── Generation sort icon (pyramid: 1 node → 2 nodes → 3 nodes) ───────────
 const GenerationSortIcon = () => (
   <svg width="14" height="13" viewBox="0 0 14 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
@@ -265,6 +275,8 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
   const bumpLayoutReset = useCanvasStore((s) => s.bumpLayoutReset);
   const viewStyle       = useCanvasStore((s) => s.viewStyle);
   const setViewStyle    = useCanvasStore((s) => s.setViewStyle);
+  const showOtherRelationships    = useCanvasStore((s) => s.showOtherRelationships);
+  const setShowOtherRelationships = useCanvasStore((s) => s.setShowOtherRelationships);
 
   // Subscription-gated views: "default" is always free for everyone and is
   // never gated. Every other view — including the "heritage" builtin, which
@@ -393,6 +405,15 @@ export const TreeControls = memo(({ graph, onExpandAll, onCollapseAll }: TreeCon
         active={layoutMode === 'compact' || layoutMode === 'compact-descendant-family' || layoutMode === 'compact-ancestor-family'}
       >
         <CompactViewIcon />
+      </CtrlBtn>
+
+      {/* Toggle "Other Relationships" (Godparent/Guardian/Mentor/Custom) lines */}
+      <CtrlBtn
+        onClick={() => setShowOtherRelationships(!showOtherRelationships)}
+        title={t('treeForm.otherRelationships')}
+        active={showOtherRelationships}
+      >
+        <OtherRelationshipsIcon />
       </CtrlBtn>
 
       {/* View styles (Default, Heritage) — Default is always free; Heritage is subscription-gated */}

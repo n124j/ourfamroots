@@ -82,6 +82,11 @@ const en = {
     siteSettings: 'Site Settings',
   },
 
+  // ── Site-wide announcement banner (user-facing, independent of maintenance) ──
+  siteBanner: {
+    dismiss: 'Dismiss this announcement',
+  },
+
   // ── Notification items ──────────────────────────────────────────────
   notif: {
     accept: 'Accept',
@@ -581,6 +586,8 @@ const en = {
   // ── Profile page ──
   profilePage: {
     backToTree: '← Back to tree',
+    backToResults: '← Back to results',
+    treeLink: 'View in {{name}}',
     male: 'Male',
     female: 'Female',
     other: 'Other',
@@ -1038,6 +1045,26 @@ const en = {
     motd: 'Maintenance message',
     motdPlaceholder: 'Message shown on the maintenance page…',
     saveSettings: 'Save settings',
+    // Announcement banner (independent of maintenance mode — non-blocking, time-bounded)
+    banner: 'Announcement banner',
+    bannerDesc: 'Shows a dismissible message at the top of every page for all visitors, optionally only during a scheduled time window. Unlike maintenance mode, the site stays fully usable.',
+    bannerMessage: 'Banner message',
+    bannerMessagePlaceholder: 'e.g. We will be performing scheduled maintenance from 2-4am UTC on Friday.',
+    bannerSchedule: 'Schedule (optional)',
+    bannerScheduleDesc: 'Leave both blank to show the banner for as long as it stays enabled. Times are shown in your local timezone.',
+    bannerStartsAt: 'Starts at',
+    bannerEndsAt: 'Ends at',
+    clearSchedule: 'Clear schedule',
+    bannerColors: 'Colors',
+    bannerBgColor: 'Background color',
+    bannerTextColor: 'Text color',
+    resetColors: 'Reset to default',
+    bannerStatus: {
+      off: 'Off',
+      scheduled: 'Scheduled',
+      active: 'Active now',
+      expired: 'Expired',
+    },
     // Merge steps
     step1Label: '1. Name & select trees',
     step2Label: '2. Choose pivot people',
@@ -1675,6 +1702,24 @@ const en = {
     siblings: 'Siblings',
     noRelationshipsYet: 'No relationships recorded yet.',
     failedToLoadProfile: 'Failed to load profile',
+    // Other relationships (Godparent/Guardian/Mentor/Custom)
+    otherRelationships: 'Other Relationships',
+    addRelationship: 'Add relationship',
+    relationshipType: 'Relationship',
+    customRelationship: 'Custom relationship',
+    customLabel: 'Label',
+    customLabelPlaceholder: 'e.g. Business Partner',
+    customLabelRequired: 'Enter a label for this custom relationship',
+    notesOptional: 'Notes (optional)',
+    removeOtherRelationship: 'Remove relationship',
+    noOtherRelationships: 'No other relationships recorded yet.',
+    failedToAddRelationship: 'Failed to add relationship',
+    godparentOf: 'Godparent of',
+    godchildOf: 'Godchild of',
+    guardianOf: 'Guardian of',
+    wardOf: 'Ward of',
+    mentorOf: 'Mentor of',
+    menteeOf: 'Mentee of',
     // Edge/relationship panel
     relationshipTitle: 'Relationship',
     link: 'link',

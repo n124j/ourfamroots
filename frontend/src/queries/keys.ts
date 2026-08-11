@@ -27,6 +27,7 @@ export const queryKeys = {
     members:     (treeId: string) => [...queryKeys.trees.all(), treeId, 'members'] as const,
     invitations: (treeId: string) => [...queryKeys.trees.all(), treeId, 'invitations'] as const,
     auditLog:    (treeId: string) => [...queryKeys.trees.all(), treeId, 'audit-log'] as const,
+    relationships: (treeId: string) => [...queryKeys.trees.all(), treeId, 'relationships'] as const,
   },
 
   // ── Persons ──────────────────────────────────────────────────────────────

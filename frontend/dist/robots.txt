@@ -33,4 +33,4 @@ Disallow: /api/
 # Crawl-delay for polite crawling
 Crawl-delay: 1
 
-Sitemap: https://familyroots.aipioneerlab.com/sitemap.xml
+Sitemap: https://ourfamroots.com/sitemap.xml
