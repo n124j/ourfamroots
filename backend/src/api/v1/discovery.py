@@ -92,7 +92,7 @@ class DiscoveryTreeResult(BaseModel):
     tree_name: str
     tree_description: Optional[str] = None
     owner_name: str
-    owner_id: str
+    owner_id: Optional[str] = None
     person_count: int
     matching_persons: list[MatchingPerson]
     is_member: bool
@@ -136,7 +136,7 @@ async def discovery_search(
             ft.id AS tree_id,
             ft.name AS tree_name,
             ft.description AS tree_description,
-            COALESCE(u.given_name || ' ' || u.family_name, u.email) AS owner_name,
+            COALESCE(u.given_name || ' ' || u.family_name, u.email, 'Unknown') AS owner_name,
             u.id AS owner_id,
             (SELECT COUNT(*) FROM persons pp WHERE pp.tree_id = ft.id AND pp.is_deleted = false) AS person_count,
             CASE WHEN tm.user_id IS NOT NULL THEN true ELSE false END AS is_member,
@@ -145,8 +145,14 @@ async def discovery_search(
                 ELSE 'tree_description'
             END AS match_source
         FROM family_trees ft
-        JOIN tree_members own ON own.tree_id = ft.id AND own.role = 'OWNER'
-        JOIN users u ON u.id = own.user_id
+        LEFT JOIN LATERAL (
+            SELECT tm2.user_id
+            FROM tree_members tm2
+            WHERE tm2.tree_id = ft.id
+            ORDER BY CASE tm2.role WHEN 'OWNER' THEN 0 WHEN 'ADMIN' THEN 1 WHEN 'EDITOR' THEN 2 ELSE 3 END
+            LIMIT 1
+        ) own ON true
+        LEFT JOIN users u ON u.id = own.user_id
         LEFT JOIN tree_members tm ON tm.tree_id = ft.id AND tm.user_id = :current_user_id
         WHERE ft.is_searchable = true
           AND ft.is_deleted = false
@@ -173,7 +179,7 @@ async def discovery_search(
             p.birth_year,
             ft.name AS tree_name,
             ft.description AS tree_description,
-            COALESCE(u.given_name || ' ' || u.family_name, u.email) AS owner_name,
+            COALESCE(u.given_name || ' ' || u.family_name, u.email, 'Unknown') AS owner_name,
             u.id AS owner_id,
             (SELECT COUNT(*) FROM persons pp WHERE pp.tree_id = ft.id AND pp.is_deleted = false) AS person_count,
             ts_rank_cd(p.search_vector, _tsq.v, 32) AS score,
@@ -181,8 +187,14 @@ async def discovery_search(
         FROM persons p
         CROSS JOIN _tsq
         JOIN family_trees ft ON ft.id = p.tree_id
-        JOIN tree_members own ON own.tree_id = ft.id AND own.role = 'OWNER'
-        JOIN users u ON u.id = own.user_id
+        LEFT JOIN LATERAL (
+            SELECT tm2.user_id
+            FROM tree_members tm2
+            WHERE tm2.tree_id = ft.id
+            ORDER BY CASE tm2.role WHEN 'OWNER' THEN 0 WHEN 'ADMIN' THEN 1 WHEN 'EDITOR' THEN 2 ELSE 3 END
+            LIMIT 1
+        ) own ON true
+        LEFT JOIN users u ON u.id = own.user_id
         LEFT JOIN tree_members tm ON tm.tree_id = ft.id AND tm.user_id = :current_user_id
         WHERE ft.is_searchable = true
           AND ft.is_deleted = false
@@ -209,7 +221,7 @@ async def discovery_search(
                 p.birth_year,
                 ft.name AS tree_name,
                 ft.description AS tree_description,
-                COALESCE(u.given_name || ' ' || u.family_name, u.email) AS owner_name,
+                COALESCE(u.given_name || ' ' || u.family_name, u.email, 'Unknown') AS owner_name,
                 u.id AS owner_id,
                 (SELECT COUNT(*) FROM persons pp WHERE pp.tree_id = ft.id AND pp.is_deleted = false) AS person_count,
                 greatest(
@@ -220,8 +232,14 @@ async def discovery_search(
                 CASE WHEN tm.user_id IS NOT NULL THEN true ELSE false END AS is_member
             FROM persons p
             JOIN family_trees ft ON ft.id = p.tree_id
-            JOIN tree_members own ON own.tree_id = ft.id AND own.role = 'OWNER'
-            JOIN users u ON u.id = own.user_id
+            LEFT JOIN LATERAL (
+                SELECT tm2.user_id
+                FROM tree_members tm2
+                WHERE tm2.tree_id = ft.id
+                ORDER BY CASE tm2.role WHEN 'OWNER' THEN 0 WHEN 'ADMIN' THEN 1 WHEN 'EDITOR' THEN 2 ELSE 3 END
+                LIMIT 1
+            ) own ON true
+            LEFT JOIN users u ON u.id = own.user_id
             LEFT JOIN tree_members tm ON tm.tree_id = ft.id AND tm.user_id = :current_user_id
             WHERE ft.is_searchable = true
               AND ft.is_deleted = false
@@ -252,7 +270,7 @@ async def discovery_search(
                 tree_name=r.tree_name,
                 tree_description=r.tree_description,
                 owner_name=r.owner_name,
-                owner_id=str(r.owner_id),
+                owner_id=str(r.owner_id) if r.owner_id else None,
                 person_count=r.person_count,
                 matching_persons=[],
                 is_member=r.is_member,
@@ -270,7 +288,7 @@ async def discovery_search(
                 tree_name=r.tree_name,
                 tree_description=r.tree_description,
                 owner_name=r.owner_name,
-                owner_id=str(r.owner_id),
+                owner_id=str(r.owner_id) if r.owner_id else None,
                 person_count=r.person_count,
                 matching_persons=[],
                 is_member=r.is_member,

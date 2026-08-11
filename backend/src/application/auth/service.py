@@ -26,6 +26,7 @@ from src.domain.exceptions import (
     ActiveSessionConflictError,
     AlreadyExistsError,
     InvalidCredentialsError,
+    NamespaceDeactivatedError,
     NotFoundError,
     TokenExpiredError,
     TokenInvalidError,
@@ -148,11 +149,18 @@ class AuthService:
                 await self._uow.users.update(user)
                 raise InvalidCredentialsError()
 
-            # 5. Check email verification
+            # 5. Check the user's namespace hasn't been deactivated. Checked only
+            # after password verification succeeds, so a wrong-password guess
+            # can't be used to probe whether a namespace is deactivated.
+            tenant = await self._uow.tenants.get_by_id(user.tenant_id)
+            if tenant is not None and not tenant.is_active:
+                raise NamespaceDeactivatedError(tenant.name)
+
+            # 6. Check email verification
             if not user.email_verified:
                 raise AccountNotVerifiedError()
 
-            # 6. Check for active sessions — require email verification
+            # 7. Check for active sessions — require email verification
             from src.config import get_settings
             settings = get_settings()
             if not settings.auto_verify_email:
@@ -165,7 +173,7 @@ class AuthService:
                     session_conflict = True
 
             if not session_conflict:
-                # 7. Auto-promote to SUPER_ADMIN if email matches config
+                # 8. Auto-promote to SUPER_ADMIN if email matches config
                 sa_email = settings.super_admin_email
                 if sa_email and user.email.lower() == sa_email.lower():
                     if user.app_role != "SUPER_ADMIN":
@@ -173,13 +181,13 @@ class AuthService:
                 elif user.app_role == "SUPER_ADMIN":
                     user.app_role = "ADMIN"
 
-                # 8. Reset failure counter, update last login
+                # 9. Reset failure counter, update last login
                 user.failed_login_attempts = 0
                 user.locked_until = None
                 user.last_login_at = datetime.now(tz=timezone.utc)
                 await self._uow.users.update(user)
 
-                # 9. Record login event
+                # 10. Record login event
                 await self._record_login_event(
                     user_id=user.id,
                     tenant_id=user.tenant_id,

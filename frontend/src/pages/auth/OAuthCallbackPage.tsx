@@ -40,9 +40,12 @@ export default function OAuthCallbackPage() {
 
     const accessToken = searchParams.get('access_token');
     const error       = searchParams.get('error');
+    const detail      = searchParams.get('detail');
 
     if (error || !accessToken) {
-      navigate(`/login?error=${error ?? 'oauth_failed'}`, { replace: true });
+      const params = new URLSearchParams({ error: error ?? 'oauth_failed' });
+      if (detail) params.set('detail', detail);
+      navigate(`/login?${params.toString()}`, { replace: true });
       return;
     }
 

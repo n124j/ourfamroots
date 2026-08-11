@@ -219,6 +219,96 @@ def account_unverified_by_admin_email(display_name: str) -> tuple[str, str]:
     return html, text
 
 
+def namespace_deactivated_email(display_name: str, namespace_name: str) -> tuple[str, str]:
+    """Email sent to every member of a namespace when a Super Admin deactivates it."""
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 8px;">'{namespace_name}' has been deactivated</h1>
+    <p style="color:#64748b;margin:0 0 6px;">Hi {display_name},</p>
+    <p style="color:#64748b;margin:0 0 24px;">
+      A Super Administrator has deactivated the <strong>{namespace_name}</strong> namespace.
+      You will not be able to sign in to OurFamRoots until it is reactivated.
+      Please contact your Super Administrator if you believe this is a mistake.
+    </p>
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"Hi {display_name},\n\n"
+        f"A Super Administrator has deactivated the '{namespace_name}' namespace.\n\n"
+        f"You will not be able to sign in to OurFamRoots until it is reactivated. "
+        f"Please contact your Super Administrator if you believe this is a mistake.\n"
+    )
+    return html, text
+
+
+def namespace_activated_email(display_name: str, namespace_name: str, login_url: str) -> tuple[str, str]:
+    """Email sent to every member of a namespace when a Super Admin reactivates it."""
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 8px;">'{namespace_name}' is active again 🎉</h1>
+    <p style="color:#64748b;margin:0 0 6px;">Hi {display_name},</p>
+    <p style="color:#64748b;margin:0 0 24px;">
+      A Super Administrator has reactivated the <strong>{namespace_name}</strong> namespace.
+      You can now sign in to OurFamRoots again.
+    </p>
+    <a href="{login_url}"
+       style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;
+              padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">
+      Sign in now
+    </a>
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"Hi {display_name},\n\n"
+        f"A Super Administrator has reactivated the '{namespace_name}' namespace.\n\n"
+        f"You can now sign in at:\n\n{login_url}\n"
+    )
+    return html, text
+
+
+def namespace_removed_email(display_name: str, namespace_name: str) -> tuple[str, str]:
+    """Email sent to a user when a Super Admin (or namespace ADMIN) removes them from a namespace."""
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f8fafc;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border:1px solid #e2e8f0;">
+    <h1 style="font-size:22px;font-weight:700;color:#1e293b;margin:0 0 8px;">You've been removed from '{namespace_name}'</h1>
+    <p style="color:#64748b;margin:0 0 6px;">Hi {display_name},</p>
+    <p style="color:#64748b;margin:0 0 24px;">
+      An administrator has removed your account from the <strong>{namespace_name}</strong> namespace.
+      You no longer have access to its trees or data. Your account is still active and has moved
+      back to the shared Global namespace — for security, you've been signed out everywhere and will
+      need to sign in again. If you believe this is a mistake, please contact your administrator.
+    </p>
+  </div>
+</body>
+</html>
+"""
+    text = (
+        f"Hi {display_name},\n\n"
+        f"An administrator has removed your account from the '{namespace_name}' namespace.\n\n"
+        f"You no longer have access to its trees or data. Your account is still active and has "
+        f"moved back to the shared Global namespace — for security, you've been signed out "
+        f"everywhere and will need to sign in again. If you believe this is a mistake, please "
+        f"contact your administrator.\n"
+    )
+    return html, text
+
+
 def tree_invitation_email(
     invitee_email: str,
     inviter_name: str,

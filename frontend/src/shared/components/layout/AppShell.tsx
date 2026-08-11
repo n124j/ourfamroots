@@ -494,10 +494,12 @@ export default function AppShell() {
         credentials: 'include',
       });
       if (res.ok) {
-        const data = await res.json();
-        setNotifications(data);
-        // Mark all as read
-        if (unreadCount > 0) {
+        const data: Notification[] = await res.json();
+        const hasUnread = data.some((n) => !n.is_read);
+        // Viewing the panel counts as reading it — reflect that immediately
+        // in the UI instead of waiting for the next fetch to catch up.
+        setNotifications(hasUnread ? data.map((n) => ({ ...n, is_read: true })) : data);
+        if (hasUnread) {
           await fetch(`${API_BASE}/notifications/read-all`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${accessToken}` },

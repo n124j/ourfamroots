@@ -14,10 +14,13 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 
-from src.api.deps import SessionDep, SuperAdminDep
+from src.api.deps import NamespaceOwnerDep, SessionDep, SuperAdminDep, TokenStoreDep
 from src.api.v1._admin_log import log_admin_action
+from src.domain.collaboration.entities import AppRole
+from src.infrastructure.database.global_access import get_global_tenant_id, grant_global_tree_access
+from src.infrastructure.database.models.collaboration import TreeMemberModel
 from src.infrastructure.database.models.tenant import TenantModel
 from src.infrastructure.database.models.user import UserModel
 
@@ -170,6 +173,47 @@ async def list_namespaces(
     )
 
 
+async def _notify_namespace_members(session: SessionDep, tenant: TenantModel, activated: bool) -> None:
+    """Email every member of a namespace when it's activated or deactivated.
+
+    Best-effort and run after the status change is already committed — an
+    email failure must never roll back or block the activate/deactivate
+    action itself (mirrors the try/except-and-move-on pattern used for every
+    other admin-triggered email in this codebase).
+    """
+    import asyncio
+
+    from src.config import get_settings
+    from src.infrastructure.email.service import (
+        namespace_activated_email,
+        namespace_deactivated_email,
+        send_email,
+    )
+
+    members = (await session.execute(
+        select(UserModel).where(UserModel.tenant_id == tenant.id)
+    )).scalars().all()
+    if not members:
+        return
+
+    settings = get_settings()
+    login_url = f"{settings.frontend_base_url}/login"
+
+    async def _send_one(member: UserModel) -> None:
+        try:
+            if activated:
+                html, text = namespace_activated_email(member.full_name, tenant.name, login_url)
+                subject = f"'{tenant.name}' is active again on OurFamRoots"
+            else:
+                html, text = namespace_deactivated_email(member.full_name, tenant.name)
+                subject = f"'{tenant.name}' has been deactivated on OurFamRoots"
+            await send_email(to=member.email, subject=subject, html_body=html, text_body=text)
+        except Exception:
+            pass
+
+    await asyncio.gather(*[_send_one(m) for m in members])
+
+
 @router.patch("/{namespace_id}", response_model=NamespaceResponse,
               summary="Rename or activate/deactivate a namespace (Super Admin only)")
 async def update_namespace(
@@ -186,6 +230,8 @@ async def update_namespace(
     if tenant.is_global and body.is_active is False:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "The Global namespace cannot be deactivated")
 
+    was_active = tenant.is_active
+
     if body.name is not None:
         tenant.name = body.name
     if body.is_active is not None:
@@ -197,6 +243,9 @@ async def update_namespace(
     )
     await session.commit()
     await session.refresh(tenant)
+
+    if body.is_active is not None and body.is_active != was_active:
+        await _notify_namespace_members(session, tenant, activated=body.is_active)
     counts = await _user_counts(session, [tenant.id])
     return _serialize(tenant, counts.get(tenant.id, 0))
 
@@ -271,3 +320,74 @@ async def list_namespace_users(
         "page_size": page_size,
         "total_pages": max(1, math.ceil(total / page_size)),
     }
+
+
+@router.delete(
+    "/{namespace_id}/users/{user_id}",
+    summary="Remove a user from this namespace — moves them back to the Global namespace",
+)
+async def remove_namespace_user(
+    namespace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    request: Request,
+    current_user: NamespaceOwnerDep,
+    session: SessionDep,
+    token_store: TokenStoreDep,
+) -> dict:
+    namespace = await session.get(TenantModel, namespace_id)
+    if namespace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Namespace not found")
+    if namespace.is_global:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot remove users from the Global namespace")
+
+    user = (await session.execute(
+        select(UserModel).where(UserModel.id == user_id, UserModel.tenant_id == namespace_id)
+    )).scalars().first()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found in this namespace")
+    if user.id == current_user.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot remove your own account from the namespace")
+
+    global_tenant_id = await get_global_tenant_id(session)
+    if global_tenant_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No Global namespace is configured")
+
+    user_email = user.email
+    user_name = user.full_name
+    namespace_name = namespace.name
+
+    # Mirrors accept_namespace_invitation's transfer, in reverse: drop this
+    # namespace's tree access and role, restore the plain Global-user shape.
+    user.tenant_id = global_tenant_id
+    user.app_role = AppRole.STANDARD.value
+
+    await session.execute(
+        delete(TreeMemberModel).where(
+            TreeMemberModel.user_id == user.id,
+            TreeMemberModel.tenant_id == namespace_id,
+        )
+    )
+    await grant_global_tree_access(session, user.id)
+
+    await log_admin_action(
+        session, namespace_id, current_user.id, current_user.full_name,
+        "NS_REMOVE_USER", user.email, _admin_ip(request),
+    )
+    await session.commit()
+
+    # The JWT's 'tid'/'role' claims are now stale — force re-login everywhere.
+    await token_store.revoke_all_for_user(user.id)
+
+    try:
+        from src.infrastructure.email.service import namespace_removed_email, send_email
+        html, text = namespace_removed_email(user_name, namespace_name)
+        await send_email(
+            to=user_email,
+            subject=f"You've been removed from {namespace_name} on OurFamRoots",
+            html_body=html,
+            text_body=text,
+        )
+    except Exception:
+        pass  # email failure must never roll back the removal
+
+    return {"id": str(user.id), "email": user_email, "tenant_id": str(global_tenant_id)}

@@ -7,14 +7,15 @@ tenant_id/app_role in place; it does not create a second account.
 """
 from __future__ import annotations
 
+import math
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 
 from src.api.deps import NamespaceOwnerDep, SessionDep, TokenStoreDep, VerifiedUserDep
 from src.api.v1._admin_log import log_admin_action
@@ -52,6 +53,14 @@ class NamespaceInvitationResponse(BaseModel):
     created_at: datetime
 
 
+class NamespaceInvitationsResponse(BaseModel):
+    total: int
+    items: list[NamespaceInvitationResponse]
+    page: int
+    page_size: int
+    total_pages: int
+
+
 def _admin_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
@@ -80,18 +89,31 @@ async def create_namespace_invitation(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot invite users into the Global namespace")
 
     invitee = (await session.execute(
-        select(UserModel).where(
-            UserModel.tenant_id == global_tenant_id,
-            UserModel.email == body.invitee_email.lower(),
-        )
+        select(UserModel).where(UserModel.email == body.invitee_email.lower())
     )).scalars().first()
     if invitee is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No user found with that email")
+    if invitee.tenant_id == namespace_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This user is already a member of this namespace")
+    if invitee.tenant_id != global_tenant_id:
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            "No Global-namespace user found with that email",
+            status.HTTP_409_CONFLICT,
+            "This user already belongs to another namespace — remove them from it before inviting them here",
         )
 
     now = datetime.now(timezone.utc)
+
+    existing_pending = (await session.execute(
+        select(NamespaceInvitationModel).where(
+            NamespaceInvitationModel.tenant_id == namespace_id,
+            NamespaceInvitationModel.invitee_email == invitee.email,
+            NamespaceInvitationModel.status == InvitationStatus.PENDING.value,
+            NamespaceInvitationModel.expires_at >= now,
+        )
+    )).scalars().first()
+    if existing_pending is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "An invitation is already pending for this email")
+
     invitation = NamespaceInvitationModel(
         tenant_id=namespace_id,
         inviter_id=current_user.id,
@@ -177,6 +199,64 @@ async def create_namespace_invitation(
         inviter_name=current_user.full_name, invitee_email=invitee.email,
         role=body.role, status=invitation.status, expires_at=invitation.expires_at,
         created_at=invitation.created_at,
+    )
+
+
+@router.get(
+    "/admin/namespaces/{namespace_id}/invitations",
+    response_model=NamespaceInvitationsResponse,
+    summary="List invitations sent for this namespace, paginated, most recent first",
+)
+async def list_namespace_invitations(
+    namespace_id: uuid.UUID,
+    current_user: NamespaceOwnerDep,
+    session: SessionDep,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+) -> NamespaceInvitationsResponse:
+    namespace = await session.get(TenantModel, namespace_id)
+    if namespace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Namespace not found")
+
+    base = (
+        select(NamespaceInvitationModel, UserModel)
+        .join(UserModel, UserModel.id == NamespaceInvitationModel.inviter_id)
+        .where(NamespaceInvitationModel.tenant_id == namespace_id)
+    )
+    total = (await session.execute(
+        select(func.count()).select_from(
+            select(NamespaceInvitationModel.id)
+            .where(NamespaceInvitationModel.tenant_id == namespace_id)
+            .subquery()
+        )
+    )).scalar_one()
+
+    offset = (page - 1) * page_size
+    rows = (await session.execute(
+        base.order_by(NamespaceInvitationModel.created_at.desc()).offset(offset).limit(page_size)
+    )).all()
+
+    now = datetime.now(timezone.utc)
+    items: list[NamespaceInvitationResponse] = []
+    for inv, inviter in rows:
+        # Reflect expiry immediately in the list even if nothing has touched
+        # this row since it lapsed (status only flips to EXPIRED lazily, on
+        # an accept attempt) — Super Admin shouldn't see a stale "Pending".
+        display_status = inv.status
+        if display_status == InvitationStatus.PENDING.value and inv.expires_at < now:
+            display_status = InvitationStatus.EXPIRED.value
+        items.append(NamespaceInvitationResponse(
+            id=inv.id, tenant_id=namespace_id, namespace_name=namespace.name,
+            inviter_name=inviter.full_name, invitee_email=inv.invitee_email,
+            role=inv.role, status=display_status, expires_at=inv.expires_at,
+            created_at=inv.created_at,
+        ))
+    return NamespaceInvitationsResponse(
+        total=total,
+        items=items,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, math.ceil(total / page_size)),
     )
 
 

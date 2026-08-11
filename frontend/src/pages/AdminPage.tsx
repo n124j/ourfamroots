@@ -2022,8 +2022,13 @@ function CreateNamespaceModal({
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  const [slugTouched, setSlugTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  function slugify(v: string) {
+    return v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -2062,15 +2067,19 @@ function CreateNamespaceModal({
             <input type="text" value={name} required autoFocus maxLength={255}
               onChange={(e) => {
                 setName(e.target.value);
-                if (!slug) setSlug(e.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+                // Keep following the name until the admin edits the slug themselves.
+                if (!slugTouched) setSlug(slugify(e.target.value));
               }}
               className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder={t('adminPage.namespaceNamePlaceholder')} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">{t('adminPage.slugLabel')} <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              {t('adminPage.slugLabel')} <span className="text-red-500">*</span>
+              <span className="text-gray-400 font-normal ml-1">(auto-generated — edit if you need something different)</span>
+            </label>
             <input type="text" value={slug} required maxLength={100} pattern="[a-z0-9]+(-[a-z0-9]+)*"
-              onChange={(e) => setSlug(e.target.value)}
+              onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
               className="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder={t('adminPage.slugPlaceholder')} />
           </div>
@@ -2239,7 +2248,352 @@ function InviteToNamespaceModal({
   );
 }
 
-function NamespacesPanel({ token }: { token: string | null }) {
+// ── Namespace members modal (Super Admin only) ───────────────────────────────
+
+interface NamespaceInvitation {
+  id: string;
+  tenant_id: string;
+  namespace_name: string;
+  inviter_name: string;
+  invitee_email: string;
+  role: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'REVOKED';
+  expires_at: string;
+  created_at: string;
+}
+
+interface NamespaceInvitationsResponse {
+  total: number;
+  items: NamespaceInvitation[];
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+const INVITATIONS_PAGE_SIZE = 10;
+
+const INVITATION_STATUS_BADGE: Record<string, string> = {
+  PENDING:  'bg-amber-100 text-amber-700',
+  ACCEPTED: 'bg-green-100 text-green-700',
+  DECLINED: 'bg-gray-100 text-gray-600',
+  EXPIRED:  'bg-gray-100 text-gray-500',
+  REVOKED:  'bg-gray-100 text-gray-500',
+};
+
+function NamespaceMembersModal({
+  namespace,
+  token,
+  currentUserId,
+  onClose,
+  onChanged,
+}: {
+  namespace: Namespace;
+  token: string | null;
+  currentUserId: string | undefined;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { t } = useTranslation();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const [items, setItems] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState('');
+  const [confirmTarget, setConfirmTarget] = useState<AdminUser | null>(null);
+  const [changed, setChanged] = useState(false);
+
+  const [invitations, setInvitations] = useState<NamespaceInvitation[]>([]);
+  const [invLoading, setInvLoading] = useState(true);
+  const [invError, setInvError] = useState('');
+  const [invPage, setInvPage] = useState(1);
+  const [invTotal, setInvTotal] = useState(0);
+  const [invTotalPages, setInvTotalPages] = useState(1);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [confirmRevokeTarget, setConfirmRevokeTarget] = useState<NamespaceInvitation | null>(null);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(debounceRef.current);
+  }, [search]);
+
+  const fetchMembers = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams({ page: '1', page_size: '100', ...(debouncedSearch ? { search: debouncedSearch } : {}) });
+      const res = await fetch(`${API_BASE}/admin/namespaces/${namespace.id}/users?${params}`, {
+        headers: authHeader, credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to load namespace members');
+      const data: UsersResponse = await res.json();
+      setItems(data.items);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, namespace.id, debouncedSearch]);
+
+  useEffect(() => { fetchMembers(); }, [fetchMembers]);
+
+  const fetchInvitations = useCallback(async () => {
+    if (!token) return;
+    setInvLoading(true);
+    setInvError('');
+    try {
+      const params = new URLSearchParams({ page: String(invPage), page_size: String(INVITATIONS_PAGE_SIZE) });
+      const res = await fetch(`${API_BASE}/admin/namespaces/${namespace.id}/invitations?${params}`, {
+        headers: authHeader, credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to load invitations');
+      const data: NamespaceInvitationsResponse = await res.json();
+      setInvitations(data.items);
+      setInvTotal(data.total);
+      setInvTotalPages(data.total_pages);
+    } catch (e) {
+      setInvError((e as Error).message);
+    } finally {
+      setInvLoading(false);
+    }
+  }, [token, namespace.id, invPage]);
+
+  useEffect(() => { fetchInvitations(); }, [fetchInvitations]);
+
+  async function handleRevokeInvitation(invitation: NamespaceInvitation) {
+    setRevokingId(invitation.id);
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces/${namespace.id}/invitations/${invitation.id}`, {
+        method: 'DELETE',
+        headers: authHeader,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to revoke invitation');
+      }
+      setInvitations((prev) => prev.map((i) => i.id === invitation.id ? { ...i, status: 'REVOKED' } : i));
+      setConfirmRevokeTarget(null);
+    } catch (e) {
+      setInvError((e as Error).message);
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  async function handleRemove(user: AdminUser) {
+    setRemovingId(user.id);
+    setRemoveError('');
+    try {
+      const res = await fetch(`${API_BASE}/admin/namespaces/${namespace.id}/users/${user.id}`, {
+        method: 'DELETE',
+        headers: authHeader,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'Failed to remove user from namespace');
+      }
+      setItems((prev) => prev.filter((u) => u.id !== user.id));
+      setConfirmTarget(null);
+      setChanged(true);
+    } catch (e) {
+      setRemoveError((e as Error).message);
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) { if (changed) onChanged(); onClose(); } }}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[80vh] flex flex-col">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">{namespace.name} members</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Removing a member moves their account back to the Global namespace. They keep their
+          login, but lose access to this namespace's trees and any role granted here.
+        </p>
+
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder={t('adminPage.search')}
+          className="w-full h-9 px-3 mb-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
+
+        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        {removeError && <p className="text-sm text-red-600 mb-3">{removeError}</p>}
+
+        <div className="flex-1 overflow-y-auto -mx-2 px-2">
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-10">No members found</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {items.map((u) => (
+                <li key={u.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <UserAvatar displayName={displayName(u)} avatarUrl={u.avatar_url} size="sm" />
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-800 truncate">{displayName(u)}</p>
+                      <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                    </div>
+                    <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_BADGE[u.app_role]}`}>
+                      {t('roles.' + u.app_role)}
+                    </span>
+                  </div>
+                  {u.id !== currentUserId && (
+                    <button
+                      onClick={() => setConfirmTarget(u)}
+                      disabled={removingId === u.id}
+                      className="shrink-0 px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+                    >
+                      {removingId === u.id ? '…' : 'Remove'}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mt-5 mb-2">Invitations</h3>
+          {invError && <p className="text-sm text-red-600 mb-2">{invError}</p>}
+          {invLoading ? (
+            <div className="flex justify-center py-6">
+              <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : invitations.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4">No invitations sent yet</p>
+          ) : (
+            <div className="overflow-x-auto -mx-2">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    <th className="px-2 py-1.5 font-semibold">Email</th>
+                    <th className="px-2 py-1.5 font-semibold">Sent</th>
+                    <th className="px-2 py-1.5 font-semibold">Status</th>
+                    <th className="px-2 py-1.5 font-semibold text-right">&nbsp;</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {invitations.map((inv) => (
+                    <tr key={inv.id}>
+                      <td className="px-2 py-2 max-w-[160px]">
+                        <p className="text-gray-800 truncate" title={inv.invitee_email}>{inv.invitee_email}</p>
+                        <p className="text-xs text-gray-400 truncate">{t('roles.' + inv.role)} · by {inv.inviter_name}</p>
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-500">
+                        {new Date(inv.created_at).toLocaleString(undefined, {
+                          year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${INVITATION_STATUS_BADGE[inv.status]}`}>
+                          {inv.status.charAt(0) + inv.status.slice(1).toLowerCase()}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        {inv.status === 'PENDING' && (
+                          <button
+                            onClick={() => setConfirmRevokeTarget(inv)}
+                            disabled={revokingId === inv.id}
+                            className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+                          >
+                            {revokingId === inv.id ? '…' : 'Close'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {invTotalPages > 1 && (
+                <div className="flex items-center justify-between mt-2 px-2">
+                  <span className="text-xs text-gray-400">
+                    {(invPage - 1) * INVITATIONS_PAGE_SIZE + 1}–{Math.min(invPage * INVITATIONS_PAGE_SIZE, invTotal)} of {invTotal}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setInvPage((p) => Math.max(1, p - 1))} disabled={invPage === 1 || invLoading}
+                      className="h-7 px-2.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
+                      ← Prev
+                    </button>
+                    <span className="text-xs text-gray-500">{invPage} / {invTotalPages}</span>
+                    <button onClick={() => setInvPage((p) => Math.min(invTotalPages, p + 1))} disabled={invPage === invTotalPages || invLoading}
+                      className="h-7 px-2.5 text-xs border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end pt-4">
+          <button onClick={() => { if (changed) onChanged(); onClose(); }}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
+            Close
+          </button>
+        </div>
+      </div>
+
+      {confirmTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && removingId === null) setConfirmTarget(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Remove from namespace?</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              <span className="font-medium text-gray-800">{displayName(confirmTarget)}</span> will be
+              moved back to the Global namespace and will lose access to {namespace.name}'s trees.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmTarget(null)} disabled={removingId !== null}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+                {t('adminPage.cancel')}
+              </button>
+              <button onClick={() => handleRemove(confirmTarget)} disabled={removingId !== null}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {removingId !== null ? t('adminPage.saving') : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRevokeTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && revokingId === null) setConfirmRevokeTarget(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Close this invitation?</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              <span className="font-medium text-gray-800">{confirmRevokeTarget.invitee_email}</span> will
+              no longer be able to accept it.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmRevokeTarget(null)} disabled={revokingId !== null}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+                {t('adminPage.cancel')}
+              </button>
+              <button onClick={() => handleRevokeInvitation(confirmRevokeTarget)} disabled={revokingId !== null}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {revokingId !== null ? t('adminPage.saving') : 'Close invitation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NamespacesPanel({ token, currentUserId }: { token: string | null; currentUserId: string | undefined }) {
   const { t } = useTranslation();
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -2255,7 +2609,9 @@ function NamespacesPanel({ token }: { token: string | null }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Namespace | null>(null);
   const [inviteTarget, setInviteTarget] = useState<Namespace | null>(null);
+  const [membersTarget, setMembersTarget] = useState<Namespace | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Namespace | null>(null);
+  const [toggleTarget, setToggleTarget] = useState<Namespace | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -2301,6 +2657,7 @@ function NamespacesPanel({ token }: { token: string | null }) {
       if (res.ok) await fetchNamespaces();
     } finally {
       setTogglingId(null);
+      setToggleTarget(null);
     }
   }
 
@@ -2403,6 +2760,14 @@ function NamespacesPanel({ token }: { token: string | null }) {
                 <div className="flex items-center gap-2 shrink-0">
                   {!ns.is_global && (
                     <button
+                      onClick={() => setMembersTarget(ns)}
+                      className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Members
+                    </button>
+                  )}
+                  {!ns.is_global && (
+                    <button
                       onClick={() => setInviteTarget(ns)}
                       className="px-2.5 py-1 text-xs font-medium text-brand-600 bg-white border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
                     >
@@ -2417,7 +2782,7 @@ function NamespacesPanel({ token }: { token: string | null }) {
                   </button>
                   {!ns.is_global && (
                     <button
-                      onClick={() => handleToggleActive(ns)}
+                      onClick={() => setToggleTarget(ns)}
                       disabled={togglingId === ns.id}
                       className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                     >
@@ -2470,6 +2835,15 @@ function NamespacesPanel({ token }: { token: string | null }) {
           onSaved={() => { setEditTarget(null); fetchNamespaces(); }}
         />
       )}
+      {membersTarget && (
+        <NamespaceMembersModal
+          namespace={membersTarget}
+          token={token}
+          currentUserId={currentUserId}
+          onClose={() => setMembersTarget(null)}
+          onChanged={fetchNamespaces}
+        />
+      )}
       {inviteTarget && (
         <InviteToNamespaceModal
           namespace={inviteTarget}
@@ -2477,6 +2851,45 @@ function NamespacesPanel({ token }: { token: string | null }) {
           onClose={() => setInviteTarget(null)}
           onInvited={() => setInviteTarget(null)}
         />
+      )}
+
+      {/* Activate/Deactivate confirmation */}
+      {toggleTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && togglingId === null) setToggleTarget(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">
+              {toggleTarget.is_active ? 'Deactivate namespace?' : 'Activate namespace?'}
+            </h2>
+            {toggleTarget.is_active ? (
+              <p className="text-sm text-gray-500 mb-4">
+                <span className="font-medium text-gray-800">{toggleTarget.name}</span> will be deactivated.
+                Every user in this namespace will immediately be blocked from signing in — they'll see a
+                message that the namespace needs to be reactivated — and each will receive an email
+                notifying them of the change.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 mb-4">
+                <span className="font-medium text-gray-800">{toggleTarget.name}</span> will be activated.
+                Every user in this namespace will regain the ability to sign in, and each will receive
+                an email notifying them of the change.
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setToggleTarget(null)} disabled={togglingId !== null}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 transition-colors">
+                {t('adminPage.cancel')}
+              </button>
+              <button onClick={() => handleToggleActive(toggleTarget)}
+                disabled={togglingId !== null}
+                className={`px-4 py-2 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${
+                  toggleTarget.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-500 hover:bg-brand-600'
+                }`}>
+                {togglingId !== null ? t('adminPage.saving') : toggleTarget.is_active ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete confirmation */}
@@ -2673,7 +3086,7 @@ export default function AdminPage() {
       {activeTab === 'permissions' && <PermissionGroupsPanel token={accessToken} />}
       {activeTab === 'user-groups' && <UserGroupsPanel token={accessToken} />}
       {activeTab === 'merge' && <MergeTreesPanel token={accessToken} />}
-      {activeTab === 'namespaces' && isSuperAdmin && <NamespacesPanel token={accessToken} />}
+      {activeTab === 'namespaces' && isSuperAdmin && <NamespacesPanel token={accessToken} currentUserId={currentUser?.id} />}
       {activeTab === 'global' && isSuperAdmin && <GlobalTreesPanel token={accessToken} />}
       {activeTab === 'subscriptions' && isSuperAdmin && <SubscriptionsPanel token={accessToken} />}
       {activeTab === 'broadcast' && isSuperAdmin && <BroadcastPanel token={accessToken} />}

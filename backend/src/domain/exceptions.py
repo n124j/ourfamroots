@@ -56,6 +56,16 @@ class AccountNotVerifiedError(AuthenticationError):
         super().__init__("Email address not verified.", "ACCOUNT_NOT_VERIFIED")
 
 
+class NamespaceDeactivatedError(AuthenticationError):
+    def __init__(self, namespace_name: str) -> None:
+        super().__init__(
+            f"The '{namespace_name}' namespace has been deactivated. "
+            "It needs to be reactivated by a Super Administrator before you can sign in.",
+            "NAMESPACE_DEACTIVATED",
+        )
+        self.namespace_name = namespace_name
+
+
 class ActiveSessionConflictError(DomainError):
     def __init__(self) -> None:
         super().__init__(

@@ -90,6 +90,8 @@ const ACTION_OPTIONS = [
   { value: 'NS_INVITE', label: 'Namespace: invite user' },
   { value: 'NS_INVITE_ACCEPT', label: 'Namespace: invite accepted' },
   { value: 'NS_INVITE_REVOKE', label: 'Namespace: invite revoked' },
+  { value: 'NS_INVITE_DECLINE', label: 'Namespace: invite declined' },
+  { value: 'NS_REMOVE_USER', label: 'Namespace: remove user' },
   // Tree content
   { value: 'CREATE_TREE', label: 'Create tree' },
   { value: 'CREATE_PERSON', label: 'Create person' },

@@ -2860,14 +2860,17 @@ async def list_members(
 ) -> list[MemberResponse]:
     from sqlalchemy import text
 
-    # Auditor + Super Admin bypass; all others (including app-level ADMIN) must be members
+    # Auditor + Super Admin bypass; all others (including app-level ADMIN) must
+    # be a member, and a VIEWER-role member cannot see who else has access.
     if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN):
         check = (await uow._session.execute(
-            text("SELECT 1 FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
+            text("SELECT role FROM tree_members WHERE tree_id = :tid AND user_id = :uid LIMIT 1"),
             {"tid": tree_id, "uid": current_user.id},
         )).first()
         if check is None:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this tree")
+        if check.role == TreeRole.VIEWER.value:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Viewers cannot see this tree's members")
 
     rows = (await uow._session.execute(text("""
         SELECT
@@ -3258,7 +3261,9 @@ async def list_invitations(
     current_user: CurrentUserDep,
     svc: CollabDep,
 ) -> list[InvitationResponse]:
-    await svc.require_permission(tree_id, current_user.id, Action.VIEW_MEMBERS, app_role=current_user.app_role)
+    membership = await svc.require_permission(tree_id, current_user.id, Action.VIEW_MEMBERS, app_role=current_user.app_role)
+    if current_user.app_role not in (AppRole.AUDITOR, AppRole.SUPER_ADMIN) and membership.role == TreeRole.VIEWER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Viewers cannot see this tree's members")
     from src.infrastructure.repositories.collaboration import InvitationRepository
     repo = InvitationRepository(svc._session)
     invitations = await repo.list_by_tree(tree_id)
@@ -3320,12 +3325,16 @@ async def send_invitation(
         text_body=_text,
     ))
 
-    # If invitee already has an account, create an in-app TREE_INVITE notification
+    # If invitee already has an account, create an in-app TREE_INVITE notification.
+    # Looked up by email alone (globally unique — see the namespace-invitation
+    # transfer flow) rather than scoped to the inviter's tenant_id, since the
+    # invitee may belong to a different namespace than the inviter, e.g. when
+    # inviting them to a Global/shared tree.
     import json as _json
     from sqlalchemy import text as _sql
     invitee_row = (await svc._session.execute(
-        _sql("SELECT id, tenant_id FROM users WHERE email = :email AND tenant_id = :tid LIMIT 1"),
-        {"email": body.email, "tid": current_user.tenant_id},
+        _sql("SELECT id, tenant_id FROM users WHERE email = :email LIMIT 1"),
+        {"email": body.email.lower()},
     )).first()
     if invitee_row:
         await svc._session.execute(
@@ -3336,7 +3345,7 @@ async def send_invitation(
             """),
             {
                 "uid": invitee_row.id,
-                "tenant_id": current_user.tenant_id,
+                "tenant_id": invitee_row.tenant_id,
                 "title": f"{actor_name} invited you to \"{tree_name}\"",
                 "nbody": f"You've been invited to join \"{tree_name}\" as {body.role.value.capitalize()}",
                 "data": _json.dumps({

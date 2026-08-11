@@ -178,7 +178,7 @@ export function TreeCard({ tree, onEdit, onDelete, onShare, onTogglePin, onHide 
 
         <div className="flex gap-4 mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
           <span><span className="font-semibold text-gray-700">{tree.person_count}</span> {t('common.people')}</span>
-          {!tree.is_globally_shared && (
+          {!tree.is_globally_shared && tree.role !== 'VIEWER' && (
             <span><span className="font-semibold text-gray-700">{tree.member_count}</span> {tree.member_count === 1 ? t('common.member') : t('common.members')}</span>
           )}
         </div>
@@ -1372,7 +1372,7 @@ function ShareTreeModal({
                 </p>
               </div>
             </div>
-            {tree.share_token && (
+            {tree.share_token && linkSharing === 'ANYONE' && (
               <button
                 onClick={copyShareLink}
                 className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap border ${

@@ -21,6 +21,10 @@ class ActiveSessionError extends Error {
   constructor(public detail: string) { super('active-session'); }
 }
 
+class NamespaceDeactivatedError extends Error {
+  constructor(public detail: string) { super('namespace-deactivated'); }
+}
+
 async function login(email: string, password: string) {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
@@ -35,6 +39,9 @@ async function login(email: string, password: string) {
     }
     if (res.status === 409 && String((err as any).type ?? '').includes('active-session-conflict')) {
       throw new ActiveSessionError((err as any).detail ?? 'Active session detected. Verification email sent.');
+    }
+    if (res.status === 403 && String((err as any).type ?? '').includes('namespace-deactivated')) {
+      throw new NamespaceDeactivatedError((err as any).detail ?? 'This namespace has been deactivated.');
     }
     throw new Error((err as any).detail ?? 'Invalid email or password');
   }
@@ -53,15 +60,18 @@ export default function LoginPage() {
   const [error,              setError]              = useState('');
   const [unverified,         setUnverified]         = useState(false);
   const [activeSession,      setActiveSession]      = useState(false);
+  const [namespaceDeactivated, setNamespaceDeactivated] = useState('');
   const [loading,            setLoading]            = useState(false);
 
   const oauthError = searchParams.get('error');
+  const oauthDetail = searchParams.get('detail');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setUnverified(false);
     setActiveSession(false);
+    setNamespaceDeactivated('');
     setLoading(true);
     try {
       const data = await login(email, password);
@@ -92,6 +102,8 @@ export default function LoginPage() {
         setUnverified(true);
       } else if (err instanceof ActiveSessionError) {
         setActiveSession(true);
+      } else if (err instanceof NamespaceDeactivatedError) {
+        setNamespaceDeactivated(err.detail);
       } else {
         setError((err as Error).message);
       }
@@ -129,11 +141,16 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* OAuth error banner */}
+          {/* Redirect error banner — covers both the OAuth callback's ?error=
+              and apiClient's session-expiry redirect, which share this param */}
           {oauthError && (
             <div className="mb-4 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
               {oauthError === 'oauth_state_mismatch'
                 ? t('auth.oauthExpired')
+                : oauthError === 'namespace_deactivated'
+                ? (oauthDetail ?? 'Your namespace has been deactivated. It needs to be reactivated by a Super Administrator before you can sign in.')
+                : oauthError === 'session_expired'
+                ? 'Your session has expired. Please sign in again.'
                 : t('auth.oauthError')}
             </div>
           )}
@@ -209,6 +226,12 @@ export default function LoginPage() {
               <div className="px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                 <p className="font-medium mb-0.5">{t('auth.activeSessionDetected')}</p>
                 <p className="text-xs">{t('auth.activeSessionVerifyEmail')}</p>
+              </div>
+            )}
+            {namespaceDeactivated && (
+              <div className="px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                <p className="font-medium mb-0.5">Namespace deactivated</p>
+                <p className="text-xs">{namespaceDeactivated}</p>
               </div>
             )}
             {error && (

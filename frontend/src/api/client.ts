@@ -76,6 +76,18 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // A request sent with no Authorization header was never authenticated in
+    // the first place (e.g. an anonymous visitor on a public page like a
+    // shared-tree link calling an endpoint that happens to require auth) —
+    // its 401 is expected, not a session expiring. Attempting a silent
+    // refresh here would just fail (no session to refresh) and wrongly boot
+    // an anonymous visitor to /login. Only chase a refresh when the caller
+    // actually believed it had a session.
+    const hadAuthHeader = !!(originalRequest.headers as Record<string, string> | undefined)?.Authorization;
+    if (!hadAuthHeader) {
+      return Promise.reject(error);
+    }
+
     originalRequest._retry = true;
 
     // If already refreshing, queue this request

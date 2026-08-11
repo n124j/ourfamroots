@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from src.api.deps import JWTServiceDep, TokenStoreDep, UoWDep
 from src.config import Settings, get_settings
+from src.domain.exceptions import NamespaceDeactivatedError
 from src.infrastructure.database.global_access import grant_global_tree_access
 from src.infrastructure.database.models.collaboration import OAuthConnectionModel
 from src.infrastructure.database.models.login_event import LoginEventModel
@@ -110,6 +111,21 @@ async def oauth_callback(
             user, is_new_user = await _find_or_create_user(uow, user_info, settings)
             if user is None:
                 return _redirect_error(settings, provider, next_path, "oauth_provisioning_disabled")
+
+            # Block sign-in for an existing user whose namespace has been
+            # deactivated — mirrors AuthService.login()'s NamespaceDeactivatedError.
+            # A brand-new user always lands in the Global namespace, which can
+            # never be deactivated, so this only matters for a returning user.
+            if not is_new_user:
+                tenant_result = await uow._session.execute(
+                    select(TenantModel).where(TenantModel.id == user.tenant_id)
+                )
+                user_tenant = tenant_result.scalar_one_or_none()
+                if user_tenant is not None and not user_tenant.is_active:
+                    return _redirect_error(
+                        settings, provider, next_path, "namespace_deactivated",
+                        detail=NamespaceDeactivatedError(user_tenant.name).message,
+                    )
 
             # Flush so a brand-new user row exists before the FK-dependent
             # oauth_connections insert below — UserModel/OAuthConnectionModel have
@@ -251,10 +267,14 @@ async def _find_or_create_user(
     return new_user, True
 
 
-def _redirect_error(settings: Settings, provider: str, next_path: str, reason: str) -> RedirectResponse:
+def _redirect_error(
+    settings: Settings, provider: str, next_path: str, reason: str, detail: str | None = None,
+) -> RedirectResponse:
+    from urllib.parse import urlencode
     separator = "&" if "?" in next_path else "?"
+    params = {"error": reason, **({"detail": detail} if detail else {})}
     resp = RedirectResponse(
-        f"{settings.frontend_base_url}{next_path}{separator}error={reason}",
+        f"{settings.frontend_base_url}{next_path}{separator}{urlencode(params)}",
         status_code=302,
     )
     resp.delete_cookie(f"oauth_state_{provider}")

@@ -3202,7 +3202,7 @@ export function TreeTopBar({
         >
           {`🎨 ${t('treePage.theme')}`}
         </button>
-        {!graph?.isGloballyShared && (
+        {!graph?.isGloballyShared && userRole !== 'VIEWER' && (
           <button
             onClick={onMembers}
             className="hidden md:inline-flex px-3 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
@@ -3266,7 +3266,7 @@ export function TreeTopBar({
                   className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
                   {`🎨 ${t('treePage.theme')}`}
                 </button>
-                {!graph?.isGloballyShared && (
+                {!graph?.isGloballyShared && userRole !== 'VIEWER' && (
                   <button onClick={() => { setMoreOpen(false); onMembers(); }}
                     className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
                     {t('treePage.members')}

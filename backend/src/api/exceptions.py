@@ -21,6 +21,7 @@ from src.domain.exceptions import (
     AuthorizationError,
     ConflictError,
     DomainError,
+    NamespaceDeactivatedError,
     NotFoundError,
     RateLimitError,
     TokenExpiredError,
@@ -100,6 +101,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ActiveSessionConflictError)
     async def _active_session(request: Request, exc: ActiveSessionConflictError) -> JSONResponse:
         return _problem(409, "Active Session Conflict", exc.message, "active-session-conflict", str(request.url.path))
+
+    @app.exception_handler(NamespaceDeactivatedError)
+    async def _namespace_deactivated(request: Request, exc: NamespaceDeactivatedError) -> JSONResponse:
+        return _problem(403, "Namespace Deactivated", exc.message, "namespace-deactivated", str(request.url.path))
 
     @app.exception_handler(AuthenticationError)
     async def _auth_error(request: Request, exc: AuthenticationError) -> JSONResponse:

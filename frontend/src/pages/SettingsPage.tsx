@@ -848,7 +848,12 @@ function HiddenTreesTab({ accessToken }: { accessToken: string | null }) {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{tree.name}</p>
                     <p className="text-xs text-gray-400">
-                      {t('settings.hiddenTrees.hiddenOn', { date: new Date(tree.hidden_at).toLocaleDateString() })}
+                      {t('settings.hiddenTrees.hiddenOn', {
+                        date: new Date(tree.hidden_at).toLocaleString(undefined, {
+                          year: 'numeric', month: 'short', day: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        }),
+                      })}
                     </p>
                   </div>
                 </div>
