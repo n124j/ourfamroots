@@ -4,6 +4,15 @@ import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Vite's default env loading pulls process.env.VITE_* into import.meta.env,
+  // which picks up VITE_API_BASE_URL from the docker-compose dev-server
+  // environment (an absolute http://localhost:PORT URL) when tests run
+  // inside that container. Pin it to the relative default here so tests are
+  // hermetic and match what MSW's path-only request handlers expect,
+  // regardless of the host shell's environment.
+  define: {
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify('/api/v1'),
+  },
   resolve: {
     alias: {
       '@pages':    resolve(__dirname, 'src/pages'),

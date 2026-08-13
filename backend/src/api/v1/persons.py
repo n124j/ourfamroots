@@ -157,11 +157,18 @@ async def create_person(
             "notes": req.notes,
         },
     )
+    from src.application.collaboration.tree_snapshot import record_revertible_action
     from src.domain.collaboration.entities import Action, AuditEntityType
-    await _audit(session, tree_id, user, Action.CREATE_PERSON, AuditEntityType.PERSON,
-                 entity_id=person_id,
-                 entity_name=f"{req.given_name} {req.surname}".strip(),
-                 after={"sex": req.sex.value, "is_living": req.is_living})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.CREATE_PERSON, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, entity_display_name=f"{req.given_name} {req.surname}".strip(),
+        snapshot_kind="person_created",
+        after={"sex": req.sex.value, "is_living": req.is_living},
+    )
     await session.commit()
     return PersonResponse(
         id=person_id,
@@ -244,17 +251,14 @@ async def update_person(
     from sqlalchemy import text as sa_text
     from fastapi import HTTPException
     from src.api.v1._roles import resolve_tree_tenant_id
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_person_fields
     from src.domain.collaboration.entities import Action, AuditEntityType
 
     tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
 
-    # Capture before state
-    before_row = (await session.execute(
-        sa_text("SELECT display_given_name, display_surname, sex, is_living, is_deceased FROM persons WHERE id=:pid AND is_deleted=false"),
-        {"pid": person_id},
-    )).first()
-    before_snap = {"name": f"{before_row.display_given_name} {before_row.display_surname}".strip(),
-                   "sex": before_row.sex, "is_living": before_row.is_living} if before_row else None
+    # Capture every editable field before the update, so a revert can
+    # restore the row exactly (not just the 3 fields shown in the audit diff).
+    before_snap = await snapshot_person_fields(session, person_id)
 
     result = await session.execute(
         sa_text("""
@@ -306,10 +310,16 @@ async def update_person(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Person not found")
     full_name = f"{row.display_given_name} {row.display_surname}".strip()
-    await _audit(session, tree_id, user, Action.UPDATE_PERSON, AuditEntityType.PERSON,
-                 entity_id=person_id, entity_name=full_name,
-                 before=before_snap,
-                 after={"name": full_name, "sex": row.sex, "is_living": row.is_living})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.UPDATE_PERSON, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, entity_display_name=full_name,
+        snapshot=before_snap, snapshot_kind="person_updated",
+        after={"name": full_name, "sex": row.sex, "is_living": row.is_living},
+    )
     await session.commit()
     from src.api.v1._s3 import presign_photo
     return PersonResponse(
@@ -648,6 +658,9 @@ async def delete_person(
     )).first()
     person_name = f"{name_row.display_given_name} {name_row.display_surname}".strip() if name_row else None
 
+    from src.application.collaboration.tree_snapshot import snapshot_tree, record_revertible_action
+    snapshot = await snapshot_tree(session, tree_id)
+
     await session.execute(
         sa_text("""
             UPDATE persons
@@ -662,9 +675,15 @@ async def delete_person(
         },
     )
     from src.domain.collaboration.entities import Action, AuditEntityType
-    await _audit(session, tree_id, user, Action.DELETE_PERSON, AuditEntityType.PERSON,
-                 entity_id=person_id, entity_name=person_name,
-                 before={"name": person_name})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.DELETE_PERSON, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, entity_display_name=person_name,
+        snapshot=snapshot,
+    )
     await session.commit()
 
 
@@ -685,13 +704,21 @@ async def add_parent(
     session: SessionDep,
 ) -> None:
     from src.api.v1._roles import resolve_tree_tenant_id
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_tree
     from src.domain.collaboration.entities import Action, AuditEntityType
     tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
+    snapshot = await snapshot_tree(session, tree_id)
     svc = _svc(session)
     await svc.add_parent(tree_id, tree_tenant_id, person_id, req)
-    await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
-                 entity_id=person_id,
-                 after={"type": "parent", "parent_id": str(req.parent_id), "parentage": req.parentage_type.value})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.ADD_RELATIONSHIP, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, snapshot=snapshot, snapshot_kind="full_tree",
+        after={"type": "parent", "parent_id": str(req.parent_id), "parentage": req.parentage_type.value},
+    )
     await session.commit()
 
 
@@ -713,9 +740,15 @@ async def add_both_parents(
 ) -> None:
     from sqlalchemy import text as sa_text
     from src.api.v1._roles import resolve_tree_tenant_id
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_tree
     from src.domain.collaboration.entities import Action, AuditEntityType
 
     tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
+
+    # Snapshot before anything below — including the pre-emptive delete —
+    # so a revert restores the child's original parent group too, not just
+    # whatever add_both_parents itself changes.
+    snapshot = await snapshot_tree(session, tree_id)
 
     # Always remove any existing parent-family-group membership for this child
     # so the user's explicit choice of both parents replaces the old ones.
@@ -747,9 +780,15 @@ async def add_both_parents(
 
     svc = _svc(session)
     await svc.add_both_parents(tree_id, tree_tenant_id, person_id, req)
-    await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
-                 entity_id=person_id,
-                 after={"type": "both_parents", "father_id": str(req.father_id), "mother_id": str(req.mother_id)})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.ADD_RELATIONSHIP, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, snapshot=snapshot, snapshot_kind="full_tree",
+        after={"type": "both_parents", "father_id": str(req.father_id), "mother_id": str(req.mother_id)},
+    )
     await session.commit()
 
 
@@ -772,8 +811,13 @@ async def add_child(
 ) -> None:
     from sqlalchemy import text as sa_text
     from src.api.v1._roles import resolve_tree_tenant_id
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_tree
 
     tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
+
+    # Snapshot before anything below — including the force-delete branch —
+    # so a revert restores the child's original parent group too.
+    snapshot = await snapshot_tree(session, tree_id)
 
     if force:
         # Remove the child's existing parent-family-group membership so the
@@ -807,9 +851,15 @@ async def add_child(
     from src.domain.collaboration.entities import Action, AuditEntityType
     svc = _svc(session)
     await svc.add_child(tree_id, tree_tenant_id, person_id, req)
-    await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
-                 entity_id=person_id,
-                 after={"type": "child", "child_id": str(req.child_id), "parentage": req.parentage_type.value})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.ADD_RELATIONSHIP, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, snapshot=snapshot, snapshot_kind="full_tree",
+        after={"type": "child", "child_id": str(req.child_id), "parentage": req.parentage_type.value},
+    )
     await session.commit()
 
 
@@ -830,13 +880,21 @@ async def add_spouse(
     session: SessionDep,
 ) -> None:
     from src.api.v1._roles import resolve_tree_tenant_id
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_tree
     from src.domain.collaboration.entities import Action, AuditEntityType
     tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
+    snapshot = await snapshot_tree(session, tree_id)
     svc = _svc(session)
     await svc.add_spouse(tree_id, tree_tenant_id, person_id, req)
-    await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
-                 entity_id=person_id,
-                 after={"type": "spouse", "spouse_id": str(req.spouse_id), "union_type": req.union_type.value})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.ADD_RELATIONSHIP, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, snapshot=snapshot, snapshot_kind="full_tree",
+        after={"type": "spouse", "spouse_id": str(req.spouse_id), "union_type": req.union_type.value},
+    )
     await session.commit()
 
 
@@ -857,13 +915,21 @@ async def add_sibling(
     session: SessionDep,
 ) -> None:
     from src.api.v1._roles import resolve_tree_tenant_id
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_tree
     from src.domain.collaboration.entities import Action, AuditEntityType
     tree_tenant_id = await resolve_tree_tenant_id(session, tree_id)
+    snapshot = await snapshot_tree(session, tree_id)
     svc = _svc(session)
     await svc.add_sibling(tree_id, tree_tenant_id, person_id, req)
-    await _audit(session, tree_id, user, Action.ADD_RELATIONSHIP, AuditEntityType.PERSON,
-                 entity_id=person_id,
-                 after={"type": "sibling", "sibling_id": str(req.sibling_id), "parentage": req.parentage_type.value})
+    actor_name = f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
+    await record_revertible_action(
+        session,
+        tree_id=tree_id, tenant_id=user.tenant_id,
+        actor_id=user.id, actor_display_name=actor_name,
+        action=Action.ADD_RELATIONSHIP, entity_type=AuditEntityType.PERSON,
+        entity_id=person_id, snapshot=snapshot, snapshot_kind="full_tree",
+        after={"type": "sibling", "sibling_id": str(req.sibling_id), "parentage": req.parentage_type.value},
+    )
     await session.commit()
 
 

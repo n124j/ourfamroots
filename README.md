@@ -24,6 +24,7 @@ A genealogy platform for building, exploring, and collaborating on family trees.
       - [Registration notes](#registration-notes)
       - [Tree views](#tree-views)
       - [Propose Changes to a Shared Tree](#propose-changes-to-a-shared-tree)
+      - [Reverting a change (Super Admin only)](#reverting-a-change-super-admin-only)
       - [Admin Dashboard](#admin-dashboard)
     - [6. Optional: monitoring stack](#6-optional-monitoring-stack)
     - [Stopping the stack](#stopping-the-stack)
@@ -493,13 +494,34 @@ API (`POST /trees/{tree_id}/change-requests/draft`).
    tree (matched persons keep their id; new persons are adopted; removed persons are
    soft-deleted). Denying discards the draft. Either way the requester is notified.
 
-**Reverting an approval (Super Admin only):** every approval captures a full snapshot of the
-tree immediately beforehand. If a Super Admin needs to undo one — e.g. a bad merge — they can
-open **Activity** on the tree toolbar (visible only to Super Admins; hidden for everyone else)
-and click **Revert** on that approval's entry. This restores persons and family groups to
-exactly their pre-approval state; note that it necessarily undoes *any* edits made after the
-approval too, not just that one change, since it's a full snapshot restore rather than a
-surgical undo.
+#### Reverting a change (Super Admin only)
+
+Every tree has an **Activity** log (visible to the tree's Owner/Admin members and Super
+Admins; hidden for Editors/Viewers) reachable from the tree toolbar, listing every
+person/relationship/change-request action taken on the tree. Only a **Super Admin** sees a
+**Revert** button, and only on entries that carry enough state to restore — everything except
+plain-text social relationships (Godparent/Guardian/Mentor/Custom, tracked separately from the
+family tree graph):
+
+| Action | What Revert restores | How |
+| --- | --- | --- |
+| Added a person | Soft-deletes that one person | Surgical — touches only that row |
+| Edited a person | That person's fields back to their previous values | Surgical — touches only that row |
+| Deleted a person | The person and all their fields, exactly as before | Full-tree snapshot |
+| Added a relationship (parent/child/spouse/sibling) | Removes the union/link that was added | Full-tree snapshot |
+| Removed a relationship | Recreates the union/link that was removed | Full-tree snapshot |
+| Edited a relationship (union type/dates/label, parentage type) | That field back to its previous value | Surgical — touches only that row |
+| Approved a change request | The tree to its state right before the approval was applied | Full-tree snapshot |
+
+**Surgical** reverts only ever touch the one row they're undoing — they're safe to use even if
+other edits happened afterward. **Full-tree snapshot** reverts restore the *entire tree* to
+exactly its state right before that action — necessarily undoing *any* other edits made since,
+not just that one change, since it's a point-in-time restore rather than a surgical undo. The
+confirmation prompt in the Activity log tells you which kind you're about to trigger.
+
+A reverted entry can't be reverted a second time (the button disappears and a repeat attempt is
+rejected); to undo a revert you'd currently redo the original action manually (e.g. delete the
+person again), which becomes its own new, revertible entry.
 
 #### Admin Dashboard
 
@@ -575,10 +597,11 @@ Integration tests (requires PostgreSQL and Redis — use `docker compose up -d d
 pytest tests/integration -n 2 --tb=short -q
 ```
 
-Most of `tests/integration` runs against an in-memory fake session (no real DB needed). One
-module — `test_change_request_revert.py`, covering the propose/approve/revert flow's raw SQL —
-needs a real, migrated Postgres database via `TEST_DATABASE_URL`, and skips itself if that
-isn't set:
+Most of `tests/integration` runs against an in-memory fake session (no real DB needed). Two
+modules — `test_change_request_revert.py` (propose/approve/revert flow) and
+`test_audit_log_revert.py` (Super-Admin revert for person/relationship create/update/delete/
+add/remove actions) — cover raw SQL that isn't worth faking, so they need a real, migrated
+Postgres database via `TEST_DATABASE_URL`, and skip themselves if that isn't set:
 
 ```bash
 docker compose exec db psql -U postgres -c "CREATE DATABASE ourfamroots_test;"
@@ -587,7 +610,7 @@ docker compose run --rm \
   migrate
 
 TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:7000/ourfamroots_test \
-  pytest tests/integration/test_change_request_revert.py -v
+  pytest tests/integration/test_change_request_revert.py tests/integration/test_audit_log_revert.py -v
 ```
 
 CI provisions and migrates this database automatically for every run (see `ci.yml`'s

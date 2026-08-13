@@ -1,5 +1,6 @@
-"""Unit tests for the pure (non-DB) helper functions in change_requests.py —
-the "Propose changes" / review-diff / revert feature.
+"""Unit tests for the pure (non-DB) helper functions behind the "Propose
+changes" / review-diff / revert feature — change_requests.py plus the shared
+snapshot/revert engine in application/collaboration/tree_snapshot.py.
 
 These are the building blocks behind the diff shown in the review modal and
 the tree-canvas highlighting: name formatting, JSON-safe value conversion,
@@ -17,8 +18,8 @@ from src.api.v1.change_requests import (
     _full_name,
     _group_edges,
     _jsonable,
-    _to_date,
 )
+from src.application.collaboration.tree_snapshot import to_date as _to_date
 
 
 # ── _actor_name ────────────────────────────────────────────────────────────

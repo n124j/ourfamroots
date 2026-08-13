@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -28,26 +27,21 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from src.api.deps import CurrentUserDep, NotAuditorDep, SuperAdminDep, UoWDep
+from src.application.collaboration.tree_snapshot import (
+    PERSON_SNAPSHOT_FIELDS as _PERSON_FIELDS,
+    jsonable as _jsonable,
+    snapshot_tree,
+    record_revertible_action,
+    revert_audit_entry,
+)
 from src.domain.collaboration.entities import Action, AppRole, AuditEntityType, AuditEntry
 from src.infrastructure.repositories.collaboration import AuditLogRepository
 
 router = APIRouter(tags=["Change Requests"])
 
-_PERSON_FIELDS = [
-    "display_given_name", "display_surname", "sex",
-    "is_living", "is_deceased", "photo_url",
-    "birth_date", "death_date", "birth_year", "death_year",
-    "born_city", "born_country", "died_city", "died_country",
-    "notes",
-]
-
 
 def _actor_name(user) -> str:
     return f"{user.given_name or ''} {user.family_name or ''}".strip() or user.email
-
-
-def _jsonable(v):
-    return v.isoformat() if hasattr(v, "isoformat") else v
 
 
 def _full_name(r) -> str:
@@ -749,139 +743,6 @@ async def _apply_change_request(session, original_tree_id: uuid.UUID, draft_tree
     return {"added": added_count, "modified": modified_count, "removed": len(removed)}
 
 
-async def _snapshot_tree(session, tree_id: uuid.UUID) -> dict:
-    """Full point-in-time snapshot of a tree's persons + family structure,
-    JSON-serialisable. Captured right before an approval is applied so a
-    Super Admin can later revert it back to exactly this state."""
-    person_rows = (await session.execute(
-        text(f"SELECT id, {', '.join(_PERSON_FIELDS)} FROM persons WHERE tree_id = :tid AND is_deleted = false"),
-        {"tid": tree_id},
-    )).fetchall()
-    persons = [
-        {"id": str(r.id), **{f: _jsonable(getattr(r, f)) for f in _PERSON_FIELDS}}
-        for r in person_rows
-    ]
-
-    fg_rows = (await session.execute(
-        text("""
-            SELECT fg.id AS fg_id, fg.union_type, fg.custom_label, fg.is_divorced,
-                   fg.union_date, fg.union_date_year, fg.union_end_date, fg.union_end_date_year,
-                   fgm.person_id, fgm.role, fgm.parentage_type
-            FROM family_groups fg
-            LEFT JOIN family_group_members fgm ON fgm.family_group_id = fg.id
-            WHERE fg.tree_id = :tid
-        """),
-        {"tid": tree_id},
-    )).fetchall()
-
-    fg_map: dict[str, dict] = {}
-    for r in fg_rows:
-        gid = str(r.fg_id)
-        if gid not in fg_map:
-            fg_map[gid] = {
-                "union_type": r.union_type, "custom_label": r.custom_label, "is_divorced": r.is_divorced,
-                "union_date": _jsonable(r.union_date), "union_date_year": r.union_date_year,
-                "union_end_date": _jsonable(r.union_end_date), "union_end_date_year": r.union_end_date_year,
-                "parent_ids": [], "children": {},
-            }
-        if r.person_id is None:
-            continue
-        pid = str(r.person_id)
-        if r.role == "PARENT":
-            if pid not in fg_map[gid]["parent_ids"]:
-                fg_map[gid]["parent_ids"].append(pid)
-        else:
-            fg_map[gid]["children"][pid] = r.parentage_type or "BIOLOGICAL"
-
-    return {"persons": persons, "family_groups": list(fg_map.values())}
-
-
-def _to_date(v):
-    return date.fromisoformat(v) if isinstance(v, str) else v
-
-
-_PERSON_DATE_FIELDS = {"birth_date", "death_date"}
-
-
-async def _apply_revert(session, tree_id: uuid.UUID, snapshot: dict) -> dict:
-    """Restore *tree_id*'s persons + family groups to exactly the state
-    captured in *snapshot* (an APPROVE_CHANGE audit entry's `before`).
-
-    This undoes the approval — and, necessarily, any edits made to the tree
-    since then too, since it resets to a full point-in-time snapshot rather
-    than replaying just that one change.
-    """
-    current_rows = (await session.execute(
-        text("SELECT id FROM persons WHERE tree_id = :tid AND is_deleted = false"),
-        {"tid": tree_id},
-    )).fetchall()
-    current_ids = {str(r.id) for r in current_rows}
-    snap_persons = {p["id"]: p for p in snapshot["persons"]}
-    snap_ids = set(snap_persons.keys())
-
-    # Adopted/created by the approval (or since) — not in the pre-approval snapshot.
-    added_since = current_ids - snap_ids
-    if added_since:
-        await session.execute(
-            text("UPDATE persons SET is_deleted = true, deleted_at = NOW() WHERE tree_id = :tid AND id = ANY(:ids)"),
-            {"tid": tree_id, "ids": [uuid.UUID(i) for i in added_since]},
-        )
-
-    # Restore every snapshot person's fields — covers both persons that were
-    # modified in place and persons that were soft-deleted by the approval.
-    set_clause = ", ".join(f"{f} = :{f}" for f in _PERSON_FIELDS)
-    for pid, p in snap_persons.items():
-        params = {}
-        for f in _PERSON_FIELDS:
-            v = p.get(f)
-            params[f] = _to_date(v) if f in _PERSON_DATE_FIELDS else v
-        params.update({"pid": uuid.UUID(pid), "tid": tree_id})
-        await session.execute(
-            text(f"UPDATE persons SET {set_clause}, is_deleted = false, deleted_at = NULL WHERE id = :pid AND tree_id = :tid"),
-            params,
-        )
-
-    await session.execute(text("DELETE FROM family_group_members WHERE tree_id = :tid"), {"tid": tree_id})
-    await session.execute(text("DELETE FROM family_groups WHERE tree_id = :tid"), {"tid": tree_id})
-
-    tenant_row = (await session.execute(text("SELECT tenant_id FROM family_trees WHERE id = :tid"), {"tid": tree_id})).first()
-
-    for fg in snapshot["family_groups"]:
-        parent_ids = [uuid.UUID(p) for p in fg["parent_ids"]]
-        children = {uuid.UUID(cid): pt for cid, pt in fg["children"].items()}
-        if not parent_ids and not children:
-            continue
-        new_fg_id = uuid.uuid4()
-        await session.execute(
-            text("""
-                INSERT INTO family_groups (id, tenant_id, tree_id, union_type, custom_label, is_divorced,
-                                            union_date, union_date_year, union_end_date, union_end_date_year,
-                                            parent1_id, parent2_id)
-                VALUES (:id, :tenant, :tid, :utype, :clabel, :divorced, :udate, :udyear, :uedate, :uedyear, :p1, :p2)
-            """),
-            {"id": new_fg_id, "tenant": tenant_row.tenant_id, "tid": tree_id,
-             "utype": fg["union_type"] or "UNKNOWN", "clabel": fg["custom_label"], "divorced": fg["is_divorced"],
-             "udate": _to_date(fg["union_date"]), "udyear": fg["union_date_year"],
-             "uedate": _to_date(fg["union_end_date"]), "uedyear": fg["union_end_date_year"],
-             "p1": parent_ids[0] if len(parent_ids) > 0 else None,
-             "p2": parent_ids[1] if len(parent_ids) > 1 else None},
-        )
-        for pid in parent_ids:
-            await session.execute(
-                text("""INSERT INTO family_group_members (id, tenant_id, tree_id, family_group_id, person_id, role)
-                        VALUES (gen_random_uuid(), :tenant, :tid, :fgid, :pid, 'PARENT')"""),
-                {"tenant": tenant_row.tenant_id, "tid": tree_id, "fgid": new_fg_id, "pid": pid},
-            )
-        for child_pid, parentage in children.items():
-            await session.execute(
-                text("""INSERT INTO family_group_members (id, tenant_id, tree_id, family_group_id, person_id, role, parentage_type)
-                        VALUES (gen_random_uuid(), :tenant, :tid, :fgid, :pid, 'CHILD', :pt)"""),
-                {"tenant": tenant_row.tenant_id, "tid": tree_id, "fgid": new_fg_id, "pid": child_pid, "pt": parentage},
-            )
-
-    return {"restored_persons": len(snap_persons), "removed_persons": len(added_since)}
-
-
 class ResolveChangeRequestBody(BaseModel):
     action: str = Field(..., pattern="^(approve|deny)$")
     decision_note: Optional[str] = Field(None, max_length=1000)
@@ -919,7 +780,7 @@ async def resolve_change_request(
     diff_summary = None
     before_snapshot = None
     if body.action == "approve" and req_row.draft_tree_id:
-        before_snapshot = await _snapshot_tree(session, tree_id)
+        before_snapshot = await snapshot_tree(session, tree_id)
         diff_summary = await _apply_change_request(session, tree_id, req_row.draft_tree_id)
     elif req_row.draft_tree_id:
         await session.execute(text("DELETE FROM family_trees WHERE id = :did"), {"did": req_row.draft_tree_id})
@@ -953,16 +814,23 @@ async def resolve_change_request(
         },
     )
 
-    await AuditLogRepository(session).append(
-        AuditEntry.create(
+    if body.action == "approve":
+        await record_revertible_action(
+            session,
             tree_id=tree_id, tenant_id=req_row.tenant_id,
             actor_id=current_user.id, actor_display_name=resolver_name,
-            action=Action.APPROVE_CHANGE if body.action == "approve" else Action.DENY_CHANGE,
-            entity_type=AuditEntityType.CHANGE_REQUEST, entity_id=request_id,
-            before=before_snapshot,
-            after=diff_summary,
+            action=Action.APPROVE_CHANGE, entity_type=AuditEntityType.CHANGE_REQUEST,
+            entity_id=request_id, snapshot=before_snapshot, after=diff_summary,
         )
-    )
+    else:
+        await AuditLogRepository(session).append(
+            AuditEntry.create(
+                tree_id=tree_id, tenant_id=req_row.tenant_id,
+                actor_id=current_user.id, actor_display_name=resolver_name,
+                action=Action.DENY_CHANGE,
+                entity_type=AuditEntityType.CHANGE_REQUEST, entity_id=request_id,
+            )
+        )
     await session.commit()
 
     requester = (await session.execute(
@@ -1024,7 +892,12 @@ async def revert_change_request(
     if approve_entry is None or not approve_entry.before:
         raise HTTPException(status.HTTP_409_CONFLICT, "No snapshot is available to revert this approval")
 
-    summary = await _apply_revert(session, tree_id, approve_entry.before)
+    actor_name = _actor_name(current_user)
+    summary = await revert_audit_entry(
+        session, tree_id, approve_entry,
+        actor_id=current_user.id, actor_display_name=actor_name,
+        revert_action=Action.REVERT_CHANGE,
+    )
 
     await session.execute(
         text("UPDATE tree_change_requests SET reverted_by_id = :uid, reverted_at = NOW(), updated_at = NOW() WHERE id = :rid"),
@@ -1033,16 +906,6 @@ async def revert_change_request(
 
     tree_row = (await session.execute(text("SELECT name FROM family_trees WHERE id = :tid LIMIT 1"), {"tid": tree_id})).first()
     tree_name = tree_row.name if tree_row else "the tree"
-    actor_name = _actor_name(current_user)
-
-    await AuditLogRepository(session).append(
-        AuditEntry.create(
-            tree_id=tree_id, tenant_id=req_row.tenant_id,
-            actor_id=current_user.id, actor_display_name=actor_name,
-            action=Action.REVERT_CHANGE, entity_type=AuditEntityType.CHANGE_REQUEST, entity_id=request_id,
-            after=summary,
-        )
-    )
 
     notify_ids = {req_row.requester_id}
     owners = (await session.execute(

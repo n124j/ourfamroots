@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { get, post } from '@api/client';
 import { useAuthStore } from '@store/auth.store';
+import { invalidateTreeQueries } from '@queries/keys';
 
 interface AuditEntry {
   id: string;
@@ -15,6 +16,9 @@ interface AuditEntry {
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
   occurred_at: string;
+  revertible: boolean;
+  reverted: boolean;
+  revert_kind: 'full_tree' | 'field';
 }
 
 function useActionLabels(): Record<string, string> {
@@ -42,6 +46,7 @@ function useActionLabels(): Record<string, string> {
     APPROVE_CHANGE:      t('auditLog.approvedChange'),
     DENY_CHANGE:         t('auditLog.deniedChange'),
     REVERT_CHANGE:       t('auditLog.revertedChange'),
+    REVERT_SNAPSHOT:     t('auditLog.revertedSnapshot'),
   };
 }
 
@@ -59,6 +64,7 @@ const ACTION_COLOR: Record<string, string> = {
   APPROVE_CHANGE:   'bg-green-100 text-green-700',
   DENY_CHANGE:      'bg-red-100 text-red-700',
   REVERT_CHANGE:    'bg-purple-100 text-purple-700',
+  REVERT_SNAPSHOT:  'bg-purple-100 text-purple-700',
 };
 
 const DEFAULT_COLOR = 'bg-gray-100 text-gray-600';
@@ -105,20 +111,19 @@ export function AuditLogModal({ treeId, onClose }: Props) {
 
   const entries = data ?? [];
 
-  // Best-effort: hide "Revert" on approvals that already have a later
-  // REVERT_CHANGE entry visible on this page. The backend is the real guard
-  // against double-reverting (returns 409) if an older page is stale.
-  const revertedRequestIds = new Set(
-    entries.filter((e) => e.action === 'REVERT_CHANGE' && e.entity_id).map((e) => e.entity_id as string),
-  );
-
-  async function handleRevert(requestId: string) {
-    setReverting(requestId);
+  async function handleRevert(entry: AuditEntry) {
+    setReverting(entry.id);
     setRevertError('');
     try {
-      await post(`/trees/${treeId}/change-requests/${requestId}/revert`);
+      const endpoint = entry.action === 'APPROVE_CHANGE' && entry.entity_type === 'CHANGE_REQUEST'
+        ? `/trees/${treeId}/change-requests/${entry.entity_id}/revert`
+        : `/trees/${treeId}/audit-log/${entry.id}/revert`;
+      await post(endpoint);
       setConfirmRevertId(null);
-      queryClient.invalidateQueries({ queryKey: ['audit-log', treeId] });
+      // A revert can touch persons, relationships, or the whole tree — refresh
+      // every cached query for this tree, not just the audit log itself, so
+      // the canvas/person views behind this modal pick up the restored state.
+      invalidateTreeQueries(queryClient, treeId);
     } catch (err) {
       setRevertError(
         axios.isAxiosError(err) ? ((err.response?.data as any)?.detail ?? 'Failed to revert') : 'Failed to revert',
@@ -164,8 +169,7 @@ export function AuditLogModal({ treeId, onClose }: Props) {
               const color = ACTION_COLOR[e.action] ?? DEFAULT_COLOR;
               const hasDiff = e.before || e.after;
               const isExpanded = expanded === e.id;
-              const canRevert = isSuperAdmin && e.action === 'APPROVE_CHANGE' && e.entity_type === 'CHANGE_REQUEST'
-                && !!e.entity_id && !revertedRequestIds.has(e.entity_id);
+              const canRevert = isSuperAdmin && e.revertible;
               const isConfirming = confirmRevertId === e.id;
 
               return (
@@ -205,22 +209,24 @@ export function AuditLogModal({ treeId, onClose }: Props) {
 
                       {canRevert && isConfirming && (
                         <div className="mt-2 rounded-lg bg-purple-50 border border-purple-200 px-3 py-2.5">
-                          <p className="text-xs text-purple-800">{t('auditLog.revertWarning')}</p>
+                          <p className="text-xs text-purple-800">
+                            {e.revert_kind === 'full_tree' ? t('auditLog.revertWarning') : t('auditLog.revertWarningField')}
+                          </p>
                           {revertError && <p className="text-xs text-red-600 mt-1.5">{revertError}</p>}
                           <div className="flex gap-2 mt-2">
                             <button
                               onClick={() => setConfirmRevertId(null)}
-                              disabled={reverting === e.entity_id}
+                              disabled={reverting === e.id}
                               className="px-3 py-1 text-xs font-medium bg-white border border-purple-300 text-purple-700 rounded-md hover:bg-purple-100 disabled:opacity-50 transition-colors"
                             >
                               {t('common.cancel')}
                             </button>
                             <button
-                              onClick={() => handleRevert(e.entity_id as string)}
-                              disabled={reverting === e.entity_id}
+                              onClick={() => handleRevert(e)}
+                              disabled={reverting === e.id}
                               className="px-3 py-1 text-xs font-medium bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 transition-colors"
                             >
-                              {reverting === e.entity_id ? t('auditLog.reverting') : t('auditLog.confirmRevert')}
+                              {reverting === e.id ? t('auditLog.reverting') : t('auditLog.confirmRevert')}
                             </button>
                           </div>
                         </div>

@@ -7,7 +7,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, EmailStr, Field
 
-from src.api.deps import AdminUserDep, CurrentUserDep, EditableTreeDep, NotAuditorDep, UoWDep
+from src.api.deps import AdminUserDep, CurrentUserDep, EditableTreeDep, NotAuditorDep, SuperAdminDep, UoWDep
 from src.api.v1._roles import TreeAdminDep
 from src.application.collaboration.service import CollaborationService
 from src.domain.collaboration.entities import (
@@ -99,9 +99,14 @@ class AuditEntryResponse(BaseModel):
     before: Optional[dict]
     after: Optional[dict]
     occurred_at: str
+    revertible: bool = False
+    reverted: bool = False
+    revert_kind: str = "field"
 
     @classmethod
     def from_domain(cls, e: AuditEntry) -> "AuditEntryResponse":
+        from src.application.collaboration.tree_snapshot import is_revertible, revert_kind_for
+        is_full_tree = e.metadata.get("snapshot_kind") == "full_tree"
         return cls(
             id=e.id,
             actor_display_name=e.actor_display_name,
@@ -109,9 +114,19 @@ class AuditEntryResponse(BaseModel):
             entity_type=e.entity_type.value,
             entity_id=e.entity_id,
             entity_display_name=e.entity_display_name,
-            before=e.before,
+            # A full-tree snapshot is an opaque restore point, not meaningful
+            # in the "Show details" raw-JSON viewer — and shipping it to
+            # every Admin+ viewer on every delete (not just rare change-request
+            # approvals) is unnecessary payload/PII exposure now that more
+            # actions carry one. The revert endpoint re-fetches it by entry id.
+            # Surgical (person/relationship-field) snapshots are small and
+            # meaningful, so those stay visible in "Show details".
+            before=None if is_full_tree else e.before,
             after=e.after,
             occurred_at=e.occurred_at.isoformat(),
+            revertible=is_revertible(e),
+            reverted=e.reverted_at is not None,
+            revert_kind=revert_kind_for(e),
         )
 
 
@@ -989,8 +1004,8 @@ async def delete_family_group(
     uow: UoWDep,
 ) -> None:
     from sqlalchemy import text
+    from src.application.collaboration.tree_snapshot import snapshot_tree, record_revertible_action
     from src.domain.collaboration.entities import Action, AuditEntityType
-    from src.infrastructure.repositories.collaboration import AuditLogRepository
 
     # Verify it belongs to this tree
     row = (await uow._session.execute(
@@ -999,6 +1014,8 @@ async def delete_family_group(
     )).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Family group not found")
+
+    snapshot = await snapshot_tree(uow._session, tree_id)
 
     # Remove all member links then the group itself
     await uow._session.execute(
@@ -1011,16 +1028,16 @@ async def delete_family_group(
     )
 
     actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
-    await AuditLogRepository(uow._session).append(
-        AuditEntry.create(
-            tree_id=tree_id,
-            tenant_id=current_user.tenant_id,
-            actor_id=current_user.id,
-            actor_display_name=actor_name,
-            action=Action.REMOVE_RELATIONSHIP,
-            entity_type=AuditEntityType.FAMILY_GROUP,
-            entity_id=family_group_id,
-        )
+    await record_revertible_action(
+        uow._session,
+        tree_id=tree_id,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        actor_display_name=actor_name,
+        action=Action.REMOVE_RELATIONSHIP,
+        entity_type=AuditEntityType.FAMILY_GROUP,
+        entity_id=family_group_id,
+        snapshot=snapshot,
     )
     await uow._session.commit()
 
@@ -1048,8 +1065,8 @@ async def update_family_group(
     uow: UoWDep,
 ) -> dict:
     from sqlalchemy import text
+    from src.application.collaboration.tree_snapshot import record_revertible_action, snapshot_family_group_fields
     from src.domain.collaboration.entities import Action, AuditEntityType
-    from src.infrastructure.repositories.collaboration import AuditLogRepository
 
     row = (await uow._session.execute(
         text("SELECT id FROM family_groups WHERE id = :fgid AND tree_id = :tid LIMIT 1"),
@@ -1057,6 +1074,8 @@ async def update_family_group(
     )).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Family group not found")
+
+    before_fields = await snapshot_family_group_fields(uow._session, family_group_id)
 
     updates: list[str] = []
     params: dict = {"fgid": family_group_id}
@@ -1122,17 +1141,18 @@ async def update_family_group(
         )
 
     actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
-    await AuditLogRepository(uow._session).append(
-        AuditEntry.create(
-            tree_id=tree_id,
-            tenant_id=current_user.tenant_id,
-            actor_id=current_user.id,
-            actor_display_name=actor_name,
-            action=Action.UPDATE_RELATIONSHIP,
-            entity_type=AuditEntityType.FAMILY_GROUP,
-            entity_id=family_group_id,
-            after=audit_after,
-        )
+    await record_revertible_action(
+        uow._session,
+        tree_id=tree_id,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        actor_display_name=actor_name,
+        action=Action.UPDATE_RELATIONSHIP,
+        entity_type=AuditEntityType.FAMILY_GROUP,
+        entity_id=family_group_id,
+        snapshot={"table": "family_groups", "id": str(family_group_id), "fields": before_fields},
+        snapshot_kind="relationship_field",
+        after=audit_after,
     )
     await uow._session.commit()
     return {"family_group_id": str(family_group_id), **audit_after}
@@ -1153,8 +1173,8 @@ async def remove_family_group_member(
     uow: UoWDep,
 ) -> None:
     from sqlalchemy import text
+    from src.application.collaboration.tree_snapshot import snapshot_tree, record_revertible_action
     from src.domain.collaboration.entities import Action, AuditEntityType
-    from src.infrastructure.repositories.collaboration import AuditLogRepository
 
     # Verify family group belongs to this tree
     row = (await uow._session.execute(
@@ -1163,6 +1183,11 @@ async def remove_family_group_member(
     )).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Family group not found")
+
+    # Snapshot before either destructive branch below (plain member removal,
+    # or full cascade group deletion if it was the last parent) — one
+    # snapshot correctly covers both outcomes.
+    snapshot = await snapshot_tree(uow._session, tree_id)
 
     # Delete this person's membership row
     await uow._session.execute(
@@ -1186,16 +1211,16 @@ async def remove_family_group_member(
         )
 
     actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
-    await AuditLogRepository(uow._session).append(
-        AuditEntry.create(
-            tree_id=tree_id,
-            tenant_id=current_user.tenant_id,
-            actor_id=current_user.id,
-            actor_display_name=actor_name,
-            action=Action.REMOVE_RELATIONSHIP,
-            entity_type=AuditEntityType.FAMILY_GROUP,
-            entity_id=family_group_id,
-        )
+    await record_revertible_action(
+        uow._session,
+        tree_id=tree_id,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        actor_display_name=actor_name,
+        action=Action.REMOVE_RELATIONSHIP,
+        entity_type=AuditEntityType.FAMILY_GROUP,
+        entity_id=family_group_id,
+        snapshot=snapshot,
     )
     await uow._session.commit()
 
@@ -1218,11 +1243,11 @@ async def update_family_group_member(
     uow: UoWDep,
 ) -> dict:
     from sqlalchemy import text
+    from src.application.collaboration.tree_snapshot import record_revertible_action
     from src.domain.collaboration.entities import Action, AuditEntityType
-    from src.infrastructure.repositories.collaboration import AuditLogRepository
 
     row = (await uow._session.execute(
-        text("""SELECT fgm.id, fgm.role FROM family_group_members fgm
+        text("""SELECT fgm.id, fgm.role, fgm.parentage_type FROM family_group_members fgm
                 JOIN family_groups fg ON fg.id = fgm.family_group_id
                 WHERE fgm.family_group_id = :fgid AND fgm.person_id = :pid AND fg.tree_id = :tid
                 LIMIT 1"""),
@@ -1230,6 +1255,7 @@ async def update_family_group_member(
     )).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found in family group")
+    previous_parentage_type = row.parentage_type
 
     if body.parentage_type == "BIOLOGICAL":
         parent_rows = (await uow._session.execute(
@@ -1252,17 +1278,23 @@ async def update_family_group_member(
     )
 
     actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
-    await AuditLogRepository(uow._session).append(
-        AuditEntry.create(
-            tree_id=tree_id,
-            tenant_id=current_user.tenant_id,
-            actor_id=current_user.id,
-            actor_display_name=actor_name,
-            action=Action.UPDATE_RELATIONSHIP,
-            entity_type=AuditEntityType.FAMILY_GROUP,
-            entity_id=family_group_id,
-            after={"person_id": str(person_id), "parentage_type": body.parentage_type},
-        )
+    await record_revertible_action(
+        uow._session,
+        tree_id=tree_id,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        actor_display_name=actor_name,
+        action=Action.UPDATE_RELATIONSHIP,
+        entity_type=AuditEntityType.FAMILY_GROUP,
+        entity_id=family_group_id,
+        snapshot={
+            "table": "family_group_members",
+            "family_group_id": str(family_group_id),
+            "person_id": str(person_id),
+            "fields": {"parentage_type": previous_parentage_type},
+        },
+        snapshot_kind="relationship_field",
+        after={"person_id": str(person_id), "parentage_type": body.parentage_type},
     )
     await uow._session.commit()
     return {"family_group_id": str(family_group_id), "person_id": str(person_id), "parentage_type": body.parentage_type}
@@ -3446,6 +3478,62 @@ async def get_audit_log(
                     resp.actor_display_name = SUPER_ADMIN_DISPLAY_LABEL
 
     return responses
+
+
+@router.post(
+    "/trees/{tree_id}/audit-log/{entry_id}/revert",
+    summary="Revert a full-tree-snapshot audit entry back to its pre-mutation state (Super Admin only)",
+)
+async def revert_audit_log_entry(
+    tree_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    current_user: SuperAdminDep,
+    uow: UoWDep,
+) -> dict:
+    import json
+    from sqlalchemy import text
+    from src.application.collaboration.tree_snapshot import revert_audit_entry
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+
+    session = uow._session
+    entry = await AuditLogRepository(session).get_by_id(entry_id)
+    if entry is None or entry.tree_id != tree_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Audit entry not found")
+
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    summary = await revert_audit_entry(
+        session, tree_id, entry,
+        actor_id=current_user.id, actor_display_name=actor_name,
+    )
+
+    tree_row = (await session.execute(text("SELECT name FROM family_trees WHERE id = :tid LIMIT 1"), {"tid": tree_id})).first()
+    tree_name = tree_row.name if tree_row else "the tree"
+
+    notify_ids = set()
+    if entry.actor_id:
+        notify_ids.add(entry.actor_id)
+    owners = (await session.execute(
+        text("SELECT user_id FROM tree_members WHERE tree_id = :tid AND role = 'OWNER'"), {"tid": tree_id},
+    )).fetchall()
+    notify_ids.update(o.user_id for o in owners)
+    notify_ids.discard(current_user.id)
+    notif_data = json.dumps({"tree_id": str(tree_id), "entry_id": str(entry_id)})
+    for uid in notify_ids:
+        await session.execute(
+            text("""
+                INSERT INTO notifications (user_id, tenant_id, type, title, body, data)
+                VALUES (:uid, :tenant, 'CHANGE_REQUEST_REVERTED', :title, :nbody, CAST(:data AS jsonb))
+            """),
+            {
+                "uid": uid, "tenant": entry.tenant_id,
+                "title": f"A change to {tree_name} was reverted by an administrator",
+                "nbody": f"{actor_name} reverted a {entry.action.value.replace('_', ' ').lower()} action.",
+                "data": notif_data,
+            },
+        )
+
+    await session.commit()
+    return {"id": str(entry_id), "reverted": True, **summary}
 
 
 # ── Version history ────────────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ import { useThemeStore } from '@store/theme.store';
 import { useCanvasStore } from '@store/canvas.store';
 import { getViewPlugin } from '@extensions/views/registry';
 import { useAuthStore } from '@store/auth.store';
-import { queryKeys } from '@queries/keys';
+import { invalidateTreeQueries } from '@queries/keys';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
@@ -128,7 +128,7 @@ function UnionEdgeComponent({
         setSaveError((d as any).detail ?? `Error ${res.status}`);
         return;
       }
-      queryClient.invalidateQueries({ queryKey: queryKeys.trees.detail(treeId) });
+      invalidateTreeQueries(queryClient, treeId);
       setIsEditing(false);
     } catch (err: any) {
       setSaveError(err?.message ?? 'Network error');

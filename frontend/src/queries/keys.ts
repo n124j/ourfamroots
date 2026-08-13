@@ -8,6 +8,22 @@
  *      queryKeys.trees.detail('x'), queryKeys.trees.members('x'), etc.
  */
 
+import type { QueryClient } from '@tanstack/react-query';
+
+/**
+ * Invalidate every cached query for a tree — the canvas graph, person
+ * details, ancestor/descendant/search caches, relationships, audit log,
+ * version history, etc. Every one of those query keys includes the treeId
+ * somewhere in its array, several via ad-hoc (non-factory) keys, so a
+ * prefix-based invalidate on a single factory key would miss most of them.
+ * Use this after any mutation that changes tree/person/relationship data,
+ * so every panel showing this tree (including ones not currently mounted
+ * behind a modal) refreshes rather than silently serving stale cache.
+ */
+export function invalidateTreeQueries(queryClient: QueryClient, treeId: string): void {
+  queryClient.invalidateQueries({ predicate: (query) => query.queryKey.includes(treeId) });
+}
+
 interface SearchParams {
   q?: string;
   treeId?: string;

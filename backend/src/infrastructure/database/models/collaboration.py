@@ -266,6 +266,10 @@ class AuditLogModel(Base):
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    reverted_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverted_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     def __repr__(self) -> str:
         return f"<AuditLogModel action={self.action} actor={self.actor_id}>"

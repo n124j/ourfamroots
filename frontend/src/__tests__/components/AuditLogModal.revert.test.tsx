@@ -1,14 +1,15 @@
 /**
- * Component tests for AuditLogModal's admin-only "Revert" action on an
- * APPROVE_CHANGE entry.
+ * Component tests for AuditLogModal's admin-only "Revert" action, driven by
+ * the server-computed `revertible`/`reverted` flags on each audit entry.
  *
  * Covers:
- *  - Button visibility gating (Super Admin only)
+ *  - Button visibility gating (Super Admin only, and server-side revertible flag)
  *  - Inline confirm/cancel flow — no API call until confirmed
  *  - Successful revert calls the right endpoint and refreshes the log
  *  - Failed revert surfaces the server's error message
- *  - A request that already shows a REVERT_CHANGE entry on the same page
- *    doesn't offer Revert again
+ *  - An entry the server already reports as reverted doesn't offer Revert again
+ *  - A non-change-request entry (e.g. DELETE_PERSON) routes to the generic
+ *    audit-log revert endpoint instead of the change-request one
  */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -41,6 +42,9 @@ function approveEntry(overrides: Record<string, unknown> = {}) {
     before: null,
     after: { added: 1, modified: 1, removed: 0 },
     occurred_at: new Date().toISOString(),
+    revertible: true,
+    reverted: false,
+    revert_kind: 'full_tree',
     ...overrides,
   };
 }
@@ -88,15 +92,16 @@ describe('AuditLogModal — revert an approved change request', () => {
     expect(screen.queryByText('Revert')).not.toBeInTheDocument();
   });
 
-  it('does not offer Revert for a request that already has a REVERT_CHANGE entry on this page', async () => {
+  it('does not offer Revert for an entry the server reports as already reverted', async () => {
     useAuthStore.setState({ user: SUPER_ADMIN_USER });
     mockAuditLog([
-      approveEntry(),
+      approveEntry({ revertible: false, reverted: true }),
       {
         id: 'audit-2', actor_display_name: 'Super Admin', action: 'REVERT_CHANGE',
         entity_type: 'CHANGE_REQUEST', entity_id: REQUEST_ID, entity_display_name: null,
         before: null, after: { restored_persons: 3, removed_persons: 1 },
         occurred_at: new Date().toISOString(),
+        revertible: false, reverted: false,
       },
     ]);
     renderModal();
@@ -140,8 +145,9 @@ describe('AuditLogModal — revert an approved change request', () => {
                   id: 'audit-2', actor_display_name: 'Super Admin', action: 'REVERT_CHANGE',
                   entity_type: 'CHANGE_REQUEST', entity_id: REQUEST_ID, entity_display_name: null,
                   before: null, after: null, occurred_at: new Date().toISOString(),
+                  revertible: false, reverted: false, revert_kind: 'full_tree',
                 },
-                approveEntry(),
+                approveEntry({ revertible: false, reverted: true }),
               ]
             : [approveEntry()],
         ),
@@ -159,6 +165,62 @@ describe('AuditLogModal — revert an approved change request', () => {
     expect(await screen.findByText('Reverted approved proposal')).toBeInTheDocument();
     // The now-reverted approval no longer offers a Revert button.
     expect(screen.queryByText('Revert')).not.toBeInTheDocument();
+  });
+
+  it('routes a revertible non-change-request entry (e.g. DELETE_PERSON) to the generic audit-log revert endpoint', async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({ user: SUPER_ADMIN_USER });
+    const deleteEntry = {
+      id: 'audit-3',
+      actor_display_name: 'Jane Editor',
+      action: 'DELETE_PERSON',
+      entity_type: 'PERSON',
+      entity_id: 'person-1',
+      entity_display_name: 'John Doe',
+      before: null,
+      after: null,
+      occurred_at: new Date().toISOString(),
+      revertible: true,
+      reverted: false,
+      revert_kind: 'full_tree',
+    };
+    mockAuditLog([deleteEntry]);
+    const revertHandler = vi.fn(() =>
+      HttpResponse.json({ id: deleteEntry.id, reverted: true, restored_persons: 5, removed_persons: 0 }),
+    );
+    server.use(
+      http.post(`/api/v1/trees/${TREE_ID}/audit-log/${deleteEntry.id}/revert`, revertHandler),
+    );
+    renderModal();
+
+    await user.click(await screen.findByText('Revert'));
+    await user.click(await screen.findByText('Yes, revert'));
+
+    await waitFor(() => expect(revertHandler).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows the lighter field-level warning for a surgical (non-full-tree) revert', async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({ user: SUPER_ADMIN_USER });
+    mockAuditLog([{
+      id: 'audit-4',
+      actor_display_name: 'Jane Editor',
+      action: 'UPDATE_PERSON',
+      entity_type: 'PERSON',
+      entity_id: 'person-1',
+      entity_display_name: 'John Doe',
+      before: { display_given_name: 'Jon' },
+      after: { name: 'John Doe' },
+      occurred_at: new Date().toISOString(),
+      revertible: true,
+      reverted: false,
+      revert_kind: 'field',
+    }]);
+    renderModal();
+
+    await user.click(await screen.findByText('Revert'));
+    expect(await screen.findByText(/other changes made to the tree since are not affected/i)).toBeInTheDocument();
+    expect(screen.queryByText(/resets the tree to its exact state/i)).not.toBeInTheDocument();
   });
 
   it('shows the server error and keeps the confirm panel open on failure', async () => {

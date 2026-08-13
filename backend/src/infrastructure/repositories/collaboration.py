@@ -63,6 +63,8 @@ def _audit_to_domain(a: AuditLogModel) -> AuditEntry:
         ip_address=a.ip_address,
         occurred_at=a.occurred_at,
         metadata=a.metadata_,
+        reverted_at=a.reverted_at,
+        reverted_by_id=a.reverted_by_id,
     )
 
 def _version_to_domain(v: PersonVersionModel) -> PersonVersion:
@@ -253,9 +255,18 @@ class AuditLogRepository:
             ip_address=entry.ip_address,
             occurred_at=entry.occurred_at,
             metadata_=entry.metadata,
+            reverted_at=entry.reverted_at,
+            reverted_by_id=entry.reverted_by_id,
         )
         self._session.add(model)
         await self._session.flush()
+
+    async def get_by_id(self, entry_id: uuid.UUID) -> Optional[AuditEntry]:
+        result = await self._session.execute(
+            select(AuditLogModel).where(AuditLogModel.id == entry_id)
+        )
+        model = result.scalar_one_or_none()
+        return _audit_to_domain(model) if model else None
 
     async def list_by_tree(
         self,

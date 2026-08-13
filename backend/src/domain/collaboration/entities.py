@@ -84,6 +84,10 @@ class Action(str, Enum):
     APPROVE_CHANGE      = "APPROVE_CHANGE"
     DENY_CHANGE         = "DENY_CHANGE"
     REVERT_CHANGE       = "REVERT_CHANGE"
+    # Generic point-in-time revert (Super Admin only) — used for any
+    # full-tree-snapshot-carrying audit entry that isn't a change request,
+    # e.g. reverting a DELETE_PERSON or REMOVE_RELATIONSHIP.
+    REVERT_SNAPSHOT     = "REVERT_SNAPSHOT"
     # Section visibility (which "More details" sections a user/group can see)
     MANAGE_SECTION_VISIBILITY = "MANAGE_SECTION_VISIBILITY"
 
@@ -177,6 +181,7 @@ ACTION_MIN_ROLE: dict[Action, TreeRole] = {
     Action.DENY_CHANGE:         TreeRole.OWNER,
     # App-admin only (Super Admin) — mapped to OWNER so is_permitted() returns False for all tree roles
     Action.REVERT_CHANGE:       TreeRole.OWNER,
+    Action.REVERT_SNAPSHOT:     TreeRole.OWNER,
 }
 
 
@@ -279,6 +284,8 @@ class AuditEntry:
     ip_address: Optional[str]
     occurred_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = field(default_factory=dict)
+    reverted_at: Optional[datetime] = None
+    reverted_by_id: Optional[uuid.UUID] = None
 
     @classmethod
     def create(

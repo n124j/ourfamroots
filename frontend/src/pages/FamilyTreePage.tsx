@@ -14,7 +14,7 @@ import { useThemeStore, THEME_PRESETS, PRESET_LABEL, type CanvasTheme } from '@s
 import { AVATAR_PRESETS, isPreset, presetDataUri } from '@features/tree/avatarPresets';
 import { useCanvasStore, type SelectedEdge } from '@store/canvas.store';
 import { useAuthStore } from '@store/auth.store';
-import { queryKeys } from '@queries/keys';
+import { queryKeys, invalidateTreeQueries } from '@queries/keys';
 import { apiClient, get, post, put, patch, del } from '@api/client';
 import axios from 'axios';
 import type { ApiTreeGraph, ApiRelationship } from '@features/tree/types';
@@ -2220,7 +2220,7 @@ function UnionDatesSection({
     setSavingDates(true);
     try {
       await patch(`/trees/${treeId}/family-groups/${familyGroupId}`, { [field]: value });
-      queryClient.invalidateQueries({ queryKey: queryKeys.trees.detail(treeId) });
+      invalidateTreeQueries(queryClient, treeId);
     } catch { /* swallow */ }
     finally { setSavingDates(false); }
   }
@@ -2426,7 +2426,7 @@ function EdgeSelectionPanel({ edge, graph, treeId, token, canWrite, onClose, onD
                     await patch(`/trees/${treeId}/family-groups/${familyGroupId}/members/${personId}`, {
                       parentage_type: e.target.value,
                     });
-                    queryClient.invalidateQueries({ queryKey: queryKeys.trees.detail(treeId) });
+                    invalidateTreeQueries(queryClient, treeId);
                   } catch { /* swallow */ }
                   finally { setSavingParentage(false); }
                 }}
@@ -2453,7 +2453,7 @@ function EdgeSelectionPanel({ edge, graph, treeId, token, canWrite, onClose, onD
                     await patch(`/trees/${treeId}/family-groups/${familyGroupId}`, {
                       union_type: e.target.value,
                     });
-                    queryClient.invalidateQueries({ queryKey: queryKeys.trees.detail(treeId) });
+                    invalidateTreeQueries(queryClient, treeId);
                   } catch { /* swallow */ }
                   finally { setSavingUnionType(false); }
                 }}
@@ -2487,7 +2487,7 @@ function EdgeSelectionPanel({ edge, graph, treeId, token, canWrite, onClose, onD
                     await patch(`/trees/${treeId}/family-groups/${familyGroupId}`, {
                       is_divorced: !fg?.isDivorced,
                     });
-                    queryClient.invalidateQueries({ queryKey: queryKeys.trees.detail(treeId) });
+                    invalidateTreeQueries(queryClient, treeId);
                   } catch { /* swallow */ }
                   finally { setTogglingDivorce(false); }
                 }}
@@ -3465,6 +3465,7 @@ function ReviewModeBanner({
 
 export default function FamilyTreePage() {
   const { treeId } = useParams<{ treeId: string }>();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -3653,12 +3654,18 @@ export default function FamilyTreePage() {
       for (const p of result.data.persons) next.add(p.id);
       setExpandedNodeIds(next);
     }
+    // The graph query above is refetched directly (its data feeds expanded-
+    // node state), but every other cache for this tree — audit log, person
+    // details, ancestor/descendant/search caches, relationships, version
+    // history — also needs to refresh so it doesn't keep showing pre-mutation
+    // data if reopened right after an add/edit/delete.
+    if (treeId) invalidateTreeQueries(queryClient, treeId);
     if (focusIds) {
       // Let the canvas re-render the refetched graph before fitting the view
       // to the new node(s) — scrollToNode needs them present in React Flow's state.
       setTimeout(() => canvasRef.current?.scrollToNode(focusIds), 80);
     }
-  }, [refetch]);
+  }, [refetch, treeId, queryClient]);
 
   const panelPersonName = useMemo(() => {
     if (!panelPersonId || !graph) return '';
