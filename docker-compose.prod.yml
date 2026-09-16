@@ -173,7 +173,7 @@ services:
 
     # ── MinIO (S3-compatible object storage) ───────────────────────────────────
     minio:
-        image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+        image: quay.io/minio/minio:RELEASE.2024-05-01T01-11-10Z
         <<: *restart
         command: server /data --console-address ":9001"
         environment:
@@ -192,7 +192,7 @@ services:
 
     # MinIO bucket initializer (runs once then exits)
     minio-init:
-        image: minio/mc:RELEASE.2024-05-09T17-04-24Z
+        image: quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z
         depends_on:
             minio:
                 condition: service_healthy
