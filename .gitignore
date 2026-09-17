@@ -22,6 +22,10 @@ certbot/
 *.txt
 *.docx
 *.sql
+!infra/postgres/init.sql
+!seed_dynasty_8gen.sql
+!seed_family.sql
+!seed_smith_gen5.sql
 FamilyRoots_FrontendArchitecture_v1.0.md
 TESTING.md
 architecture
