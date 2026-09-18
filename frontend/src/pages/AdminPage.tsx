@@ -1089,6 +1089,7 @@ interface BroadcastHistoryEntry {
   recipient_count: number;
   sent_count: number;
   failed_count: number;
+  in_progress: boolean;
   recipient_emails: string[];
   created_at: string;
 }
@@ -1233,8 +1234,10 @@ function BroadcastPanel({ token }: { token: string | null }) {
         throw new Error((err as any).detail ?? 'Failed to send');
       }
       const data = await res.json();
-      const failedMsg = data.failed_count > 0 ? ` (${data.failed_count} failed)` : '';
-      setFeedback({ type: 'success', text: `Sent to ${data.sent_count} recipient${data.sent_count !== 1 ? 's' : ''}${failedMsg}.` });
+      setFeedback({
+        type: 'success',
+        text: `Queued — sending to ${data.recipient_count} recipient${data.recipient_count !== 1 ? 's' : ''}. See Broadcast History below for delivery status.`,
+      });
       setSubject('');
       setBody('');
       loadHistory();
@@ -1267,6 +1270,15 @@ function BroadcastPanel({ token }: { token: string | null }) {
   }, [token, historyPage]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  // While any broadcast is still sending, poll for updates so the admin
+  // doesn't have to manually refresh to see final sent/failed counts.
+  const hasInProgress = history.some((h) => h.in_progress);
+  useEffect(() => {
+    if (!hasInProgress) return;
+    const id = setInterval(loadHistory, 4000);
+    return () => clearInterval(id);
+  }, [hasInProgress, loadHistory]);
 
   async function handleDeleteLog(id: string) {
     if (!token) return;
@@ -1518,8 +1530,13 @@ function BroadcastPanel({ token }: { token: string | null }) {
                       <span className="flex-1 text-sm font-medium truncate" style={{ color: 'var(--portal-text-primary)' }}>
                         {h.subject}
                       </span>
-                      <span className="text-xs whitespace-nowrap" style={{ color: 'var(--portal-text-muted)' }}>
-                        {h.sent_count} sent{h.failed_count > 0 ? `, ${h.failed_count} failed` : ''}
+                      <span
+                        className={`text-xs whitespace-nowrap ${h.in_progress ? 'text-brand-600 font-medium' : ''}`}
+                        style={h.in_progress ? undefined : { color: 'var(--portal-text-muted)' }}
+                      >
+                        {h.in_progress
+                          ? t('adminPage.sending')
+                          : `${h.sent_count} sent${h.failed_count > 0 ? `, ${h.failed_count} failed` : ''}`}
                       </span>
                       <span className="text-xs whitespace-nowrap" style={{ color: 'var(--portal-text-muted)' }}>
                         {new Date(h.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}

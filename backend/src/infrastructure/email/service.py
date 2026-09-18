@@ -52,6 +52,30 @@ async def send_email(
         log.error("email.failed", to=to, subject=subject, error=str(exc))
 
 
+def send_smtp_blocking(to: str, subject: str, html_body: str, text_body: str) -> None:
+    """Blocking SMTP send that raises on failure (for accurate error counting).
+
+    Unlike send_email() above, this does not swallow exceptions — callers that
+    need to count successes/failures across many recipients (e.g. broadcast
+    email) rely on the raise to distinguish a real per-recipient failure.
+    """
+    settings = get_settings()
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = settings.email_from
+    msg["To"] = to
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
+        if settings.smtp_user and settings.smtp_password:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(settings.smtp_user, settings.smtp_password)
+        smtp.sendmail(settings.email_from, to, msg.as_string())
+
+
 # ── Email templates ────────────────────────────────────────────────────────────
 
 def account_created_email(display_name: str, activate_url: str, created_by: str) -> tuple[str, str]:

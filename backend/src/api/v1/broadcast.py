@@ -1,14 +1,13 @@
 """Broadcast email API — Super Admin only."""
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Optional
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
 from src.api.deps import SessionDep, SuperAdminDep
 from src.api.v1._admin_log import log_admin_action
@@ -17,30 +16,6 @@ from src.infrastructure.database.models.user import UserModel
 
 router = APIRouter(prefix="/broadcast", tags=["Broadcast"])
 log = structlog.get_logger(__name__)
-
-
-def _send_smtp(to: str, subject: str, html_body: str, text_body: str) -> None:
-    """Blocking SMTP send that raises on failure (for accurate error counting)."""
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    from src.config import get_settings
-
-    settings = get_settings()
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = settings.email_from
-    msg["To"] = to
-    msg.attach(MIMEText(text_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
-
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
-        if settings.smtp_user and settings.smtp_password:
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.ehlo()
-            smtp.login(settings.smtp_user, settings.smtp_password)
-        smtp.sendmail(settings.email_from, to, msg.as_string())
 
 
 # ── Request / response schemas ────────────────────────────────────────────────
@@ -55,9 +30,9 @@ class BroadcastRequest(BaseModel):
     )
 
 
-class BroadcastResponse(BaseModel):
-    sent_count: int
-    failed_count: int
+class BroadcastQueuedResponse(BaseModel):
+    log_id: uuid.UUID
+    recipient_count: int
 
 
 class BroadcastRecipient(BaseModel):
@@ -85,6 +60,7 @@ class BroadcastHistoryItem(BaseModel):
     recipient_count: int
     sent_count: int
     failed_count: int
+    in_progress: bool
     recipient_emails: list[str]
     created_at: str
 
@@ -146,20 +122,16 @@ async def list_recipients(
 
 @router.post(
     "/send",
-    response_model=BroadcastResponse,
-    summary="Send a broadcast email to selected or all users (Super Admin only)",
+    response_model=BroadcastQueuedResponse,
+    summary="Queue a broadcast email to selected or all users (Super Admin only)",
 )
 async def send_broadcast(
     body: BroadcastRequest,
     request: Request,
     current_user: SuperAdminDep,
     session: SessionDep,
-) -> BroadcastResponse:
-    from src.infrastructure.email.service import broadcast_email
-    from src.config import get_settings
-
-    settings = get_settings()
-    unsubscribe_base = f"{settings.frontend_base_url}/settings/notifications"
+) -> BroadcastQueuedResponse:
+    from src.infrastructure.broadcast.broadcast_tasks import send_broadcast_task
 
     q = select(UserModel).where(
         UserModel.tenant_id == current_user.tenant_id,
@@ -175,27 +147,11 @@ async def send_broadcast(
     if not recipients:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No eligible recipients found (all may have unsubscribed)")
 
-    async def _send_one(user: UserModel) -> bool:
-        html, text = broadcast_email(
-            subject=body.subject,
-            body=body.body,
-            recipient_name=user.full_name,
-            category=body.category,
-            unsubscribe_url=unsubscribe_base,
-        )
-        try:
-            await asyncio.to_thread(_send_smtp, user.email, body.subject, html, text)
-            return True
-        except Exception:
-            return False
-
-    results = await asyncio.gather(*[_send_one(u) for u in recipients])
-    sent = sum(1 for r in results if r)
-    failed = sum(1 for r in results if not r)
-
     recipient_emails = [u.email for u in recipients]
 
-    # Save broadcast log
+    # Save the broadcast log immediately (zero counts — the task fills these
+    # in once sending finishes) so the admin sees it in History right away
+    # and the frontend can poll for completion.
     log_entry = BroadcastLogModel(
         tenant_id=current_user.tenant_id,
         sender_id=current_user.id,
@@ -204,14 +160,15 @@ async def send_broadcast(
         body=body.body,
         category=body.category,
         recipient_count=len(recipients),
-        sent_count=sent,
-        failed_count=failed,
+        sent_count=0,
+        failed_count=0,
         recipient_emails=recipient_emails,
     )
     session.add(log_entry)
+    await session.flush()  # assign log_entry.id without ending the transaction
 
     # Log to activity feed
-    target = f"{body.subject} → {sent} recipient{'s' if sent != 1 else ''}"
+    target = f"{body.subject} → queued for {len(recipients)} recipient{'s' if len(recipients) != 1 else ''}"
     ip = request.client.host if request.client else None
     await log_admin_action(
         session, current_user.tenant_id, current_user.id,
@@ -220,17 +177,23 @@ async def send_broadcast(
 
     await session.commit()
 
+    send_broadcast_task.delay(
+        log_id=str(log_entry.id),
+        recipients=[{"email": u.email, "full_name": u.full_name} for u in recipients],
+        subject=body.subject,
+        body=body.body,
+        category=body.category,
+    )
+
     log.info(
-        "broadcast.sent",
+        "broadcast.queued",
         sender=current_user.email,
         subject=body.subject,
         category=body.category,
         total=len(recipients),
-        sent=sent,
-        failed=failed,
     )
 
-    return BroadcastResponse(sent_count=sent, failed_count=failed)
+    return BroadcastQueuedResponse(log_id=log_entry.id, recipient_count=len(recipients))
 
 
 @router.get(
@@ -267,6 +230,7 @@ async def list_history(
                 recipient_count=r.recipient_count,
                 sent_count=r.sent_count,
                 failed_count=r.failed_count,
+                in_progress=(r.sent_count + r.failed_count) < r.recipient_count,
                 recipient_emails=r.recipient_emails or [],
                 created_at=r.created_at.isoformat(),
             )

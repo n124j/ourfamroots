@@ -49,10 +49,12 @@ celery_app.conf.update(
 )
 
 # Auto-discover tasks in these packages
-celery_app.autodiscover_tasks(["src.infrastructure.media", "src.infrastructure.subscriptions"])
+celery_app.autodiscover_tasks(["src.infrastructure.media", "src.infrastructure.subscriptions", "src.infrastructure.broadcast"])
 
-# Explicit import so the worker/beat process (started via `-A
-# src.infrastructure.media.celery_app`) actually registers this task —
+# Explicit imports so the worker process (started via `-A
+# src.infrastructure.media.celery_app`) actually registers these tasks —
 # autodiscover_tasks() only looks for a `tasks` submodule by default, which
-# doesn't match this package's `subscription_tasks.py` filename.
+# doesn't match these packages' `subscription_tasks.py` / `broadcast_tasks.py`
+# filenames.
 from src.infrastructure.subscriptions import subscription_tasks  # noqa: F401,E402
+from src.infrastructure.broadcast import broadcast_tasks  # noqa: F401,E402
