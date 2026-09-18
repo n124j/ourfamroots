@@ -6,8 +6,9 @@
  *  - "Layouts" and "Propose changes" are never rendered (desktop or mobile
  *    overflow menu), regardless of role/tree-sharing state — removed from
  *    the UI outright.
- *  - "Activity" is rendered only for a SUPER_ADMIN viewer, and hidden for
- *    every other role, on both global and non-global trees.
+ *  - "Activity" is rendered for a tree OWNER, ADMIN, or a SUPER_ADMIN viewer
+ *    (matches the backend's VIEW_AUDIT_LOG permission), and hidden for
+ *    EDITOR/VIEWER roles, on both global and non-global trees.
  *  - "Members" and "Pending proposals" are unaffected regression checks.
  */
 import React from 'react';
@@ -81,10 +82,20 @@ describe('TreeTopBar', () => {
     expect(screen.queryByText('Propose changes')).not.toBeInTheDocument();
   });
 
-  it('hides "Activity" for a non-Super-Admin viewer', () => {
+  it('hides "Activity" for an EDITOR, even without Super Admin', () => {
     useAuthStore.setState({ user: STANDARD_USER });
-    renderTopBar({ userRole: 'OWNER' });
+    renderTopBar({ userRole: 'EDITOR' });
     expect(screen.queryByText('Activity')).not.toBeInTheDocument();
+  });
+
+  it('shows "Activity" for a tree OWNER or ADMIN, even without Super Admin', () => {
+    useAuthStore.setState({ user: STANDARD_USER });
+
+    renderTopBar({ userRole: 'OWNER' });
+    expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
+
+    renderTopBar({ userRole: 'ADMIN' });
+    expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
   });
 
   it('shows "Activity" for a Super Admin viewer and calls onShowActivity when clicked', async () => {

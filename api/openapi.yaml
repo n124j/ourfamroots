@@ -546,6 +546,66 @@ components:
           type: string
           format: date-time
 
+    AuditEntityType:
+      type: string
+      enum:
+        - TREE
+        - PERSON
+        - FAMILY_GROUP
+        - EVENT
+        - MEDIA
+        - MEMBER
+        - INVITATION
+        - REPORT
+        - ACCESS_REQUEST
+        - MERGE_REQUEST
+        - CHANGE_REQUEST
+        - SECTION_VISIBILITY_RULE
+        - RELATIONSHIP
+
+    AuditEntry:
+      type: object
+      required: [id, actorDisplayName, action, entityType, occurredAt, revertible, reverted, revertKind]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actorDisplayName:
+          type: string
+        action:
+          type: string
+          description: e.g. CREATE_PERSON, UPDATE_RELATIONSHIP, REVERT_SNAPSHOT — see the backend's audit_action_enum for the full set
+        entityType:
+          $ref: "#/components/schemas/AuditEntityType"
+        entityId:
+          type: string
+          format: uuid
+          nullable: true
+        entityDisplayName:
+          type: string
+          nullable: true
+        before:
+          type: object
+          nullable: true
+          description: >
+            Pre-mutation field values. Omitted (null) for a full-tree
+            snapshot — that payload is an opaque restore point re-fetched by
+            entry id on revert, not meaningful in a raw-JSON diff viewer.
+        after:
+          type: object
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+        revertible:
+          type: boolean
+        reverted:
+          type: boolean
+        revertKind:
+          type: string
+          enum: [field, full_tree]
+          default: field
+
     # ── Person ──────────────────────────────────────────────
     PersonName:
       type: object
@@ -2924,6 +2984,99 @@ paths:
           description: Export event logged
         "401":
           $ref: "#/components/responses/401Unauthorized"
+
+  /trees/{treeId}/audit-log:
+    parameters:
+      - $ref: "#/components/parameters/treeId"
+    get:
+      tags: [Trees]
+      operationId: getAuditLog
+      summary: Tree-level audit log (Owner, Admin, or Super Admin only)
+      description: >
+        Requires tree role ADMIN or OWNER, or the SUPER_ADMIN app role — 403
+        otherwise (the VIEW_AUDIT_LOG permission; OWNER outranks ADMIN in the
+        tree role hierarchy). `actorDisplayName` is replaced with a constant
+        "Super Admin" label whenever the underlying actor currently holds the
+        SUPER_ADMIN app role and the viewer isn't one themself — a live check
+        against the actor's current role, not a write-time snapshot.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: entityType
+          in: query
+          schema:
+            $ref: "#/components/schemas/AuditEntityType"
+        - name: entityId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filter to entries performed by a specific user
+      responses:
+        "200":
+          description: Audit log entries, most recent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+
+  /trees/{treeId}/audit-log/{entryId}/revert:
+    post:
+      tags: [Trees]
+      operationId: revertAuditLogEntry
+      summary: Revert a revertible audit entry back to its pre-mutation state (Super Admin only)
+      description: >
+        Only entries carrying enough state to restore can be reverted — see
+        `revertible` on AuditEntry. A "surgical" entry (`revertKind: field`)
+        restores only the one row it touched, safe to use even if other edits
+        happened afterward. A "full_tree" entry (`revertKind: full_tree`)
+        restores the entire tree to its state right before that action —
+        necessarily undoing any other edits made since, not just that one
+        change. An already-reverted entry cannot be reverted again (404).
+        Response shape beyond `id`/`reverted` varies by what was restored
+        (e.g. `restoredPersonId`, `restoredFamilyGroupId`).
+      parameters:
+        - $ref: "#/components/parameters/treeId"
+        - name: entryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: Audit log entry identifier
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Entry reverted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, reverted]
+                additionalProperties: true
+                properties:
+                  id: { type: string, format: uuid }
+                  reverted: { type: boolean }
+        "401":
+          $ref: "#/components/responses/401Unauthorized"
+        "403":
+          $ref: "#/components/responses/403Forbidden"
+        "404":
+          description: Audit entry not found (or already reverted / doesn't belong to this tree)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # ============================================================
   # PERSONS
