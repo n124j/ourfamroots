@@ -2350,6 +2350,17 @@ async def import_tree_zip(
     persons_raw = ofr_data.get("persons", [])
     fgs_raw = ofr_data.get("family_groups", [])
 
+    # Note: unlike the pre-refactor photo_filename_map (which counted a
+    # declared photo_filename even if it was missing from the zip, and only
+    # skipped the upload for it later), photos_by_person_id only keeps an
+    # entry when the file is actually present in the archive. If every
+    # person's photo_filename is dangling, photos_by_person_id ends up empty,
+    # which also closes the `if photos_by_person_id:` gate on gallery-photo
+    # import below — a narrow behavior change from before this refactor
+    # (previously, dangling primary-photo filenames didn't affect gallery
+    # photo import for other persons). Accepted: this only triggers for a
+    # hand-corrupted .ofr archive; this app's own export never produces a
+    # photo_filename that isn't backed by a real zip entry.
     photos_by_person_id: dict[str, tuple[bytes, str]] = {}
     for p in persons_raw:
         zip_path = p.get("photo_filename")

@@ -10,6 +10,7 @@ import os
 import uuid
 import zipfile
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -95,3 +96,55 @@ async def test_import_zip_creates_tree_persons_and_family_groups(session: AsyncS
         text("SELECT COUNT(*) FROM family_groups WHERE tree_id = :tid"), {"tid": tree_id},
     )).scalar_one()
     assert fg_count == 1
+
+
+@pytest.mark.asyncio
+async def test_import_zip_restores_cover_photo_with_no_primary_person_photos(
+    session: AsyncSession, seeded_user
+) -> None:
+    """Pins the highest-risk path touched by the Task 7 refactor: a tree whose
+    archive has a cover photo but where NO person has a primary photo, so
+    photos_by_person_id ends up empty. Before the refactor, the cover-photo
+    UPDATE was committed together with the tree/persons/family-groups commit
+    that used to run right after it in the same function. After the refactor,
+    that commit happens inside _create_tree_from_ofr_data, *before* the
+    cover-photo block even runs, so the cover-photo block needed its own
+    explicit commit to stay durable for any caller that doesn't go through
+    the request-scoped session wrapper (which auto-commits on clean exit) —
+    including this test, which calls import_tree_zip directly. This test
+    proves that added commit actually persists the cover photo URL."""
+    from src.api.v1.collaboration import import_tree_zip
+    from src.infrastructure.database.unit_of_work import SqlAlchemyUnitOfWork
+
+    payload = {
+        "ofr_version": "1.0",
+        "tree_name": "Cover Photo Pin Test",
+        "tree_cover_photo_filename": "cover.jpg",
+        "persons": [
+            {"id": "p1", "display_given_name": "Cam", "display_surname": "Nolan", "sex": "MALE"},
+        ],
+        "family_groups": [],
+    }
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as zf:
+        zf.writestr("Cover_Photo_Pin_Test.ofr", json.dumps(payload))
+        zf.writestr("cover.jpg", b"fake-cover-photo-bytes")
+    zip_buf.seek(0)
+    upload = UploadFile(file=zip_buf, filename="test.zip")
+
+    uow = SqlAlchemyUnitOfWork(session)
+    mock_s3 = MagicMock()
+    with patch("src.api.v1._s3._make_s3_client", return_value=mock_s3):
+        result = await import_tree_zip(current_user=seeded_user, uow=uow, file=upload)
+
+    assert result["tree_name"] == "Cover Photo Pin Test"
+    tree_id = uuid.UUID(result["tree_id"])
+
+    # No person declared a photo_filename, so photos_by_person_id is empty —
+    # the primary-photo-upload branch inside the helper never runs.
+    mock_s3.put_object.assert_called_once()
+
+    cover_url = (await session.execute(
+        text("SELECT cover_image_url FROM family_trees WHERE id = :tid"), {"tid": tree_id},
+    )).scalar_one()
+    assert cover_url is not None
