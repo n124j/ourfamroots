@@ -65,7 +65,13 @@ def extract_tree_from_screenshot_task(job_id: str) -> dict:
             screenshot_bytes = s3.download_bytes(job.screenshot_storage_key)
 
             settings = get_settings()
-            media_type = "image/png" if job.screenshot_storage_key.lower().endswith(".png") else "image/jpeg"
+            key_lower = job.screenshot_storage_key.lower()
+            if key_lower.endswith(".png"):
+                media_type = "image/png"
+            elif key_lower.endswith(".webp"):
+                media_type = "image/webp"
+            else:
+                media_type = "image/jpeg"
             draft = extract_tree_from_image(
                 screenshot_bytes, media_type, settings.anthropic_api_key, settings.ai_import_model,
             )

@@ -28,6 +28,8 @@ LOGIN_EVENT_TYPES = frozenset({
     "SUB_ADD_MEMBER", "SUB_REMOVE_MEMBER",
     # Broadcast
     "BROADCAST_SEND", "BROADCAST_DEL",
+    # AI tree import
+    "AI_TREE_IMPORT",
     # Namespace management
     "NS_CREATE", "NS_UPDATE", "NS_DELETE",
     "NS_INVITE", "NS_INVITE_ACCEPT", "NS_INVITE_REVOKE", "NS_INVITE_DECLINE",

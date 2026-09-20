@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from src.api.v1.activity import router as activity_router
 from src.api.v1.admin import router as admin_router
+from src.api.v1.ai_tree_import import router as ai_tree_import_router
 from src.api.v1.broadcast import router as broadcast_router
 from src.api.v1.auth import router as auth_router
 from src.api.v1.change_requests import router as change_requests_router
@@ -51,3 +52,4 @@ v1_router.include_router(notifications_router)
 v1_router.include_router(push_router)
 v1_router.include_router(site_settings_router)
 v1_router.include_router(broadcast_router)
+v1_router.include_router(ai_tree_import_router)

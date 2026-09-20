@@ -83,6 +83,8 @@ const ACTION_OPTIONS = [
   // Broadcast
   { value: 'BROADCAST_SEND', label: 'Broadcast: send email' },
   { value: 'BROADCAST_DEL', label: 'Broadcast: delete log' },
+  // AI tree import
+  { value: 'AI_TREE_IMPORT', label: 'AI tree import: create tree' },
   // Namespace management
   { value: 'NS_CREATE', label: 'Namespace: create' },
   { value: 'NS_UPDATE', label: 'Namespace: update' },
