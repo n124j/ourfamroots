@@ -151,7 +151,7 @@ services:
         command: >
             celery -A src.infrastructure.media.celery_app worker
               --loglevel=debug
-              --queues=media,default
+              --queues=media,ai_import,default
               --concurrency=2
               --max-tasks-per-child=50
         depends_on:

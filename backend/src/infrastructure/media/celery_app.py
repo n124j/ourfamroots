@@ -25,6 +25,7 @@ celery_app.conf.update(
     # ── Routing — all media tasks go to the dedicated queue ───────────────────
     task_routes={
         "src.infrastructure.media.media_tasks.*": {"queue": "media"},
+        "src.infrastructure.ai_import.ai_import_tasks.*": {"queue": "ai_import"},
     },
     task_default_queue="default",
 
@@ -49,7 +50,7 @@ celery_app.conf.update(
 )
 
 # Auto-discover tasks in these packages
-celery_app.autodiscover_tasks(["src.infrastructure.media", "src.infrastructure.subscriptions", "src.infrastructure.broadcast"])
+celery_app.autodiscover_tasks(["src.infrastructure.media", "src.infrastructure.subscriptions", "src.infrastructure.broadcast", "src.infrastructure.ai_import"])
 
 # Explicit imports so the worker process (started via `-A
 # src.infrastructure.media.celery_app`) actually registers these tasks —
@@ -58,3 +59,4 @@ celery_app.autodiscover_tasks(["src.infrastructure.media", "src.infrastructure.s
 # filenames.
 from src.infrastructure.subscriptions import subscription_tasks  # noqa: F401,E402
 from src.infrastructure.broadcast import broadcast_tasks  # noqa: F401,E402
+from src.infrastructure.ai_import import ai_import_tasks  # noqa: F401,E402
