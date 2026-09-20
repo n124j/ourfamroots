@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # ── Sentry ───────────────────────────────────────────────
     sentry_dsn: str = ""
 
+    # ── AI screenshot → tree import ───────────────────────────
+    anthropic_api_key: str = ""
+    ai_import_model: str = "claude-sonnet-5"
+    ai_import_max_screenshot_bytes: int = 15 * 1024 * 1024  # 15 MB
+
     @field_validator("jwt_secret_key", mode="before")
     @classmethod
     def _jwt_key_not_placeholder(cls, v: str) -> str:
