@@ -982,6 +982,13 @@ import uuid
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from src.config import get_settings
+from src.infrastructure.ai_import.photo_cropping import crop_person_photo
+from src.infrastructure.ai_import.vision_extraction import (
+    VisionExtractionError,
+    extract_tree_from_image,
+)
+from src.infrastructure.database.models.ai_tree_import import AiTreeImportJobModel
 from src.infrastructure.media.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -996,7 +1003,6 @@ def _get_sync_engine():
 
 
 def _make_s3_service():
-    from src.config import get_settings
     from src.infrastructure.media.s3 import S3Service
 
     settings = get_settings()
@@ -1016,14 +1022,6 @@ def _make_s3_service():
     time_limit=240,
 )
 def extract_tree_from_screenshot_task(job_id: str) -> dict:
-    from src.config import get_settings
-    from src.infrastructure.ai_import.photo_cropping import crop_person_photo
-    from src.infrastructure.ai_import.vision_extraction import (
-        VisionExtractionError,
-        extract_tree_from_image,
-    )
-    from src.infrastructure.database.models.ai_tree_import import AiTreeImportJobModel
-
     engine = _get_sync_engine()
     with Session(engine) as session:
         job = session.get(AiTreeImportJobModel, uuid.UUID(job_id))
