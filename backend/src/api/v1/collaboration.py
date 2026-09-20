@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Optional
+from typing import Annotated, NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, EmailStr, Field
@@ -1917,6 +1917,185 @@ _VALID_UNION_TYPES = {"MARRIAGE", "PARTNERSHIP", "COHABITATION", "UNKNOWN"}
 _VALID_PARENTAGE_TYPES = {"BIOLOGICAL", "ADOPTIVE", "STEP", "FOSTER", "UNKNOWN"}
 
 
+class CreatedTreeResult(NamedTuple):
+    tree_id: uuid.UUID
+    tree_name: str
+    old_to_new: dict[str, uuid.UUID]
+
+
+async def _create_tree_from_ofr_data(
+    uow,
+    current_user,
+    tree_name: str,
+    tree_description: str | None,
+    persons_raw: list[dict],
+    fgs_raw: list[dict],
+    photos_by_person_id: dict[str, tuple[bytes, str]],
+) -> CreatedTreeResult:
+    """Create a new tree + persons + family groups from OFR-shaped dicts, and
+    upload each person's primary photo from *photos_by_person_id* (old person
+    id -> (raw_bytes, file_extension)). Does not handle gallery photos or a
+    tree cover photo — callers that need those (currently only
+    import_tree_zip) do so themselves using the returned old_to_new map."""
+    from sqlalchemy import text as _text
+
+    new_tree_id = uuid.uuid4()
+    await uow._session.execute(_text("""
+        INSERT INTO family_trees (id, tenant_id, name, description)
+        VALUES (:id, :tenant, :name, :desc)
+    """), {"id": new_tree_id, "tenant": current_user.tenant_id,
+           "name": tree_name, "desc": tree_description})
+
+    await uow._session.execute(_text("""
+        INSERT INTO tree_members (id, tree_id, user_id, tenant_id, role)
+        VALUES (gen_random_uuid(), :tid, :uid, :tenant, 'OWNER')
+    """), {"tid": new_tree_id, "uid": current_user.id, "tenant": current_user.tenant_id})
+
+    old_to_new: dict[str, uuid.UUID] = {}
+    for p in persons_raw:
+        new_pid = uuid.uuid4()
+        old_to_new[p["id"]] = new_pid
+        birth_date_val = None
+        if p.get("birth_date"):
+            try: birth_date_val = __import__("datetime").date.fromisoformat(p["birth_date"])
+            except ValueError: pass
+        death_date_val = None
+        if p.get("death_date"):
+            try: death_date_val = __import__("datetime").date.fromisoformat(p["death_date"])
+            except ValueError: pass
+        await uow._session.execute(_text("""
+            INSERT INTO persons
+              (id, tenant_id, tree_id, display_given_name, display_surname,
+               sex, is_living, is_deceased,
+               birth_date, death_date, birth_year, death_year,
+               born_city, born_country, died_city, died_country,
+               notes)
+            VALUES (:id, :tenant, :tid, :given, :surname, :sex, :living, :deceased,
+                    :birth_date, :death_date, :birth_year, :death_year,
+                    :born_city, :born_country, :died_city, :died_country,
+                    :notes)
+        """), {
+            "id":           new_pid,
+            "tenant":       current_user.tenant_id,
+            "tid":          new_tree_id,
+            "given":        p.get("display_given_name", ""),
+            "surname":      p.get("display_surname", ""),
+            "sex":          p.get("sex", "UNKNOWN") if p.get("sex", "UNKNOWN") in _VALID_SEX else "UNKNOWN",
+            "living":       p.get("is_living", True),
+            "deceased":     p.get("is_deceased", False),
+            "birth_date":   birth_date_val,
+            "death_date":   death_date_val,
+            "birth_year":   p.get("birth_year"),
+            "death_year":   p.get("death_year"),
+            "born_city":    p.get("born_city") or p.get("city"),
+            "born_country": p.get("born_country") or p.get("country"),
+            "died_city":    p.get("died_city"),
+            "died_country": p.get("died_country"),
+            "notes":        p.get("notes"),
+        })
+
+    for fg in fgs_raw:
+        new_fg_id = uuid.uuid4()
+        parent_ids = [old_to_new.get(pid) for pid in fg.get("parent_ids", []) if pid in old_to_new]
+        p1 = parent_ids[0] if len(parent_ids) > 0 else None
+        p2 = parent_ids[1] if len(parent_ids) > 1 else None
+
+        from datetime import date as _date
+        udate_val = None
+        if fg.get("union_date"):
+            try: udate_val = _date.fromisoformat(fg["union_date"])
+            except ValueError: pass
+        uedate_val = None
+        if fg.get("union_end_date"):
+            try: uedate_val = _date.fromisoformat(fg["union_end_date"])
+            except ValueError: pass
+
+        await uow._session.execute(_text("""
+            INSERT INTO family_groups (id, tenant_id, tree_id, union_type, custom_label, is_divorced,
+                                       union_date, union_date_year, union_end_date, union_end_date_year,
+                                       parent1_id, parent2_id)
+            VALUES (:id, :tenant, :tid, :utype, :clabel, :divorced,
+                    :udate, :udate_year, :uedate, :uedate_year, :p1, :p2)
+        """), {"id": new_fg_id, "tenant": current_user.tenant_id, "tid": new_tree_id,
+               "utype": fg.get("union_type", "UNKNOWN") if fg.get("union_type", "UNKNOWN") in _VALID_UNION_TYPES else "UNKNOWN",
+               "clabel": fg.get("custom_label"),
+               "divorced": fg.get("is_divorced", False),
+               "udate": udate_val,
+               "udate_year": fg.get("union_date_year"),
+               "uedate": uedate_val,
+               "uedate_year": fg.get("union_end_date_year"),
+               "p1": p1, "p2": p2})
+
+        for old_pid in fg.get("parent_ids", []):
+            new_pid = old_to_new.get(old_pid)
+            if new_pid is None:
+                continue
+            await uow._session.execute(_text("""
+                INSERT INTO family_group_members
+                  (id, tenant_id, tree_id, family_group_id, person_id, role)
+                VALUES (gen_random_uuid(), :tenant, :tid, :fgid, :pid, 'PARENT')
+            """), {"tenant": current_user.tenant_id, "tid": new_tree_id,
+                   "fgid": new_fg_id, "pid": new_pid})
+
+        for old_child_id, parentage in fg.get("children", {}).items():
+            new_child_id = old_to_new.get(old_child_id)
+            if new_child_id is None:
+                continue
+            await uow._session.execute(_text("""
+                INSERT INTO family_group_members
+                  (id, tenant_id, tree_id, family_group_id, person_id, role, parentage_type)
+                VALUES (gen_random_uuid(), :tenant, :tid, :fgid, :pid, 'CHILD', :pt)
+            """), {"tenant": current_user.tenant_id, "tid": new_tree_id,
+                   "fgid": new_fg_id, "pid": new_child_id,
+                   "pt": parentage if parentage in _VALID_PARENTAGE_TYPES else "UNKNOWN"})
+
+    await uow._session.commit()
+
+    if photos_by_person_id:
+        from src.api.v1._s3 import _make_s3_client
+        from src.config import get_settings
+        settings = get_settings()
+        bucket = settings.s3_bucket or "ourfamroots-local"
+        s3 = _make_s3_client(settings)
+        content_types = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                          "png": "image/png", "webp": "image/webp", "gif": "image/gif"}
+        for old_pid, (photo_bytes, ext) in photos_by_person_id.items():
+            new_pid = old_to_new.get(old_pid)
+            if new_pid is None:
+                continue
+            try:
+                s3_key = f"tenants/{current_user.tenant_id}/trees/{new_tree_id}/persons/{new_pid}/photo/{uuid.uuid4()}.{ext}"
+                s3.put_object(Bucket=bucket, Key=s3_key, Body=photo_bytes,
+                               ContentType=content_types.get(ext.lower(), "image/jpeg"))
+                await uow._session.execute(_text("""
+                    UPDATE persons SET photo_url = :url WHERE id = :pid
+                """), {"url": s3_key, "pid": new_pid})
+            except Exception:
+                pass  # skip individual photo failures
+        await uow._session.commit()
+
+    from src.domain.collaboration.entities import AuditEntry, Action, AuditEntityType
+    from src.infrastructure.repositories.collaboration import AuditLogRepository
+    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
+    await AuditLogRepository(uow._session).append(
+        AuditEntry.create(
+            tree_id=new_tree_id,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            actor_display_name=actor_name,
+            action=Action.IMPORT_TREE,
+            entity_type=AuditEntityType.TREE,
+            entity_id=new_tree_id,
+            entity_display_name=tree_name,
+            after={"tree_name": tree_name, "person_count": len(persons_raw),
+                   "photos": len(photos_by_person_id)},
+        )
+    )
+    await uow._session.commit()
+
+    return CreatedTreeResult(tree_id=new_tree_id, tree_name=tree_name, old_to_new=old_to_new)
+
+
 class _OfrPerson(BaseModel):
     id: str
     display_given_name: str = ""
@@ -2171,18 +2350,18 @@ async def import_tree_zip(
     persons_raw = ofr_data.get("persons", [])
     fgs_raw = ofr_data.get("family_groups", [])
 
-    # 1. Create tree
-    new_tree_id = uuid.uuid4()
-    await uow._session.execute(text("""
-        INSERT INTO family_trees (id, tenant_id, name, description)
-        VALUES (:id, :tenant, :name, :desc)
-    """), {"id": new_tree_id, "tenant": current_user.tenant_id,
-           "name": tree_name, "desc": tree_description})
+    photos_by_person_id: dict[str, tuple[bytes, str]] = {}
+    for p in persons_raw:
+        zip_path = p.get("photo_filename")
+        if zip_path and zip_path in zf.namelist():
+            ext = zip_path.rsplit(".", 1)[-1] if "." in zip_path else "jpg"
+            photos_by_person_id[p["id"]] = (zf.read(zip_path), ext)
 
-    await uow._session.execute(text("""
-        INSERT INTO tree_members (id, tree_id, user_id, tenant_id, role)
-        VALUES (gen_random_uuid(), :tid, :uid, :tenant, 'OWNER')
-    """), {"tid": new_tree_id, "uid": current_user.id, "tenant": current_user.tenant_id})
+    result = await _create_tree_from_ofr_data(
+        uow, current_user, tree_name, tree_description, persons_raw, fgs_raw, photos_by_person_id,
+    )
+    new_tree_id = result.tree_id
+    old_to_new = result.old_to_new
 
     # 1b. Restore the tree's cover/profile photo, if the archive has one
     tree_cover_filename = ofr_data.get("tree_cover_photo_filename")
@@ -2205,147 +2384,19 @@ async def import_tree_zip(
             await uow._session.execute(text("""
                 UPDATE family_trees SET cover_image_url = :url WHERE id = :tid
             """), {"url": cover_url, "tid": new_tree_id})
+            await uow._session.commit()
         except Exception:
             pass  # skip cover photo restore failure; tree import should still succeed
 
-    # 2. Create persons — old_id → new_id
-    old_to_new: dict[str, uuid.UUID] = {}
-    photo_filename_map: dict[str, str] = {}  # old_id → photo_filename in ZIP
-
-    for p in persons_raw:
-        new_pid = uuid.uuid4()
-        old_to_new[p["id"]] = new_pid
-        if p.get("photo_filename"):
-            photo_filename_map[p["id"]] = p["photo_filename"]
-        birth_date_val = None
-        if p.get("birth_date"):
-            try:
-                birth_date_val = __import__("datetime").date.fromisoformat(p["birth_date"])
-            except ValueError:
-                pass
-        death_date_val = None
-        if p.get("death_date"):
-            try:
-                death_date_val = __import__("datetime").date.fromisoformat(p["death_date"])
-            except ValueError:
-                pass
-        await uow._session.execute(text("""
-            INSERT INTO persons
-              (id, tenant_id, tree_id, display_given_name, display_surname,
-               sex, is_living, is_deceased,
-               birth_date, death_date, birth_year, death_year,
-               born_city, born_country, died_city, died_country,
-               notes)
-            VALUES (:id, :tenant, :tid, :given, :surname, :sex, :living, :deceased,
-                    :birth_date, :death_date, :birth_year, :death_year,
-                    :born_city, :born_country, :died_city, :died_country,
-                    :notes)
-        """), {
-            "id":           new_pid,
-            "tenant":       current_user.tenant_id,
-            "tid":          new_tree_id,
-            "given":        p.get("display_given_name", ""),
-            "surname":      p.get("display_surname", ""),
-            "sex":          p.get("sex", "UNKNOWN") if p.get("sex", "UNKNOWN") in _VALID_SEX else "UNKNOWN",
-            "living":       p.get("is_living", True),
-            "deceased":     p.get("is_deceased", False),
-            "birth_date":   birth_date_val,
-            "death_date":   death_date_val,
-            "birth_year":   p.get("birth_year"),
-            "death_year":   p.get("death_year"),
-            "born_city":    p.get("born_city") or p.get("city"),
-            "born_country": p.get("born_country") or p.get("country"),
-            "died_city":    p.get("died_city"),
-            "died_country": p.get("died_country"),
-            "notes":        p.get("notes"),
-        })
-
-    # 3. Create family groups + members
-    for fg in fgs_raw:
-        new_fg_id = uuid.uuid4()
-        parent_ids = [old_to_new.get(pid) for pid in fg.get("parent_ids", []) if pid in old_to_new]
-        p1 = parent_ids[0] if len(parent_ids) > 0 else None
-        p2 = parent_ids[1] if len(parent_ids) > 1 else None
-
-        from datetime import date as _date
-        udate_val = None
-        if fg.get("union_date"):
-            try: udate_val = _date.fromisoformat(fg["union_date"])
-            except ValueError: pass
-        uedate_val = None
-        if fg.get("union_end_date"):
-            try: uedate_val = _date.fromisoformat(fg["union_end_date"])
-            except ValueError: pass
-
-        await uow._session.execute(text("""
-            INSERT INTO family_groups (id, tenant_id, tree_id, union_type, custom_label, is_divorced,
-                                       union_date, union_date_year, union_end_date, union_end_date_year,
-                                       parent1_id, parent2_id)
-            VALUES (:id, :tenant, :tid, :utype, :clabel, :divorced,
-                    :udate, :udate_year, :uedate, :uedate_year, :p1, :p2)
-        """), {"id": new_fg_id, "tenant": current_user.tenant_id, "tid": new_tree_id,
-               "utype": fg.get("union_type", "UNKNOWN") if fg.get("union_type", "UNKNOWN") in _VALID_UNION_TYPES else "UNKNOWN",
-               "clabel": fg.get("custom_label"),
-               "divorced": fg.get("is_divorced", False),
-               "udate": udate_val,
-               "udate_year": fg.get("union_date_year"),
-               "uedate": uedate_val,
-               "uedate_year": fg.get("union_end_date_year"),
-               "p1": p1, "p2": p2})
-
-        for old_pid in fg.get("parent_ids", []):
-            new_pid = old_to_new.get(old_pid)
-            if new_pid is None:
-                continue
-            await uow._session.execute(text("""
-                INSERT INTO family_group_members
-                  (id, tenant_id, tree_id, family_group_id, person_id, role)
-                VALUES (gen_random_uuid(), :tenant, :tid, :fgid, :pid, 'PARENT')
-            """), {"tenant": current_user.tenant_id, "tid": new_tree_id,
-                   "fgid": new_fg_id, "pid": new_pid})
-
-        for old_child_id, parentage in fg.get("children", {}).items():
-            new_child_id = old_to_new.get(old_child_id)
-            if new_child_id is None:
-                continue
-            await uow._session.execute(text("""
-                INSERT INTO family_group_members
-                  (id, tenant_id, tree_id, family_group_id, person_id, role, parentage_type)
-                VALUES (gen_random_uuid(), :tenant, :tid, :fgid, :pid, 'CHILD', :pt)
-            """), {"tenant": current_user.tenant_id, "tid": new_tree_id,
-                   "fgid": new_fg_id, "pid": new_child_id,
-                   "pt": parentage if parentage in _VALID_PARENTAGE_TYPES else "UNKNOWN"})
-
-    await uow._session.commit()
-
-    # 4. Upload photos to S3 and update photo_url on each person
-    if photo_filename_map:
+    # 4b. Import gallery photos (gated the same way the pre-refactor code
+    # gated it: only when the archive had at least one primary person photo)
+    if photos_by_person_id:
         from src.api.v1._s3 import _make_s3_client
         from src.config import get_settings
         settings = get_settings()
         bucket = settings.s3_bucket or "ourfamroots-local"
         s3 = _make_s3_client(settings)
         zip_names = set(zf.namelist())
-        for old_pid, zip_path in photo_filename_map.items():
-            new_pid = old_to_new.get(old_pid)
-            if new_pid is None or zip_path not in zip_names:
-                continue
-            try:
-                photo_bytes = zf.read(zip_path)
-                ext = zip_path.rsplit(".", 1)[-1] if "." in zip_path else "jpg"
-                content_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                                "png": "image/png", "webp": "image/webp",
-                                "gif": "image/gif"}.get(ext.lower(), "image/jpeg")
-                s3_key = f"tenants/{current_user.tenant_id}/trees/{new_tree_id}/persons/{new_pid}/photo/{uuid.uuid4()}.{ext}"
-                s3.put_object(Bucket=bucket, Key=s3_key, Body=photo_bytes, ContentType=content_type)
-                # Store only the S3 key — presigned URLs are generated at read time
-                await uow._session.execute(text("""
-                    UPDATE persons SET photo_url = :url WHERE id = :pid
-                """), {"url": s3_key, "pid": new_pid})
-            except Exception:
-                pass  # skip individual photo failures
-
-        # 4b. Import gallery photos
         for p in persons_raw:
             old_pid = p.get("id")
             new_pid = old_to_new.get(old_pid)
@@ -2378,26 +2429,7 @@ async def import_tree_zip(
 
         await uow._session.commit()
 
-    # Audit
-    from src.domain.collaboration.entities import AuditEntry, Action, AuditEntityType
-    from src.infrastructure.repositories.collaboration import AuditLogRepository
-    actor_name = f"{current_user.given_name or ''} {current_user.family_name or ''}".strip() or current_user.email
-    await AuditLogRepository(uow._session).append(
-        AuditEntry.create(
-            tree_id=new_tree_id,
-            tenant_id=current_user.tenant_id,
-            actor_id=current_user.id,
-            actor_display_name=actor_name,
-            action=Action.IMPORT_TREE,
-            entity_type=AuditEntityType.TREE,
-            entity_id=new_tree_id,
-            entity_display_name=tree_name,
-            after={"tree_name": tree_name, "person_count": len(persons_raw),
-                   "photos": len(photo_filename_map)},
-        )
-    )
-    await uow._session.commit()
-    return {"tree_id": str(new_tree_id), "tree_name": tree_name}
+    return {"tree_id": str(new_tree_id), "tree_name": result.tree_name}
 
 
 # ── Merge trees (admin only) ───────────────────────────────────────────────────
