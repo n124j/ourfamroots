@@ -34,6 +34,7 @@ from src.infrastructure.database.models.subscription import (
     SubscriptionMemberModel,
 )
 from src.infrastructure.database.models.section_visibility import SectionVisibilityRuleModel
+from src.infrastructure.database.models.ai_tree_import import AiTreeImportJobModel
 
 __all__ = [
     "TenantModel",
@@ -61,4 +62,5 @@ __all__ = [
     "SubscriptionFilterModel",
     "SubscriptionMemberModel",
     "SectionVisibilityRuleModel",
+    "AiTreeImportJobModel",
 ]
