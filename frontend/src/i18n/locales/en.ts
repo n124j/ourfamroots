@@ -971,6 +971,7 @@ const en = {
       global: 'Global Trees',
       subscriptions: 'Subscriptions',
       broadcast: 'Broadcast',
+      aiTreeImport: 'AI Tree Import',
       site: 'Site Settings',
     },
     createUser: 'Create user',

@@ -971,6 +971,7 @@ const ne = {
       global: 'ग्लोबल वंशावलीहरू',
       subscriptions: 'सदस्यताहरू',
       broadcast: 'प्रसारण',
+      aiTreeImport: 'एआई वंशावली आयात',
       site: 'साइट सेटिङ',
     },
     createUser: 'प्रयोगकर्ता बनाउनुहोस्',

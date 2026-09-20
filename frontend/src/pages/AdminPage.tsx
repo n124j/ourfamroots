@@ -10,6 +10,7 @@ import { UserAvatar } from '@shared/components/UserAvatar';
 import { SearchableCombobox } from '@shared/components/SearchableCombobox';
 import { MemberChips } from '@shared/components/MemberChips';
 import { BannerPanel } from '@features/admin/BannerPanel';
+import { AiTreeImportPanel } from '@features/admin/aiTreeImport/AiTreeImportPanel';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const PAGE_SIZE = 25;
@@ -2950,7 +2951,7 @@ export default function AdminPage() {
   const accessToken  = useAuthStore((s) => s.accessToken);
   const currentUser  = useAuthStore((s) => s.user);
   const isSuperAdmin = currentUser?.appRole === 'SUPER_ADMIN';
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'user-groups' | 'merge' | 'global' | 'subscriptions' | 'broadcast' | 'site' | 'namespaces'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'user-groups' | 'merge' | 'global' | 'subscriptions' | 'broadcast' | 'site' | 'namespaces' | 'ai-tree-import'>('users');
 
   const [data,     setData]     = useState<UsersResponse | null>(null);
   const [loading,  setLoading]  = useState(false);
@@ -3078,6 +3079,7 @@ export default function AdminPage() {
           ['user-groups', t('adminPage.tabs.userGroups')],
           ['permissions', t('adminPage.tabs.permissions')],
           ['merge', t('adminPage.tabs.merge')],
+          ['ai-tree-import', t('adminPage.tabs.aiTreeImport')] as const,
           ...(isSuperAdmin ? [
             ['namespaces', t('adminPage.tabs.namespaces')] as const,
             ['global', t('adminPage.tabs.global')] as const,
@@ -3107,6 +3109,7 @@ export default function AdminPage() {
       {activeTab === 'global' && isSuperAdmin && <GlobalTreesPanel token={accessToken} />}
       {activeTab === 'subscriptions' && isSuperAdmin && <SubscriptionsPanel token={accessToken} />}
       {activeTab === 'broadcast' && isSuperAdmin && <BroadcastPanel token={accessToken} />}
+      {activeTab === 'ai-tree-import' && (isSuperAdmin || currentUser?.appRole === 'ADMIN') && <AiTreeImportPanel />}
       {activeTab === 'site' && isSuperAdmin && (
         <>
           <MaintenancePanel token={accessToken} />
