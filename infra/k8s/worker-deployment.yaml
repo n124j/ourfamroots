@@ -37,7 +37,7 @@ spec:
             - src.infrastructure.media.celery_app
             - worker
             - --loglevel=info
-            - --queues=media,default
+            - --queues=media,ai_import,default
             - --concurrency=4
             - --max-tasks-per-child=50
           envFrom:

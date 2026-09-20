@@ -203,7 +203,14 @@ async def finalize_job(
     settings = get_settings()
 
     job = await _get_job(session, job_id, current_user.tenant_id)
-    if job.status != "READY":
+
+    from sqlalchemy import text
+    claim = await session.execute(
+        text("UPDATE ai_tree_import_jobs SET status = 'FINALIZING' WHERE id = :id AND status = 'READY'"),
+        {"id": job_id},
+    )
+    await session.commit()
+    if claim.rowcount == 0:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Job is {job.status}, not READY")
 
     staged_photo_keys = {}

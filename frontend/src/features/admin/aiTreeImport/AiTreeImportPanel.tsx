@@ -3,6 +3,13 @@ import { post } from '@api/client';
 import { useAiTreeImportJob } from './useAiTreeImportJob';
 import type { ExtractedFamilyGroup, ExtractedPerson } from './types';
 
+function personLabel(id: string, persons: ExtractedPerson[]): string {
+  const p = persons.find((person) => person.id === id);
+  if (!p) return id;
+  const name = `${p.display_given_name} ${p.display_surname}`.trim();
+  return name || id;
+}
+
 export function AiTreeImportPanel() {
   const { status, jobId, draft, photoUrls, errorMessage, uploadScreenshot, reset } = useAiTreeImportJob();
   const [persons, setPersons] = useState<ExtractedPerson[]>([]);
@@ -107,7 +114,7 @@ export function AiTreeImportPanel() {
       <h3>Family groups ({familyGroups.length})</h3>
       {familyGroups.map((fg) => (
         <div key={fg.id}>
-          {fg.parent_ids.join(' & ')} → {Object.keys(fg.children).join(', ') || '(no children)'}
+          {fg.parent_ids.map((id) => personLabel(id, persons)).join(' & ')} → {Object.keys(fg.children).map((id) => personLabel(id, persons)).join(', ') || '(no children)'}
         </div>
       ))}
 
