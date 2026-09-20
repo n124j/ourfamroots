@@ -214,3 +214,39 @@ async def require_namespace_owner_or_super_admin(
     raise HTTPException(status_code=403, detail="Namespace administrator access required")
 
 NamespaceOwnerDep = Annotated[UserModel, Depends(require_namespace_owner_or_super_admin)]
+
+
+async def require_admin_paid_feature(user: VerifiedUserDep, session: SessionDep) -> UserModel:
+    """Restrict endpoint to Admins/Super Admins whose account is entitled by an
+    active paid-tier subscription. Super Admin bypasses the paid check
+    entirely — same precedent as get_my_filters() in subscriptions.py."""
+    if user.app_role not in (AppRole.ADMIN, AppRole.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    if user.app_role == AppRole.SUPER_ADMIN:
+        return user
+
+    from sqlalchemy import text
+
+    row = (await session.execute(
+        text("""
+            SELECT 1
+            FROM subscriptions s
+            WHERE (s.expires_at IS NULL OR s.expires_at > now())
+              AND s.tier IN ('PREMIUM_INDIVIDUAL', 'PREMIUM_TEAM')
+              AND (
+                s.is_default
+                OR EXISTS (
+                    SELECT 1 FROM subscription_members sm
+                    WHERE sm.subscription_id = s.id AND sm.user_id = :uid
+                )
+              )
+            LIMIT 1
+        """),
+        {"uid": user.id},
+    )).first()
+
+    if row is None:
+        raise HTTPException(status_code=403, detail="This feature requires a paid subscription.")
+    return user
+
+AdminPaidFeatureDep = Annotated[UserModel, Depends(require_admin_paid_feature)]
