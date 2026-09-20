@@ -141,6 +141,9 @@ async def confirm_upload(
     settings = get_settings()
 
     job = await _get_job(session, job_id, current_user.tenant_id)
+    if job.status != "PENDING":
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Job is {job.status}, not PENDING")
+
     bucket = settings.s3_bucket or "ourfamroots-local"
     s3 = _make_s3_client(settings)
     try:
@@ -235,7 +238,10 @@ async def finalize_job(
     )
     await session.commit()
 
-    s3.delete_object(Bucket=bucket, Key=job.screenshot_storage_key)
+    try:
+        s3.delete_object(Bucket=bucket, Key=job.screenshot_storage_key)
+    except Exception:
+        pass
     for key in staged_photo_keys.values():
         try:
             s3.delete_object(Bucket=bucket, Key=key)
