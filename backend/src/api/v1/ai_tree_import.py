@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from src.api.deps import AdminPaidFeatureDep, SessionDep, UoWDep
 from src.api.v1._admin_log import log_admin_action
-from src.api.v1._s3 import _make_s3_client
+from src.api.v1._s3 import _make_s3_client, _make_presign_client, _parse_s3_public_origin
 from src.api.v1.collaboration import _create_tree_from_ofr_data
 from src.infrastructure.ai_import.ai_import_tasks import extract_tree_from_screenshot_task
 from src.infrastructure.database.models.ai_tree_import import AiTreeImportJobModel
@@ -110,7 +110,11 @@ async def request_upload_url(
     await session.commit()
 
     bucket = settings.s3_bucket or "ourfamroots-local"
-    s3 = _make_s3_client(settings)
+    # generate_presigned_post must come from the PUBLIC-endpoint client — the
+    # browser uploads directly to this URL, and it can't resolve MinIO's
+    # internal Docker hostname (_make_s3_client's endpoint_url). Same pattern
+    # as presign_photo's presigned GETs, including the path-prefix reinjection.
+    s3 = _make_presign_client(settings)
     presigned = s3.generate_presigned_post(
         Bucket=bucket,
         Key=screenshot_key,
@@ -121,10 +125,14 @@ async def request_upload_url(
         ],
         ExpiresIn=900,
     )
+    upload_url = presigned["url"]
+    origin, path_prefix = _parse_s3_public_origin(settings)
+    if origin and path_prefix:
+        upload_url = upload_url.replace(origin + "/", origin + path_prefix + "/", 1)
 
     return UploadUrlResponse(
         job_id=str(job_id),
-        upload_url=presigned["url"],
+        upload_url=upload_url,
         upload_fields=presigned["fields"],
         max_size_bytes=settings.ai_import_max_screenshot_bytes,
     )

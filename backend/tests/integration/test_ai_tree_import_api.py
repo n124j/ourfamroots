@@ -89,13 +89,13 @@ class TestUploadUrl:
         assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
-    @patch("src.api.v1.ai_tree_import._make_s3_client")
-    async def test_creates_pending_job(self, mock_make_s3, seed: Seed):
+    @patch("src.api.v1.ai_tree_import._make_presign_client")
+    async def test_creates_pending_job(self, mock_make_presign, seed: Seed):
         from src.api.v1.ai_tree_import import request_upload_url, UploadUrlRequest
 
         s3 = MagicMock()
         s3.generate_presigned_post.return_value = {"url": "https://s3.example/", "fields": {}}
-        mock_make_s3.return_value = s3
+        mock_make_presign.return_value = s3
 
         result = await request_upload_url(
             UploadUrlRequest(content_type="image/jpeg", file_size_bytes=1000),
@@ -113,11 +113,17 @@ class TestConfirm:
     @pytest.mark.asyncio
     @patch("src.api.v1.ai_tree_import.extract_tree_from_screenshot_task")
     @patch("src.api.v1.ai_tree_import._make_s3_client")
-    async def test_dispatches_celery_task_and_sets_processing(self, mock_make_s3, mock_task, seed: Seed):
+    @patch("src.api.v1.ai_tree_import._make_presign_client")
+    async def test_dispatches_celery_task_and_sets_processing(
+        self, mock_make_presign, mock_make_s3, mock_task, seed: Seed
+    ):
         from src.api.v1.ai_tree_import import request_upload_url, confirm_upload, UploadUrlRequest
 
+        presign_s3 = MagicMock()
+        presign_s3.generate_presigned_post.return_value = {"url": "https://s3.example/", "fields": {}}
+        mock_make_presign.return_value = presign_s3
+
         s3 = MagicMock()
-        s3.generate_presigned_post.return_value = {"url": "https://s3.example/", "fields": {}}
         s3.head_object.return_value = {}
         mock_make_s3.return_value = s3
         mock_task.delay.return_value = SimpleNamespace(id="celery-task-123")

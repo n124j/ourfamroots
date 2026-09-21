@@ -1,6 +1,7 @@
 """Unit tests for vision_extraction: parsing/validating Claude's tool-use output."""
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -61,6 +62,85 @@ def test_extract_tree_from_image_drops_malformed_bbox(mock_anthropic_cls) -> Non
 
     draft = extract_tree_from_image(b"fake-image-bytes", "image/jpeg", "sk-test", "claude-sonnet-5")
     assert draft.persons[0].bbox is None
+
+
+@patch("src.infrastructure.ai_import.vision_extraction.Anthropic")
+def test_extract_tree_from_image_rejects_family_groups_referencing_unknown_persons(mock_anthropic_cls) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.return_value = _fake_anthropic_response({
+        "persons": [],
+        "family_groups": [
+            {"id": "fg1", "union_type": "MARRIAGE", "parent_ids": ["salim_khan", "helen"],
+             "children": {}},
+        ],
+    })
+
+    with pytest.raises(VisionExtractionError):
+        extract_tree_from_image(b"fake-image-bytes", "image/jpeg", "sk-test", "claude-sonnet-5")
+
+
+@patch("src.infrastructure.ai_import.vision_extraction.Anthropic")
+def test_extract_tree_from_image_retries_after_malformed_first_response(mock_anthropic_cls) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    malformed = _fake_anthropic_response({
+        "persons": [{"id": "jane", "display_given_name": "Jane", "display_surname": "Doe", "sex": "FEMALE"}],
+        "family_groups": "not-a-list",  # garbled tool call, as seen in production
+    })
+    valid = _fake_anthropic_response({
+        "persons": [{"id": "jane", "display_given_name": "Jane", "display_surname": "Doe", "sex": "FEMALE"}],
+        "family_groups": [],
+    })
+    mock_client.messages.create.side_effect = [malformed, valid]
+
+    draft = extract_tree_from_image(b"fake-image-bytes", "image/jpeg", "sk-test", "claude-sonnet-5")
+
+    assert len(draft.persons) == 1
+    assert mock_client.messages.create.call_count == 2
+
+
+@patch("src.infrastructure.ai_import.vision_extraction.Anthropic")
+def test_extract_tree_from_image_gives_up_after_max_attempts(mock_anthropic_cls) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.return_value = _fake_anthropic_response({
+        "persons": [],
+        "family_groups": "not-a-list",
+    })
+
+    with pytest.raises(VisionExtractionError):
+        extract_tree_from_image(b"fake-image-bytes", "image/jpeg", "sk-test", "claude-sonnet-5")
+    assert mock_client.messages.create.call_count == 2
+
+
+@patch("src.infrastructure.ai_import.vision_extraction.Anthropic")
+def test_extract_tree_from_image_repairs_family_groups_as_duplicated_json_string(mock_anthropic_cls) -> None:
+    # Reproduces the exact glitch seen in production: family_groups arrives
+    # as a JSON-encoded string holding a duplicate of the whole {persons,
+    # family_groups} object, instead of an actual list.
+    real_persons = [
+        {"id": "salim_khan", "display_given_name": "Salim", "display_surname": "Khan", "sex": "MALE"},
+        {"id": "helen", "display_given_name": "Helen", "display_surname": "Khan", "sex": "FEMALE"},
+    ]
+    real_family_groups = [
+        {"id": "fg1", "union_type": "MARRIAGE", "parent_ids": ["salim_khan", "helen"], "children": {}},
+    ]
+    duplicated_blob = json.dumps({"persons": real_persons, "family_groups": real_family_groups})
+
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.return_value = _fake_anthropic_response({
+        "persons": real_persons,
+        "family_groups": duplicated_blob,
+    })
+
+    draft = extract_tree_from_image(b"fake-image-bytes", "image/jpeg", "sk-test", "claude-sonnet-5")
+
+    assert len(draft.persons) == 2
+    assert len(draft.family_groups) == 1
+    assert draft.family_groups[0].parent_ids == ["salim_khan", "helen"]
+    assert mock_client.messages.create.call_count == 1  # repaired on the first attempt, no retry needed
 
 
 @patch("src.infrastructure.ai_import.vision_extraction.Anthropic")

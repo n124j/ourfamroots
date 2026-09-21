@@ -6,7 +6,7 @@
  * Then polls GET /admin/ai-tree-import/{id} until READY or FAILED.
  */
 import { useCallback, useRef, useState } from 'react';
-import { post } from '@api/client';
+import { get, post } from '@api/client';
 import type { ExtractedDraft, JobStatusResponse, UploadUrlResponse } from './types';
 
 const POLL_INTERVAL_MS = 2_000;
@@ -52,8 +52,7 @@ export function useAiTreeImportJob() {
         return;
       }
       try {
-        const res = await fetch(`/api/v1/admin/ai-tree-import/${id}`, { credentials: 'include' });
-        const job: JobStatusResponse = await res.json();
+        const job = await get<JobStatusResponse>(`/admin/ai-tree-import/${id}`);
         if (job.status === 'READY') {
           stopPolling();
           setDraft({ persons: job.persons ?? [], family_groups: job.family_groups ?? [] });

@@ -49,4 +49,37 @@ describe('AiTreeImportPanel', () => {
     render(<AiTreeImportPanel />);
     expect(screen.getByText('Vision API call failed')).toBeInTheDocument();
   });
+
+  it('uploads a screenshot dropped onto the drop zone', () => {
+    const uploadScreenshot = vi.fn();
+    (useAiTreeImportJob as any).mockReturnValue({
+      status: 'idle', jobId: null, draft: null, photoUrls: {},
+      errorMessage: null, uploadScreenshot, reset: vi.fn(),
+    });
+
+    render(<AiTreeImportPanel />);
+
+    const file = new File(['x'], 'shot.jpg', { type: 'image/jpeg' });
+    const dropZone = screen.getByText(/drag & drop/i).closest('label')!;
+    fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
+
+    expect(uploadScreenshot).toHaveBeenCalledWith(file);
+  });
+
+  it('rejects a dropped file with an unsupported type instead of uploading it', () => {
+    const uploadScreenshot = vi.fn();
+    (useAiTreeImportJob as any).mockReturnValue({
+      status: 'idle', jobId: null, draft: null, photoUrls: {},
+      errorMessage: null, uploadScreenshot, reset: vi.fn(),
+    });
+
+    render(<AiTreeImportPanel />);
+
+    const file = new File(['x'], 'shot.gif', { type: 'image/gif' });
+    const dropZone = screen.getByText(/drag & drop/i).closest('label')!;
+    fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
+
+    expect(uploadScreenshot).not.toHaveBeenCalled();
+    expect(screen.getByText(/please use a jpeg, png, or webp image/i)).toBeInTheDocument();
+  });
 });

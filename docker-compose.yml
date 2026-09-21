@@ -39,6 +39,7 @@ x-backend-env: &backend-env
     DEBUG: ${DEBUG:-false}
     AUTO_VERIFY_EMAIL: ${AUTO_VERIFY_EMAIL:-true}
     SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
 services:
     # ── Database ──────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ services:
 
     # ── MinIO (local S3) ──────────────────────────────────────────────────────
     minio:
-        image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+        image: quay.io/minio/minio:RELEASE.2024-05-01T01-11-10Z
         restart: unless-stopped
         command: server /data --console-address ":9001"
         environment:
@@ -96,7 +97,7 @@ services:
 
     # MinIO bucket initializer (runs once, uses S3_BUCKET from env)
     minio-init:
-        image: minio/mc:RELEASE.2024-05-09T17-04-24Z
+        image: quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z
         depends_on:
             minio:
                 condition: service_healthy

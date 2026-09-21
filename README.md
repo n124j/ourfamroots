@@ -26,6 +26,7 @@ A genealogy platform for building, exploring, and collaborating on family trees.
       - [Propose Changes to a Shared Tree](#propose-changes-to-a-shared-tree)
       - [Reverting a change (Super Admin only)](#reverting-a-change-super-admin-only)
       - [Admin Dashboard](#admin-dashboard)
+      - [AI Tree Import (Admin, paid-tier only)](#ai-tree-import-admin-paid-tier-only)
     - [6. Optional: monitoring stack](#6-optional-monitoring-stack)
     - [Stopping the stack](#stopping-the-stack)
     - [Running tests](#running-tests)
@@ -112,13 +113,13 @@ git clone <repo-url>
 cd ourfamroots
 ```
 
-Copy the backend environment file:
+Copy the Docker Compose environment file:
 
 ```bash
-cp backend/.env.example backend/.env
+cp .env.example .env
 ```
 
-Open `backend/.env` and fill in the required values:
+Open `.env` and fill in the required values:
 
 ```env
 # ── Required: generate with: openssl rand -hex 64 ──────────────────────────
@@ -142,6 +143,13 @@ EMAIL_FROM=<your-gmail-address>
 # Set this to the email of the user who should have full site control
 # (view all trees/users, toggle maintenance mode, send broadcast emails).
 # SUPER_ADMIN_EMAIL=admin@example.com
+
+# ── Optional: AI Tree Import (Admin, paid-tier only) ───────────────────────
+# Anthropic API key powering the Admin Dashboard's "AI Tree Import" feature
+# (upload a family-tree screenshot, get an editable draft tree back).
+# Leave empty to skip this one feature — everything else works fine without it.
+# Get a key at https://console.anthropic.com/settings/keys
+# ANTHROPIC_API_KEY=
 
 # ── Pre-filled — change only if needed ─────────────────────────────────────
 DEFAULT_TENANT_SLUG=ourfamroots-system
@@ -542,6 +550,39 @@ sees and manages every namespace):
   Global-namespace users into them
 - **Activity feed** — every admin action, login event, and (for Auditor/Super
   Admin) cross-namespace activity, searchable and exportable to CSV
+- **AI Tree Import** — see [below](#ai-tree-import-admin-paid-tier-only)
+
+#### AI Tree Import (Admin, paid-tier only)
+
+From the Admin Dashboard's **AI Tree Import** tab, an Admin can upload a screenshot of a
+family tree (drag-and-drop or click-to-browse; JPEG/PNG/WebP) and have Claude's vision
+model turn it into an editable draft tree, which the Admin reviews before anything is
+actually created.
+
+- **Access:** requires the `ADMIN` app role *and* an active paid subscription tier
+  (Super Admins bypass the paid-tier check — Standard users never see the tab).
+- **Requires `ANTHROPIC_API_KEY`** in `.env` — see [1. Clone and configure](#1-clone-and-configure).
+  Leave it unset and every other feature still works; only this one is unavailable, and
+  attempting to use it fails with a vision-extraction error.
+- **Flow:**
+  1. Upload a screenshot. It's stored in S3/MinIO and a background Celery job (on the
+     `ai_import` queue) sends the image to Claude, asking it to identify every person and
+     every parent-child/spousal relationship shown.
+  2. The panel polls until extraction finishes (usually a few seconds), then shows an
+     editable draft: each detected person (name, sex, auto-cropped photo where one was
+     visible) and each family group, plus an editable **Tree name** field.
+  3. Edit or remove any person before finalizing — nothing is written to a real tree until
+     **Create Tree** is clicked.
+  4. **Create Tree** creates the tree through the same import path used by `.ofr` zip
+     imports, then deletes the job's temporary data (screenshot, staged photos, draft).
+- If Claude's extraction comes back malformed or internally inconsistent (e.g. a
+  relationship referencing a person it didn't record), the pipeline retries once and
+  attempts to repair known glitches automatically; if it still can't produce a usable
+  result, the job fails with a clear error and a **Try again** button rather than showing
+  a broken draft. This is more likely on very dense or unclear screenshots.
+- The four endpoints (`/admin/ai-tree-import/upload-url`, `/{id}/confirm`, `/{id}`,
+  `/{id}/finalize`) are documented like every other endpoint in the interactive API docs —
+  see [Swagger UI / ReDoc](#5-access-the-app).
 
 ### 6. Optional: monitoring stack
 

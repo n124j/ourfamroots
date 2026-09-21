@@ -1,15 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useAiTreeImportJob } from '@features/admin/aiTreeImport/useAiTreeImportJob';
-import { post } from '@api/client';
+import { get, post } from '@api/client';
 
-vi.mock('@api/client', () => ({ post: vi.fn() }));
+vi.mock('@api/client', () => ({ get: vi.fn(), post: vi.fn() }));
 
 describe('useAiTreeImportJob', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    global.fetch = vi.fn();
     global.XMLHttpRequest = vi.fn(() => ({
       open: vi.fn(),
       send: vi.fn(function (this: any) {
@@ -37,12 +36,10 @@ describe('useAiTreeImportJob', () => {
       }
       return Promise.reject(new Error(`unexpected post ${url}`));
     });
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve({
-        job_id: 'job-1', status: 'READY', processing_error: null,
-        persons: [{ id: 'p1', display_given_name: 'A', display_surname: 'B', sex: 'MALE' }],
-        family_groups: [], photo_urls: {},
-      }),
+    (get as any).mockResolvedValue({
+      job_id: 'job-1', status: 'READY', processing_error: null,
+      persons: [{ id: 'p1', display_given_name: 'A', display_surname: 'B', sex: 'MALE' }],
+      family_groups: [], photo_urls: {},
     });
 
     const { result } = renderHook(() => useAiTreeImportJob());
@@ -74,11 +71,9 @@ describe('useAiTreeImportJob', () => {
       }
       return Promise.reject(new Error('unexpected'));
     });
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve({
-        job_id: 'job-2', status: 'FAILED', processing_error: 'vision call failed',
-        persons: null, family_groups: null, photo_urls: {},
-      }),
+    (get as any).mockResolvedValue({
+      job_id: 'job-2', status: 'FAILED', processing_error: 'vision call failed',
+      persons: null, family_groups: null, photo_urls: {},
     });
 
     const { result } = renderHook(() => useAiTreeImportJob());

@@ -5,10 +5,11 @@ family groups (unions + parent/child links). Never writes to real tree tables
 from __future__ import annotations
 
 import base64
-from typing import Optional
+import json
+from typing import Any, Optional
 
 from anthropic import Anthropic
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class VisionExtractionError(Exception):
@@ -52,6 +53,21 @@ class ExtractedFamilyGroup(BaseModel):
 class ExtractedTreeDraft(BaseModel):
     persons: list[ExtractedPerson] = []
     family_groups: list[ExtractedFamilyGroup] = []
+
+    @model_validator(mode="after")
+    def _validate_family_groups_reference_known_persons(self) -> "ExtractedTreeDraft":
+        known_ids = {p.id for p in self.persons}
+        referenced_ids = {
+            pid
+            for fg in self.family_groups
+            for pid in (*fg.parent_ids, *fg.children.keys())
+        }
+        unknown_ids = referenced_ids - known_ids
+        if unknown_ids:
+            raise ValueError(
+                f"family_groups reference person ids not present in persons: {sorted(unknown_ids)}"
+            )
+        return self
 
 
 _EXTRACTION_TOOL = {
@@ -112,9 +128,42 @@ _EXTRACTION_TOOL = {
 _PROMPT = (
     "This image is a family tree chart. Identify every person shown (by the "
     "label near their photo or box) and every parent-child / spousal "
-    "relationship the chart's lines indicate. Call record_family_tree with "
-    "the full result."
+    "relationship the chart's lines indicate. Every person id you reference "
+    "in a family_groups entry's parent_ids or children MUST also have its "
+    "own entry in the persons array — never reference a person you did not "
+    "also record. Call record_family_tree with the full result."
 )
+
+
+_MAX_ATTEMPTS = 2
+
+
+def _repair_tool_input(raw: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort repair for a recurring Claude tool-call glitch: instead of
+    an actual array, family_groups sometimes arrives as a JSON-encoded
+    string — occasionally a duplicate of the whole {persons, family_groups}
+    object. Unwrap it when that happens; leave a well-formed input alone."""
+    family_groups = raw.get("family_groups")
+    if not isinstance(family_groups, str):
+        return raw
+
+    try:
+        parsed = json.loads(family_groups)
+    except (TypeError, ValueError):
+        return raw
+
+    if isinstance(parsed, list):
+        return {**raw, "family_groups": parsed}
+
+    if isinstance(parsed, dict):
+        repaired = dict(raw)
+        if isinstance(parsed.get("family_groups"), list):
+            repaired["family_groups"] = parsed["family_groups"]
+        if not repaired.get("persons") and isinstance(parsed.get("persons"), list):
+            repaired["persons"] = parsed["persons"]
+        return repaired
+
+    return raw
 
 
 def extract_tree_from_image(
@@ -125,34 +174,49 @@ def extract_tree_from_image(
 ) -> ExtractedTreeDraft:
     """Call Claude vision with forced tool use and return a validated draft.
 
+    Retries once on a malformed or inconsistent tool call before giving up —
+    forced tool-use with a large nested schema occasionally comes back with
+    garbled JSON (e.g. a field holding a stringified duplicate of the whole
+    object) or with family_groups referencing persons that were never
+    recorded; a retry is cheap and usually succeeds on the second try.
+
     Raises VisionExtractionError on any API failure, missing tool_use block,
-    or a response that fails ExtractedTreeDraft validation.
+    or a response that fails ExtractedTreeDraft validation, after all
+    attempts are exhausted.
     """
     client = Anthropic(api_key=api_key)
     encoded = base64.standard_b64encode(image_bytes).decode("ascii")
 
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=8192,
-            tools=[_EXTRACTION_TOOL],
-            tool_choice={"type": "tool", "name": "record_family_tree"},
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": encoded}},
-                    {"type": "text", "text": _PROMPT},
-                ],
-            }],
-        )
-    except Exception as exc:
-        raise VisionExtractionError(f"Vision API call failed: {exc}") from exc
+    last_error: VisionExtractionError | None = None
+    for _ in range(_MAX_ATTEMPTS):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=8192,
+                tools=[_EXTRACTION_TOOL],
+                tool_choice={"type": "tool", "name": "record_family_tree"},
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": encoded}},
+                        {"type": "text", "text": _PROMPT},
+                    ],
+                }],
+            )
+        except Exception as exc:
+            last_error = VisionExtractionError(f"Vision API call failed: {exc}")
+            continue
 
-    tool_block = next((b for b in response.content if getattr(b, "type", None) == "tool_use"), None)
-    if tool_block is None:
-        raise VisionExtractionError("Vision API response did not include a tool_use block")
+        tool_block = next((b for b in response.content if getattr(b, "type", None) == "tool_use"), None)
+        if tool_block is None:
+            last_error = VisionExtractionError("Vision API response did not include a tool_use block")
+            continue
 
-    try:
-        return ExtractedTreeDraft(**tool_block.input)
-    except Exception as exc:
-        raise VisionExtractionError(f"Vision API response failed schema validation: {exc}") from exc
+        try:
+            return ExtractedTreeDraft(**_repair_tool_input(tool_block.input))
+        except Exception as exc:
+            last_error = VisionExtractionError(f"Vision API response failed schema validation: {exc}")
+            continue
+
+    assert last_error is not None
+    raise last_error
