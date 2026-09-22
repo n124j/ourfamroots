@@ -95,6 +95,15 @@ class UserModel(Base, TenantMixin, TimestampMixin):
     broadcast_unsubscribed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Growth attribution: which user (if any) referred this signup, and
+    # through which channel — set once at registration/invite-acceptance,
+    # never overwritten.
+    referred_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    referral_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # ── Relationships ─────────────────────────────────────────────
     tenant: Mapped["TenantModel"] = relationship(

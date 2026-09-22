@@ -253,6 +253,19 @@ class CollaborationService:
             inv.id, InvitationStatus.ACCEPTED, accepted_at=now
         )
 
+        # Growth attribution: credit the inviter as the referrer, but only
+        # for a user's first-ever attributed signup — never overwrite one.
+        if inv.inviter_id and inv.inviter_id != accepting_user_id:
+            from sqlalchemy import text
+            await self._session.execute(
+                text(
+                    "UPDATE users SET referred_by_user_id = :inviter_id, "
+                    "referral_channel = 'tree_invite' "
+                    "WHERE id = :uid AND referred_by_user_id IS NULL"
+                ),
+                {"inviter_id": inv.inviter_id, "uid": accepting_user_id},
+            )
+
         await self._audit.append(
             AuditEntry.create(
                 tree_id=inv.tree_id,
