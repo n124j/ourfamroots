@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, NamedTuple, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, EmailStr, Field
 
 from src.api.deps import AdminUserDep, CurrentUserDep, EditableTreeDep, NotAuditorDep, SuperAdminDep, UoWDep
@@ -2441,6 +2441,31 @@ async def import_tree_zip(
         await uow._session.commit()
 
     return {"tree_id": str(new_tree_id), "tree_name": result.tree_name}
+
+
+@router.post("/trees/import-gedcom", status_code=201, summary="Import a GEDCOM (.ged) file as a new tree")
+async def import_tree_gedcom(
+    current_user: NotAuditorDep,
+    uow: UoWDep,
+    tree_name: str = Form(..., min_length=1, max_length=200),
+    file: UploadFile = File(...),
+) -> dict:
+    """Parse an uploaded GEDCOM file's individuals and families and create a
+    new tree from them, reusing the same tree-creation path as .zip import
+    (_create_tree_from_ofr_data). v1: no photos, source citations, or
+    per-child pedigree — see infrastructure/gedcom/importer.py's docstring."""
+    from src.infrastructure.gedcom.importer import GedcomParseError, parse_gedcom
+
+    raw = await file.read()
+    try:
+        persons_raw, fgs_raw = parse_gedcom(raw)
+    except GedcomParseError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+    result = await _create_tree_from_ofr_data(
+        uow, current_user, tree_name, None, persons_raw, fgs_raw, photos_by_person_id={},
+    )
+    return {"tree_id": str(result.tree_id), "tree_name": result.tree_name}
 
 
 # ── Merge trees (admin only) ───────────────────────────────────────────────────

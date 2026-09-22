@@ -317,6 +317,57 @@ export default function DashboardPage() {
     }
   }
 
+  // Import GEDCOM (.ged) — unlike .ofr/.zip, a GEDCOM file has no tree name
+  // of its own, so picking a file opens a small confirm-name modal before
+  // the actual upload/import call.
+  const gedcomInputRef = useRef<HTMLInputElement>(null);
+  const [gedcomFile,        setGedcomFile]        = useState<File | null>(null);
+  const [gedcomTreeName,    setGedcomTreeName]     = useState('');
+  const [importingGedcom,   setImportingGedcom]    = useState(false);
+  const [gedcomImportError, setGedcomImportError]  = useState('');
+
+  function handleGedcomFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const baseName = file.name.replace(/\.ged$/i, '').replace(/[_-]+/g, ' ').trim();
+    setGedcomTreeName(baseName || 'Imported Family Tree');
+    setGedcomImportError('');
+    setGedcomFile(file);
+  }
+
+  async function handleGedcomImportConfirm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!gedcomFile || !gedcomTreeName.trim()) return;
+    setImportingGedcom(true);
+    setGedcomImportError('');
+    try {
+      const form = new FormData();
+      form.append('tree_name', gedcomTreeName.trim());
+      form.append('file', gedcomFile);
+      const res = await fetch(`${API_BASE}/trees/import-gedcom`, {
+        method: 'POST',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? 'GEDCOM import failed');
+      }
+      const { tree_id } = await res.json();
+      navigate(`/trees/${tree_id}`);
+    } catch (err) {
+      setGedcomImportError((err as Error).message);
+    } finally {
+      setImportingGedcom(false);
+    }
+  }
+
+  function closeGedcomImportModal() {
+    setGedcomFile(null);
+    if (gedcomInputRef.current) gedcomInputRef.current.value = '';
+  }
+
   // Create tree modal
   const [modalOpen,   setModalOpen]   = useState(false);
   const [newName,     setNewName]     = useState('');
@@ -594,6 +645,20 @@ export default function DashboardPage() {
           >
             {importing ? t('dashboard.importing') : t('dashboard.import')}
           </button>
+          <input
+            ref={gedcomInputRef}
+            type="file"
+            accept=".ged"
+            className="hidden"
+            onChange={handleGedcomFileChosen}
+          />
+          <button
+            onClick={() => gedcomInputRef.current?.click()}
+            title="Import a GEDCOM (.ged) file from another genealogy program"
+            className="px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            GEDCOM
+          </button>
           <button
             className="px-3 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 transition-colors"
             onClick={openModal}
@@ -745,6 +810,45 @@ export default function DashboardPage() {
                 <button type="submit" disabled={creating || !newName.trim()}
                   className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition-colors">
                   {creating ? t('dashboard.creating') : t('dashboard.createTree')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* GEDCOM import — confirm tree name before uploading */}
+      {gedcomFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && !importingGedcom) closeGedcomImportModal(); }}
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-4 md:p-6 mx-4 md:mx-0">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Import GEDCOM file</h2>
+            <p className="text-sm text-gray-500 mb-4">{gedcomFile.name}</p>
+            <form onSubmit={handleGedcomImportConfirm} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tree name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={gedcomTreeName}
+                  onChange={(e) => setGedcomTreeName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  required
+                />
+              </div>
+              {gedcomImportError && <p className="text-sm text-red-600">{gedcomImportError}</p>}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={closeGedcomImportModal} disabled={importingGedcom}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 transition-colors">
+                  {t('common.cancel')}
+                </button>
+                <button type="submit" disabled={importingGedcom || !gedcomTreeName.trim()}
+                  className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition-colors">
+                  {importingGedcom ? 'Importing…' : 'Import'}
                 </button>
               </div>
             </form>

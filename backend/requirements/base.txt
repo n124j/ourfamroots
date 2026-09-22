@@ -39,6 +39,9 @@ anthropic==0.69.0
 # Image processing (screenshot cropping)
 Pillow==11.0.0
 
+# GEDCOM parsing (tree import)
+ged4py==0.5.5
+
 # Utilities
 python-ulid==3.0.0
 email-validator==2.2.0
