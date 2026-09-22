@@ -151,6 +151,12 @@ EMAIL_FROM=<your-gmail-address>
 # Get a key at https://console.anthropic.com/settings/keys
 # ANTHROPIC_API_KEY=
 
+# ── Optional: demo tree for the public marketing pages ─────────────────────
+# share_token (Tree settings → "Anyone with the link") of a real tree that
+# /family-tree-maker and /fan-chart-generator link to as a live example.
+# Leave empty to hide that link — the pages work fine without it.
+# VITE_DEMO_TREE_SHARE_TOKEN=
+
 # ── Pre-filled — change only if needed ─────────────────────────────────────
 DEFAULT_TENANT_SLUG=ourfamroots-system
 S3_PUBLIC_URL=http://localhost:7002
@@ -456,7 +462,7 @@ nothing at all, since they're stored in a completely separate table.
   no lines of any kind by design. The legend picks up a matching "Other Relationships"
   entry whenever the toggle is on and at least one line is currently showing.
 
-#### Import / Export (.ofr)
+#### Import / Export (.ofr, GEDCOM)
 
 OurFamRoots uses a native `.ofr` backup format (JSON-based) for tree import and export.
 The format preserves all person data including:
@@ -477,6 +483,14 @@ Family groups also preserve `custom_label` (user-defined union labels) and `unio
 
 **Import:** From the dashboard, click **Import tree** and upload a `.ofr` file. All persons
 are re-created with new UUIDs and the importing user becomes the tree owner.
+
+**GEDCOM import:** click **GEDCOM** on the dashboard and upload a `.ged` file exported from
+another genealogy program. Since GEDCOM has no notion of a "tree name," you'll be asked to
+confirm one before the import runs. Supported: names, sex, birth/death dates (exact dates
+where the GEDCOM date is a single day/month/year, year-only for anything approximate like
+`ABT 1952`), parent-child and spousal links, and marriage/divorce status. Not yet supported:
+embedded photos, source citations, and per-child pedigree (adoption vs. birth — every child
+imports as a biological child). GEDCOM export isn't available, only import.
 
 #### Propose Changes to a Shared Tree
 
