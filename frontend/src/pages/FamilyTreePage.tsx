@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SEO } from '@shared/components/SEO';
+import { guessSexFromFirstName } from '@shared/guessSexFromName';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TreeCanvas, type TreeCanvasHandle } from '@features/tree/canvas/TreeCanvas';
 import { useThemeStore, THEME_PRESETS, PRESET_LABEL, type CanvasTheme } from '@store/theme.store';
@@ -122,7 +123,7 @@ function validateDates(fields: {
   return null;
 }
 
-function PersonFormFields({
+export function PersonFormFields({
   values,
   onChange,
   autoFocus = false,
@@ -135,6 +136,8 @@ function PersonFormFields({
 }) {
   const { t } = useTranslation();
   const [showExtra, setShowExtra] = React.useState(false);
+  const valuesRef = React.useRef(values);
+  valuesRef.current = values;
 
   return (
     <>
@@ -147,6 +150,18 @@ function PersonFormFields({
             autoFocus={autoFocus}
             value={values.givenName}
             onChange={(e) => onChange({ ...values, givenName: e.target.value })}
+            onBlur={async () => {
+              const typedName = values.givenName;
+              if (values.sex !== 'UNKNOWN') return;
+              const guess = await guessSexFromFirstName(typedName);
+              if (!guess) return;
+              // Re-check against the latest values: the user may have
+              // edited the name again or picked a Sex themselves while
+              // the (async, dynamically-imported) guess was resolving.
+              const latest = valuesRef.current;
+              if (latest.givenName !== typedName || latest.sex !== 'UNKNOWN') return;
+              onChange({ ...latest, sex: guess });
+            }}
             className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             placeholder="Given name"
           />
