@@ -45,7 +45,7 @@ async def resolve_tree_tenant_id(session: AsyncSession, tree_id: uuid.UUID) -> u
 PERSON_MORE_DETAILS_SECTION = "person_more_details"
 
 AVAILABLE_SECTIONS: list[dict[str, str]] = [
-    {"key": PERSON_MORE_DETAILS_SECTION, "label": "Person profile — More details (dates & location; Notes is always visible)"},
+    {"key": PERSON_MORE_DETAILS_SECTION, "label": "Person profile — More details (dates, location & Notes; hidden for living persons only)"},
 ]
 
 

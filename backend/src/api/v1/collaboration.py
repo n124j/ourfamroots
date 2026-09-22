@@ -605,12 +605,15 @@ async def get_shared_tree_graph(
     tree_id = tree_row.id
 
     # Anonymous public visitors have no identity to ever grant a "More details"
-    # exception to (that mechanism is per-user/per-group), so dates & location
-    # are unconditionally left out here — only Notes travels with the public
-    # graph, same as the hidden-by-default rule for VIEWER-role members.
+    # exception to (that mechanism is per-user/per-group), so a *living*
+    # person's dates, location & Notes are unconditionally left out here —
+    # same as the hidden-by-default rule for VIEWER-role members. A deceased
+    # person's full details are included for everyone.
     persons_q = text("""
         SELECT id, tree_id, display_given_name, display_surname,
                sex, is_living, is_deceased, photo_url,
+               birth_date, death_date, birth_year, death_year,
+               born_city, born_country, died_city, died_country,
                notes
         FROM persons
         WHERE tree_id = :tid AND is_deleted = false
@@ -619,8 +622,9 @@ async def get_shared_tree_graph(
     person_rows = (await uow._session.execute(persons_q, {"tid": tree_id})).fetchall()
 
     from src.api.v1._s3 import presign_photo as _presign_photo
-    persons = [
-        {
+    persons = []
+    for r in person_rows:
+        p = {
             "id": str(r.id),
             "treeId": str(r.tree_id),
             "displayGivenName": r.display_given_name,
@@ -628,11 +632,29 @@ async def get_shared_tree_graph(
             "sex": r.sex,
             "isLiving": r.is_living,
             "isDeceased": r.is_deceased,
-            **({"photoUrl": _presign_photo(r.photo_url)} if r.photo_url else {}),
-            **({"notes": r.notes} if r.notes else {}),
         }
-        for r in person_rows
-    ]
+        if r.photo_url:
+            p["photoUrl"] = _presign_photo(r.photo_url)
+        if not r.is_living:
+            if r.birth_date:
+                p["birthDate"] = r.birth_date.isoformat()
+            if r.death_date:
+                p["deathDate"] = r.death_date.isoformat()
+            if r.birth_year is not None:
+                p["birthYear"] = r.birth_year
+            if r.death_year is not None:
+                p["deathYear"] = r.death_year
+            if r.born_city:
+                p["bornCity"] = r.born_city
+            if r.born_country:
+                p["bornCountry"] = r.born_country
+            if r.died_city:
+                p["diedCity"] = r.died_city
+            if r.died_country:
+                p["diedCountry"] = r.died_country
+            if r.notes:
+                p["notes"] = r.notes
+        persons.append(p)
 
     fg_q = text("""
         SELECT fg.id, fg.tree_id, fg.union_type, fg.custom_label, fg.is_divorced,
@@ -1644,18 +1666,20 @@ async def get_tree_graph(
         for r in person_rows
     ]
 
-    # "More details" (dates & location) defaults to hidden for VIEWER-role
-    # members only — strip it from every person here too, since this graph
-    # payload is what actually renders on the canvas node cards; Notes is
-    # always visible regardless of role and is never touched.
+    # "More details" (dates, location & Notes) defaults to hidden for
+    # VIEWER-role members only — strip it from every *living* person here
+    # too, since this graph payload is what actually renders on the canvas
+    # node cards. Deceased persons are unaffected: their full details stay
+    # visible regardless of role.
     from src.api.v1._roles import PERSON_MORE_DETAILS_SECTION, is_section_visible
     if not await is_section_visible(
         uow._session, tree_id, current_user, TreeRole(effective_tree_role), PERSON_MORE_DETAILS_SECTION
     ):
-        _hidden_keys = ("birthDate", "deathDate", "birthYear", "deathYear", "bornCity", "bornCountry", "diedCity", "diedCountry")
+        _hidden_keys = ("birthDate", "deathDate", "birthYear", "deathYear", "bornCity", "bornCountry", "diedCity", "diedCountry", "notes")
         for p in persons:
-            for k in _hidden_keys:
-                p.pop(k, None)
+            if p.get("isLiving"):
+                for k in _hidden_keys:
+                    p.pop(k, None)
 
     # Family groups + members
     fg_q = text("""

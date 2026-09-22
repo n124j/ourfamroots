@@ -218,10 +218,13 @@ async def get_person(
     svc = _svc(session)
     detail = await svc.get_person(tree_id, tree_tenant_id, person_id)
 
-    # "More details" (dates & location) defaults to hidden for VIEWER-role
-    # members only (OWNER/ADMIN/EDITOR always see it); Notes is always
-    # visible regardless of role — never filtered here.
-    if not await is_section_visible(session, tree_id, user, role, PERSON_MORE_DETAILS_SECTION):
+    # "More details" (dates, location & Notes) is hidden from view-only
+    # viewers (VIEWER role, no explicit override) — but only for a *living*
+    # person; deceased persons show full details to everyone with tree
+    # access.
+    if detail.is_living and not await is_section_visible(
+        session, tree_id, user, role, PERSON_MORE_DETAILS_SECTION
+    ):
         detail.birth_date = None
         detail.death_date = None
         detail.birth_year = None
@@ -230,6 +233,7 @@ async def get_person(
         detail.born_country = None
         detail.died_city = None
         detail.died_country = None
+        detail.notes = None
 
     return detail
 
