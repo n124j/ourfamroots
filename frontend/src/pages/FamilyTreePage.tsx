@@ -3461,6 +3461,29 @@ function ReviewModeBanner({
   );
 }
 
+function OnboardingHintBanner({ onInvite, onDismiss }: { onInvite: () => void; onDismiss: () => void }) {
+  return (
+    <div className="absolute top-12 left-0 right-0 h-12 bg-brand-50 border-b border-brand-200 flex items-center px-3 md:px-4 gap-3 z-30">
+      <span className="text-xs font-medium text-brand-800 truncate">
+        Nice! Click on the person you just added, then choose "Add Parent" to keep building the tree.
+      </span>
+      <button
+        onClick={onInvite}
+        className="ml-auto px-3 py-1.5 text-xs font-medium bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors shrink-0"
+      >
+        Invite a relative
+      </button>
+      <button
+        onClick={onDismiss}
+        className="w-6 h-6 flex items-center justify-center rounded text-brand-400 hover:text-brand-700 hover:bg-brand-100 shrink-0"
+        title="Dismiss"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function FamilyTreePage() {
@@ -3487,6 +3510,8 @@ export default function FamilyTreePage() {
   const [searchOpen,        setSearchOpen]        = useState(false);
   const [searchQuery,       setSearchQuery]       = useState('');
   const [reviewRequestId,   setReviewRequestId]   = useState<string | null>(null);
+  const [onboardingStep,    setOnboardingStep]    = useState<'add-yourself' | 'add-parent' | null>(null);
+  const addPersonSucceededRef = React.useRef(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   const { t } = useTranslation();
@@ -3549,6 +3574,19 @@ export default function FamilyTreePage() {
     const cr = searchParams.get('changeRequest');
     if (cr) setReviewRequestId(cr);
   }, [searchParams]);
+
+  // Guided first-tree onboarding — arriving fresh from "Create tree" on the
+  // Dashboard (?onboarding=1) auto-opens the add-person modal for step one.
+  // One-shot: the param is stripped immediately so a reload doesn't retrigger it.
+  useEffect(() => {
+    if (searchParams.get('onboarding') !== '1') return;
+    setOnboardingStep('add-yourself');
+    setShowAddPerson(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('onboarding');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Jump straight to a person (e.g. from ProfilePage's "View in tree" link)
   // and select/scroll to them once the graph and canvas nodes are ready.
@@ -3733,7 +3771,14 @@ export default function FamilyTreePage() {
         />
       )}
 
-      <div className={`flex-1 relative ${reviewChangeRequestId ? 'mt-24' : 'mt-12'}`}>
+      {!reviewChangeRequestId && onboardingStep === 'add-parent' && (
+        <OnboardingHintBanner
+          onInvite={() => navigate(`/dashboard?invite=${treeId}`)}
+          onDismiss={() => setOnboardingStep(null)}
+        />
+      )}
+
+      <div className={`flex-1 relative ${reviewChangeRequestId || onboardingStep === 'add-parent' ? 'mt-24' : 'mt-12'}`}>
         <TreeCanvas
           key={treeId}
           ref={canvasRef}
@@ -3854,8 +3899,23 @@ export default function FamilyTreePage() {
         <AddPersonModal
           treeId={treeId ?? ''}
           token={accessToken}
-          onClose={() => setShowAddPerson(false)}
-          onAdded={handleAdded}
+          onClose={() => {
+            setShowAddPerson(false);
+            // AddPersonModal calls onAdded() then onClose() synchronously on
+            // success, so a state-based guard here would still read the
+            // pre-update onboardingStep from the same render — use a ref
+            // (written synchronously by onAdded, below) to tell a real
+            // cancel apart from the post-success close.
+            if (onboardingStep === 'add-yourself' && !addPersonSucceededRef.current) {
+              setOnboardingStep(null);
+            }
+            addPersonSucceededRef.current = false;
+          }}
+          onAdded={() => {
+            handleAdded();
+            addPersonSucceededRef.current = true;
+            if (onboardingStep === 'add-yourself') setOnboardingStep('add-parent');
+          }}
         />
       )}
 

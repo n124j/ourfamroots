@@ -11,6 +11,7 @@ async function register(body: {
   password: string;
   given_name: string;
   family_name: string;
+  ref?: string;
 }) {
   const res = await fetch(`${API_BASE}/auth/register`, {
     method: 'POST',
@@ -30,6 +31,7 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const oauthError = searchParams.get('error');
+  const ref = searchParams.get('ref') ?? undefined;
 
   const [givenName,  setGivenName]  = useState('');
   const [familyName, setFamilyName] = useState('');
@@ -48,7 +50,7 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await register({ email, password, given_name: givenName, family_name: familyName });
+      await register({ email, password, given_name: givenName, family_name: familyName, ref });
       navigate('/login?registered=1', { replace: true });
     } catch (err) {
       setError((err as Error).message);

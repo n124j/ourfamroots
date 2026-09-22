@@ -12,6 +12,10 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     given_name: str = Field(min_length=1, max_length=100)
     family_name: str = Field(min_length=1, max_length=100)
+    # Growth attribution: a public tree's share_token, captured from the
+    # "Sign up to build your own" link on /shared/{token}. Best-effort —
+    # an invalid/unknown value is silently ignored, never rejected.
+    ref: str | None = None
 
     @field_validator("password")
     @classmethod

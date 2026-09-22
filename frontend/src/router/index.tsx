@@ -48,6 +48,8 @@ const HelpPage           = lazy(() => import('@pages/HelpPage'));
 const LandingPage           = lazy(() => import('@pages/LandingPage'));
 const ConfirmDeletionPage   = lazy(() => import('@pages/ConfirmDeletionPage'));
 const SharedTreePage        = lazy(() => import('@pages/SharedTreePage'));
+const FamilyTreeMakerPage   = lazy(() => import('@pages/marketing/FamilyTreeMakerPage'));
+const FanChartGeneratorPage = lazy(() => import('@pages/marketing/FanChartGeneratorPage'));
 const DiscoverPage          = lazy(() => import('@pages/DiscoverPage'));
 const DiscoverTreePage      = lazy(() => import('@pages/DiscoverTreePage'));
 
@@ -121,6 +123,16 @@ const router = createBrowserRouter([
   {
     path: '/privacy',
     element: <Lazy><PrivacyPage /></Lazy>,
+  },
+
+  // ── Public acquisition/marketing pages (no auth required) ─────────────
+  {
+    path: '/family-tree-maker',
+    element: <Lazy><FamilyTreeMakerPage /></Lazy>,
+  },
+  {
+    path: '/fan-chart-generator',
+    element: <Lazy><FanChartGeneratorPage /></Lazy>,
   },
 
   // ── Login verification (public — token arrives here from email) ─────────

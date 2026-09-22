@@ -55,6 +55,25 @@ class TestRegister:
         with pytest.raises(AlreadyExistsError):
             await auth_service.register(req)
 
+    async def test_register_without_ref_leaves_referral_unset(self, auth_service, fake_uow):
+        """No `ref` on the request — the new user's referral columns stay null."""
+        req = RegisterRequest(email="noref@example.com", password="Password1", given_name="No", family_name="Ref")
+        await auth_service.register(req)
+        new_user = next(u for u in fake_uow.users._users if u.email == "noref@example.com")
+        assert new_user.referred_by_user_id is None
+        assert new_user.referral_channel is None
+
+    async def test_register_with_malformed_ref_does_not_crash(self, auth_service, fake_uow):
+        """A `ref` that isn't a valid UUID (e.g. a stale/tampered link) is silently ignored."""
+        req = RegisterRequest(
+            email="badref@example.com", password="Password1", given_name="Bad", family_name="Ref",
+            ref="not-a-share-token",
+        )
+        await auth_service.register(req)
+        new_user = next(u for u in fake_uow.users._users if u.email == "badref@example.com")
+        assert new_user.referred_by_user_id is None
+        assert new_user.referral_channel is None
+
 
 # ── Login ─────────────────────────────────────────────────────────
 

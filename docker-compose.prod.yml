@@ -287,6 +287,7 @@ services:
                 VITE_API_BASE_URL: /api/v1
                 GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
                 GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+                VITE_DEMO_TREE_SHARE_TOKEN: ${VITE_DEMO_TREE_SHARE_TOKEN:-}
         <<: *restart
         healthcheck:
             test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/health']

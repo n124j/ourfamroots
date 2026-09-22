@@ -107,10 +107,11 @@ export default function SharedTreePage() {
           </span>
         </div>
         <Link
-          to="/register"
-          className="text-xs font-medium px-3 py-1.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors"
+          to={`/register?ref=${shareToken}`}
+          className="text-xs font-medium px-3 py-1.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors whitespace-nowrap shrink-0"
         >
-          Sign up to build your own
+          <span className="sm:hidden">Sign up free</span>
+          <span className="hidden sm:inline">Start your own tree like the {treeName} family</span>
         </Link>
       </div>
 

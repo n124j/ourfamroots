@@ -13,6 +13,7 @@ from src.api.v1.contact import router as contact_router
 from src.api.v1.discovery import router as discovery_router
 from src.api.v1.media import router as media_router
 from src.api.v1.namespaces import router as namespaces_router
+from src.api.v1.marketing import router as marketing_router
 from src.api.v1.namespace_invitations import router as namespace_invitations_router
 from src.api.v1.notifications import router as notifications_router
 from src.api.v1.push import router as push_router
@@ -53,3 +54,4 @@ v1_router.include_router(push_router)
 v1_router.include_router(site_settings_router)
 v1_router.include_router(broadcast_router)
 v1_router.include_router(ai_tree_import_router)
+v1_router.include_router(marketing_router)

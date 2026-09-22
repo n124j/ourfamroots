@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@store/auth.store';
 import { SEO } from '@shared/components/SEO';
@@ -232,6 +232,7 @@ export default function DashboardPage() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const user        = useAuthStore((s) => s.user);
   const navigate    = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [trees,   setTrees]   = useState<TreeSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -450,6 +451,20 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, [accessToken]);
 
+  // Deep link from the onboarding "Invite a relative" prompt on a freshly
+  // created tree (FamilyTreePage) — once the tree list has loaded, auto-open
+  // the same Share modal the "⋯ → Share tree" menu item opens.
+  useEffect(() => {
+    const inviteTreeId = searchParams.get('invite');
+    if (!inviteTreeId || trees.length === 0) return;
+    const tree = trees.find((t) => t.id === inviteTreeId);
+    if (tree) setShareTarget(tree);
+    const next = new URLSearchParams(searchParams);
+    next.delete('invite');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trees]);
+
   function openModal() {
     setNewName('');
     setNewDesc('');
@@ -474,9 +489,11 @@ export default function DashboardPage() {
         throw new Error((data as any).detail ?? 'Failed to create tree');
       }
       const tree: TreeSummary = await res.json();
-      setTrees((prev) => [tree, ...prev]);
-      goToPage(1);
       setModalOpen(false);
+      // Jump straight into the new (necessarily empty) tree with a flag that
+      // triggers the guided "add yourself" onboarding step, same pattern as
+      // the .ofr/.zip import flow below.
+      navigate(`/trees/${tree.id}?onboarding=1`);
     } catch (err: any) {
       setCreateError(err.message);
     } finally {

@@ -115,6 +115,35 @@ class AuthService:
                 failed_login_attempts=0,
             )
             user = await self._uow.users.add(user)
+
+            # Growth attribution: a share-link signup credits the shared
+            # tree's owner as the referrer. Never overwrites C1's tree-invite
+            # attribution (checked defensively even though a brand-new user
+            # can't have one yet), and silently no-ops on a bad/unknown ref.
+            if req.ref:
+                try:
+                    share_token = uuid.UUID(req.ref)
+                except ValueError:
+                    share_token = None
+                if share_token:
+                    from sqlalchemy import text
+                    owner_row = (await self._uow._session.execute(  # type: ignore[attr-defined]
+                        text(
+                            "SELECT tm.user_id FROM tree_members tm "
+                            "JOIN family_trees ft ON ft.id = tm.tree_id "
+                            "WHERE ft.share_token = :token AND tm.role = 'OWNER' "
+                            "LIMIT 1"
+                        ),
+                        {"token": share_token},
+                    )).first()
+                    if (
+                        owner_row
+                        and owner_row.user_id != user.id
+                        and user.referred_by_user_id is None
+                    ):
+                        user.referred_by_user_id = owner_row.user_id
+                        user.referral_channel = "share_link"
+
             await self._uow.users.grant_global_tree_access(user)
 
         log.info("user.registered", user_id=str(user.id), tenant_id=str(tenant.id))

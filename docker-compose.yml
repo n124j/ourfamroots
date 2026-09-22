@@ -212,6 +212,7 @@ services:
             GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
             GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
             VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
+            VITE_DEMO_TREE_SHARE_TOKEN: ${VITE_DEMO_TREE_SHARE_TOKEN:-}
         ports:
             - '7006:5173'
         volumes:
