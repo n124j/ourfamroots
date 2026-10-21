@@ -1863,6 +1863,10 @@ const PROFILE_SEX_AVATAR: Record<string, string> = {
   MALE: 'bg-blue-100 text-blue-600', FEMALE: 'bg-pink-100 text-pink-600',
   OTHER: 'bg-purple-100 text-purple-600', UNKNOWN: 'bg-gray-100 text-gray-500',
 };
+const PROFILE_SEX_RING: Record<string, string> = {
+  MALE: 'ring-2 ring-blue-400', FEMALE: 'ring-2 ring-pink-400',
+  OTHER: 'ring-2 ring-purple-400', UNKNOWN: 'ring-2 ring-gray-300',
+};
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return '';
@@ -1957,12 +1961,13 @@ function PersonProfileModal({
     if (!ids.length) return null;
     return (
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 pb-1">{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 pb-1">{label} ({ids.length})</p>
         {ids.map((id) => {
           const gp   = graphPersonMap[id];
           const name = nameMap[id] ?? 'Unknown';
           const photo = gp?.photoUrl;
           const aCls = PROFILE_SEX_AVATAR[gp?.sex ?? 'UNKNOWN'] ?? PROFILE_SEX_AVATAR.UNKNOWN;
+          const aRingCls = PROFILE_SEX_RING[gp?.sex ?? 'UNKNOWN'] ?? PROFILE_SEX_RING.UNKNOWN;
           let unionInfo: import('@features/tree/types').ApiFamilyGroup | undefined;
           if (showUnionDates && graph) {
             unionInfo = graph.familyGroups.find((fg) =>
@@ -1984,10 +1989,10 @@ function PersonProfileModal({
                 <img
                   src={isPreset(photo) ? presetDataUri(photo)! : photo}
                   alt={name}
-                  className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                  className={`w-7 h-7 rounded-full object-cover flex-shrink-0 ${aRingCls}`}
                 />
               ) : (
-                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${aCls}`}>
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${aCls} ${aRingCls}`}>
                   {name[0]?.toUpperCase() ?? '?'}
                 </span>
               )}
@@ -3549,7 +3554,10 @@ export default function FamilyTreePage() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.code === 'Space') {
+      // Ctrl+Space is intercepted by macOS (input-source switcher) before it reaches the
+      // browser, so Cmd/Ctrl+K is offered as a cross-platform alternate that always works.
+      const isSearchShortcut = (e.ctrlKey && e.code === 'Space') || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k');
+      if (isSearchShortcut) {
         e.preventDefault();
         setSearchOpen((o) => {
           if (!o) setTimeout(() => searchInputRef.current?.focus(), 30);
@@ -3872,7 +3880,7 @@ export default function FamilyTreePage() {
                   <p className="px-4 py-3 text-sm text-gray-400">No people found.</p>
                 )}
               </div>
-              <p className="text-center text-[10px] text-white/70 mt-1.5">Ctrl+Space to close</p>
+              <p className="text-center text-[10px] text-white/70 mt-1.5">Esc, Ctrl+Space, or ⌘K to close</p>
             </div>
           );
         })()}
